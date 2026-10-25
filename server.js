@@ -15,7 +15,6 @@ const api = require('./src/jellyfin/api');
 const socket = require('./src/jellyfin/socket');
 const discovery = require('./src/jellyfin/discovery');
 const admin = require('./src/admin');
-const images = require('./src/images');
 const libraryImages = require('./src/libraryImages');
 const webTheme = require('./src/webTheme');
 
@@ -80,19 +79,6 @@ app.get('/stremfin/library/:file', (req, res) => {
   res.type(img.type).sendFile(img.file);
 });
 
-// Cartes larges des plateformes (logo sur fond de marque), generees a la demande.
-app.get('/stremfin/platform/:id.png', async (req, res) => {
-  try {
-    const file = await images.platformCard(Number(req.params.id));
-    if (!file) return res.status(404).end();
-    if (file.redirect) return res.redirect(302, file.redirect);
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.type('png').sendFile(file);
-  } catch (e) {
-    res.status(502).send(e.message);
-  }
-});
-
 // Client web officiel de Jellyfin (copie dans l'image Docker), utilise par l'app Android
 // et Jellyfin Media Player qui l'affichent tel quel.
 const hasWeb = fs.existsSync(path.join(WEB_DIR, 'index.html'));
@@ -152,8 +138,10 @@ server.listen(PORT, () => {
   discovery.start(PORT);
   tmdb.warm();
   for (const p of config.get().profiles) stremio.refreshManifests(p).catch(() => {});
-  // Bibliotheques et rayons des plateformes prepares en arriere-plan (ouverture immediate).
+  // Bibliotheques et dossiers des collections prepares en arriere-plan (ouverture immediate).
   require('./src/jellyfin/library').startWarming();
   // Sauvegarde automatique quotidienne.
   require('./src/backup').start();
+  // Collections mises a jour depuis Nuvio toutes les 6 h.
+  require('./src/collections').start();
 });

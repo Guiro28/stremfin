@@ -73,19 +73,25 @@ function resourceUrl(manifestUrl, resource, type, id, extra) {
   return `${baseOf(manifestUrl)}/${resource}/${encodeURIComponent(type)}/${encodeURIComponent(id)}${extraPath(extra)}.json`;
 }
 
-/** Une page de catalogue. Cache 1 h, puis servie "perimee" jusqu'a 24 h pendant le rafraichissement. */
+/**
+ * Une page de catalogue. Cache 1 h, puis servie "perimee" jusqu'a 24 h pendant le rafraichissement.
+ * Page vide : gardee 2 min seulement, jamais servie perimee (certains addons repondent vide le
+ * temps de preparer une liste).
+ */
 function catalog(manifestUrl, type, id, extra) {
   // Catalogues TMDB integres (addon virtuel) : ils ont leur propre cache.
   if (manifestUrl === require('./tmdb').ADDON_URL) return require('./tmdb').catalog(type, id, extra);
+  // Collections (bibliotheque du serveur) : addon virtuel elles aussi.
+  if (manifestUrl === require('./collections').ADDON_URL) return require('./collections').catalog(type, id, extra);
   const url = resourceUrl(manifestUrl, 'catalog', type, id, extra);
   return cache.cached(
     'cat|' + url,
-    HOUR,
+    (r) => (r.metas.length ? HOUR : 2 * 60e3),
     async () => {
       const r = await getJson(url, { upstream: upstream() });
       return { metas: Array.isArray(r?.metas) ? r.metas : [] };
     },
-    { stale: 24 * HOUR }
+    { stale: (r) => (r.metas.length ? 24 * HOUR : 0) }
   );
 }
 

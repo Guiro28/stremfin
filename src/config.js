@@ -46,9 +46,11 @@ function defaultSettings() {
     hideUnreleased: true,
     // Delai max d'attente des addons de sources (ms).
     streamTimeout: 15000,
-    // Cle API TMDB (v3) : fiches traduites, catalogues Stremfin (tendances, plateformes, sagas).
+    // Cle API TMDB (v3) : fiches traduites, catalogues Stremfin (tendances, sagas, collections).
     tmdbApiKey: process.env.TMDB_API_KEY || '',
-    // Langue et pays des fiches TMDB (le pays sert aux plateformes et classifications).
+    // Identifiant d'app Trakt (client id) : listes Trakt des collections.
+    traktClientId: '',
+    // Langue et pays des fiches TMDB (le pays sert aux sorties et classifications).
     metadataLanguage: 'fr-FR',
     // Boutons "Passer l'intro / le generique" (timestamps de TheIntroDB).
     introSkip: true,
@@ -64,24 +66,7 @@ function defaultSettings() {
     // Sauvegarde automatique quotidienne (data/backups) : heure (0-23) et retention en jours.
     backupEnabled: true,
     backupHour: 4,
-    backupRetention: 7,
-    // Plateformes proposees comme bibliotheques (fournisseurs TMDB de la region choisie).
-    providers: [
-      { id: 8, name: 'Netflix' },
-      { id: 119, name: 'Prime Video' },
-      { id: 337, name: 'Disney+' },
-      { id: 350, name: 'Apple TV+' },
-      { id: 381, name: 'Canal+' },
-      { id: 1899, name: 'HBO Max' },
-      { id: 531, name: 'Paramount+' },
-      { id: 283, name: 'Crunchyroll' },
-      { id: 415, name: 'ADN' },
-      { id: 234, name: 'Arte' },
-      { id: 147, name: 'M6+' },
-      { id: 1754, name: 'TF1+' },
-      { id: 11, name: 'MUBI' },
-      { id: 223, name: 'Hayu' }
-    ]
+    backupRetention: 7
   };
 }
 
@@ -96,6 +81,8 @@ function newProfile(name) {
     // Reglages par catalogue : { "<cle>": { enabled, name } } + ordre d'affichage.
     catalogs: {},
     catalogOrder: [],
+    // Collections de la bibliotheque attribuees a ce profil (ids) : chacune devient une bibliotheque.
+    collections: [],
     // Langues audio a faire remonter en premier dans la liste des sources.
     preferredLanguages: ['fr'],
     // Retire des catalogues les films deja vus.
@@ -138,9 +125,14 @@ function load() {
     // Compte de l'interface d'administration : { username, passwordHash }.
     admin: raw.admin || null,
     settings: { ...defaultSettings(), ...(raw.settings || {}) },
-    profiles: Array.isArray(raw.profiles) ? raw.profiles.map((p) => ({ ...newProfile(p.name), ...p })) : []
+    profiles: Array.isArray(raw.profiles) ? raw.profiles.map((p) => ({ ...newProfile(p.name), ...p })) : [],
+    // Bibliotheque de collections (importees de Nuvio), attribuees ensuite aux profils.
+    collections: Array.isArray(raw.collections) ? raw.collections : []
   };
+  // Compte Nuvio associe (lecture seule) : { userId, email, refreshToken, linkedAt }.
+  if (raw.nuvio?.refreshToken) state.nuvio = raw.nuvio;
   state.settings.upstream = { ...defaultSettings().upstream, ...(state.settings.upstream || {}) };
+  migratePlatforms();
   // Premier lancement en Docker : compte admin cree depuis AUTH_USER / AUTH_PASS.
   if (!state.admin && process.env.AUTH_USER && process.env.AUTH_PASS) {
     state.admin = { username: process.env.AUTH_USER.trim(), passwordHash: hashPassword(process.env.AUTH_PASS) };
@@ -153,6 +145,21 @@ function load() {
   }
   save();
   return state;
+}
+
+// Ancienne bibliotheque "Plateformes" (remplacee par les collections) : reglages retires.
+const PLATFORM_KEY = /\|(platforms\|tmdb-platforms|(movie|series)\|tmdb-provider-\d+)$/;
+function migratePlatforms() {
+  if (!state.settings.providers) return;
+  delete state.settings.providers;
+  for (const p of state.profiles) {
+    p.catalogs = Object.fromEntries(Object.entries(p.catalogs || {}).filter(([k]) => !PLATFORM_KEY.test(k)));
+    p.catalogOrder = (p.catalogOrder || []).filter((k) => !PLATFORM_KEY.test(k));
+    p.latestExcludes = (p.latestExcludes || []).filter((k) => !PLATFORM_KEY.test(k));
+  }
+  // Cartes larges generees pour les plateformes.
+  fs.rmSync(path.join(DATA_DIR, 'images'), { recursive: true, force: true });
+  console.log('[config] Plateformes retirées (remplacées par les collections)');
 }
 
 function save() {
@@ -170,19 +177,7 @@ function updateSettings(patch) {
   const s = state.settings;
   for (const k of Object.keys(defaultSettings())) {
     if (patch[k] === undefined) continue;
-    if (k === 'providers') {
-      if (!Array.isArray(patch.providers)) continue;
-      s.providers = patch.providers
-        .map((p) => {
-          const out = { id: Number(p?.id), name: String(p?.name || '').trim().slice(0, 40) };
-          // Couleur de fond de la carte (#rrggbb) et image de carte personnalisee (URL), facultatives.
-          if (/^#[0-9a-f]{6}$/i.test(p?.color || '')) out.color = p.color.toLowerCase();
-          if (/^https?:\/\/\S+$/i.test(p?.card || '')) out.card = p.card;
-          return out;
-        })
-        .filter((p) => Number.isInteger(p.id) && p.id > 0 && p.name)
-        .slice(0, 60);
-    } else if (k === 'upstream') {
+    if (k === 'upstream') {
       s.upstream = {
         mode: ['direct', 'socks', 'http'].includes(patch.upstream?.mode) ? patch.upstream.mode : 'direct',
         url: String(patch.upstream?.url || '').trim()
@@ -266,7 +261,7 @@ function duplicateProfile(id, name, password) {
   assertUniqueName(n);
   const p = newProfile(n);
   p.passwordHash = requirePassword(password);
-  for (const k of ['addons', 'catalogs', 'catalogOrder', 'preferredLanguages', 'hideWatched', 'defaultQuality', 'versionMode', 'customCss', 'onlyReleased', 'homeSections', 'latestExcludes']) {
+  for (const k of ['addons', 'catalogs', 'catalogOrder', 'collections', 'preferredLanguages', 'hideWatched', 'defaultQuality', 'versionMode', 'customCss', 'onlyReleased', 'homeSections', 'latestExcludes']) {
     if (src[k] !== undefined) p[k] = JSON.parse(JSON.stringify(src[k]));
   }
   state.profiles.push(p);

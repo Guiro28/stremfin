@@ -33,12 +33,14 @@ function put(key, value, ttl) {
  * Renvoie la valeur en cache ou la calcule avec `fn` (appels simultanes dedoublonnes).
  * `stale` : pendant cette duree apres expiration, on renvoie l'ancienne valeur tout de suite
  * et on rafraichit en arriere-plan (l'app n'attend jamais un addon pour un ecran deja vu).
+ * `ttl` et `stale` peuvent dependre de la valeur : (v) => duree.
  */
 async function cached(key, ttl, fn, { stale = 0 } = {}) {
   const hit = peek(key);
   const now = Date.now();
   if (hit && hit.exp > now) return hit.v;
-  if (hit && stale && hit.exp + stale > now) {
+  const staleFor = hit && typeof stale === 'function' ? stale(hit.v) : stale;
+  if (hit && staleFor && hit.exp + staleFor > now) {
     refresh(key, ttl, fn).catch(() => {});
     return hit.v;
   }
@@ -50,7 +52,7 @@ function refresh(key, ttl, fn) {
   const p = (async () => {
     try {
       const v = await fn();
-      if (v !== undefined && v !== null) put(key, v, ttl);
+      if (v !== undefined && v !== null) put(key, v, typeof ttl === 'function' ? ttl(v) : ttl);
       return v;
     } finally {
       inflight.delete(key);

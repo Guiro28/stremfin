@@ -31,19 +31,20 @@ function catalogKey(addonUrl, type, id) {
   return `${stremio.baseOf(addonUrl)}|${type}|${id}`;
 }
 
-/** Actif selon le reglage du profil, sinon selon le defaut du catalogue (plateformes : non). */
+/** Actif selon le reglage du profil, sinon selon le defaut du catalogue. */
 function isEnabled(profile, c) {
   const pref = profile.catalogs?.[c.key]?.enabled;
   return pref !== undefined ? pref : c.defaultEnabled;
 }
 
-/** Tous les catalogues films/series/sagas (TMDB integre + addons du profil), pour l'admin. */
+/** Tous les catalogues films/series/sagas/collections (TMDB integre, collections du profil, addons), pour l'admin. */
 function allCatalogs(profile) {
   const out = [];
   // Un addon peut etre garde pour ses sources / fiches sans proposer ses catalogues.
-  for (const a of [...tmdb.addons(), ...stremio.enabledAddons(profile).filter((x) => !x.catalogsHidden)]) {
+  const collections = require('./collections').addon(profile);
+  for (const a of [...tmdb.addons(), ...collections, ...stremio.enabledAddons(profile).filter((x) => !x.catalogsHidden)]) {
     for (const c of a.manifest.catalogs || []) {
-      if (!['movie', 'series', 'collection', 'platforms'].includes(c.type)) continue;
+      if (!['movie', 'series', 'collection', 'nuviocol'].includes(c.type)) continue;
       const extras = extrasOf(c);
       const genre = extras.find((e) => e.name === 'genre');
       const options = Array.isArray(genre?.options) ? genre.options : [];
@@ -58,6 +59,9 @@ function allCatalogs(profile) {
         type: c.type,
         catId: c.id,
         defaultName: c.plainName || c.type === 'collection' ? c.name || c.id : `${c.name || c.id} · ${label(c.type)}`,
+        // Collection epinglee : en tete tant que le profil ne l'a pas placee lui-meme.
+        pinned: !!c.pinned,
+        image: c.image || null,
         // Catalogues TMDB integres bases sur /discover : l'app peut les trier (nom, date, note).
         sortable: a.url === tmdb.ADDON_URL && /^tmdb-(cat-|provider-|popular|toprated)/.test(c.id),
         defaultEnabled: c.defaultEnabled !== false,
@@ -72,9 +76,17 @@ function allCatalogs(profile) {
   return out;
 }
 
+/** Position d'un catalogue dans l'ordre du profil (non place : a la fin, ou en tete si epingle). */
+function positionOf(profile) {
+  const order = profile.catalogOrder || [];
+  return (c) => {
+    const i = order.indexOf(c.key);
+    return i !== -1 ? i : c.pinned ? -1 : Infinity;
+  };
+}
+
 /** Bibliotheques Jellyfin du profil = ses catalogues actifs, dans l'ordre choisi. */
 function views(profile) {
-  const order = profile.catalogOrder || [];
   const list = allCatalogs(profile)
     .filter((c) => c.browsable && isEnabled(profile, c))
     .map((c) => {
@@ -89,17 +101,15 @@ function views(profile) {
         hasSkip: c.hasSkip,
         genres: c.genres,
         defaultGenre: c.defaultGenre,
-        sortable: c.sortable
+        sortable: c.sortable,
+        image: c.image
       });
       return { uuid, ...c, name };
     });
-  const pos = (k) => {
-    const i = order.indexOf(k);
-    return i === -1 ? Infinity : i;
-  };
+  const pos = positionOf(profile);
   return list
     .map((v, i) => ({ v, i }))
-    .sort((a, b) => pos(a.v.key) - pos(b.v.key) || a.i - b.i)
+    .sort((a, b) => pos(a.v) - pos(b.v) || a.i - b.i)
     .map((x) => x.v);
 }
 
@@ -136,13 +146,15 @@ function loadPages(p, view, count, genre, filter, sort) {
       if (sort) extra.sort = sort;
       if (skip) extra.skip = skip;
       return stremio.catalog(view.addonUrl, view.type, view.catId, extra).then(
-        (r) => ({ metas: r.metas }),
+        (r) => ({ metas: r.metas, partial: r.partial }),
         (error) => ({ error })
       );
     };
     const pages = await Promise.all(Array.from({ length: count }, (_, i) => fetchPage(base + i * step)));
 
     const fresh = [];
+    // Page incomplete (une source d'un dossier de collection encore vide) : liste a refaire bientot.
+    if (pages.some((page) => page.partial)) p.at = Math.min(p.at, Date.now() - PAGER_TTL + 2 * 60e3);
     for (const [i, page] of pages.entries()) {
       if (page.error) {
         console.log(new Date().toISOString(), `[catalog] KO ${view.key}: ${page.error.message}`);
@@ -174,6 +186,8 @@ function loadPages(p, view, count, genre, filter, sort) {
     const keep = filter ? await Promise.all(fresh.map((m) => filter.fn(m).catch(() => true))) : null;
     p.metas.push(...fresh.filter((m, i) => !keep || keep[i]));
     if (p.metas.length >= MAX_ITEMS) p.done = true;
+    // Liste vide : on retentera dans 2 minutes (addon qui prepare encore sa liste).
+    if (p.done && !p.metas.length) p.at = Math.min(p.at, Date.now() - PAGER_TTL + 2 * 60e3);
   })().finally(() => {
     p.loading = null;
   });
@@ -245,4 +259,4 @@ async function search(profile, query, types = ['movie', 'series']) {
   return out;
 }
 
-module.exports = { allCatalogs, isEnabled, views, slice, search, catalogKey, label };
+module.exports = { allCatalogs, isEnabled, views, positionOf, slice, search, catalogKey, label };

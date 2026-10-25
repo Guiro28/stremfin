@@ -78,10 +78,11 @@ function preview(m) {
     imdb: m.imdb_id || (/^tt\d+$/.test(m.id) ? m.id : undefined),
     tmdb: m.moviedb_id || (String(m.id).match(/^tmdb:(\d+)$/) || [])[1],
     certification: m.certification,
-    // Plateformes et rayons : de quoi retrouver leur contenu.
-    providerId: m.providerId,
-    listType: m.listType,
-    sort: m.sort,
+    // Dossiers de collection : de quoi retrouver leur contenu, et la forme des vignettes.
+    colId: m.colId,
+    folderId: m.folderId,
+    srcIndex: m.srcIndex,
+    shape: m.shape,
     // Fiche deja traduite (TMDB) : les apercus des catalogues ne doivent plus l'ecraser.
     fr: m.fr ? true : undefined
   };
@@ -273,9 +274,9 @@ function viewItem(uuid, view, imageUrl) {
   const d = base(uuid, 'CollectionFolder', view.name);
   d.IsFolder = true;
   d.MediaType = 'Unknown';
-  // Plateformes : un type que l'accueil affiche en rangee de cartes larges (pas "folders"/"boxsets",
+  // Collections : un type que les apps parcourent comme des dossiers (pas "folders"/"boxsets",
   // que le client web exclut des rangees "ajouts recents").
-  d.CollectionType = { movie: 'movies', series: 'tvshows', collection: 'boxsets', platforms: 'musicvideos' }[view.type] || 'movies';
+  d.CollectionType = { movie: 'movies', series: 'tvshows', collection: 'boxsets', nuviocol: 'musicvideos' }[view.type] || 'movies';
   d.SortName = view.name;
   d.ChildCount = 100;
   if (imageUrl) d.ImageTags.Primary = tag(imageUrl);
@@ -314,7 +315,9 @@ function folderItem(uuid, m, udRow, childCount) {
     d.ImageTags.Thumb = tag(m.poster);
   }
   if (m.background) d.BackdropImageTags = [tag(m.background)];
-  d.PrimaryImageAspectRatio = 16 / 9;
+  if (m.logo) d.ImageTags.Logo = tag(m.logo);
+  // Forme des vignettes choisie dans la collection (affiche, paysage, carre).
+  d.PrimaryImageAspectRatio = { POSTER: 2 / 3, SQUARE: 1 }[m.shape] || 16 / 9;
   d.UserData = userData(uuid, udRow);
   return d;
 }

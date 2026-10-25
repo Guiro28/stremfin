@@ -1,6 +1,6 @@
 // Integration TMDB native : fiches (dans la langue choisie) pour tous les identifiants
 // tt / tmdb, saisons et episodes, recommandations, et catalogues propres a Stremfin
-// (tendances, plateformes, sagas) exposes comme un addon virtuel.
+// (categories, tendances, sagas) exposes comme un addon virtuel, et sources TMDB des collections.
 const config = require('./config');
 const cache = require('./cache');
 const { getJson } = require('./http');
@@ -12,36 +12,26 @@ const DAY = 24 * HOUR;
 
 const ADDON_URL = 'stremfin://tmdb';
 
-// Plateformes : liste modifiable dans l'admin (settings.providers).
-function providers() {
-  return config.get().settings.providers || [];
-}
-
 const LABELS = {
   fr: {
     trending: 'Tendances', popular: 'Populaires', toprated: 'Les mieux notés', nowMovie: 'Au cinéma',
-    nowSeries: 'En cours de diffusion', sagas: 'Sagas', search: 'Recherche', movie: 'Films', series: 'Séries',
-    platforms: 'Plateformes'
+    nowSeries: 'En cours de diffusion', sagas: 'Sagas', search: 'Recherche', movie: 'Films', series: 'Séries'
   },
   en: {
     trending: 'Trending', popular: 'Popular', toprated: 'Top rated', nowMovie: 'In theaters',
-    nowSeries: 'On the air', sagas: 'Collections', search: 'Search', movie: 'Movies', series: 'Shows',
-    platforms: 'Platforms'
+    nowSeries: 'On the air', sagas: 'Collections', search: 'Search', movie: 'Movies', series: 'Shows'
   },
   es: {
     trending: 'Tendencias', popular: 'Populares', toprated: 'Mejor valoradas', nowMovie: 'En cines',
-    nowSeries: 'En emisión', sagas: 'Sagas', search: 'Búsqueda', movie: 'Películas', series: 'Series',
-    platforms: 'Plataformas'
+    nowSeries: 'En emisión', sagas: 'Sagas', search: 'Búsqueda', movie: 'Películas', series: 'Series'
   },
   de: {
     trending: 'Trends', popular: 'Beliebt', toprated: 'Am besten bewertet', nowMovie: 'Im Kino',
-    nowSeries: 'Läuft gerade', sagas: 'Filmreihen', search: 'Suche', movie: 'Filme', series: 'Serien',
-    platforms: 'Plattformen'
+    nowSeries: 'Läuft gerade', sagas: 'Filmreihen', search: 'Suche', movie: 'Filme', series: 'Serien'
   },
   it: {
     trending: 'Tendenze', popular: 'Popolari', toprated: 'I più votati', nowMovie: 'Al cinema',
-    nowSeries: 'In onda', sagas: 'Saghe', search: 'Ricerca', movie: 'Film', series: 'Serie',
-    platforms: 'Piattaforme'
+    nowSeries: 'In onda', sagas: 'Saghe', search: 'Ricerca', movie: 'Film', series: 'Serie'
   }
 };
 
@@ -106,34 +96,6 @@ function get(path, params = {}, { ttl = DAY, stale = 7 * DAY, language = lang() 
 }
 
 /** Verifie une cle (utilise par l'admin avant de l'enregistrer). */
-/** Plateformes de streaming connues de TMDB pour la region (choix dans l'admin). */
-async function availableProviders() {
-  if (!enabled()) return [];
-  const [m, t] = await Promise.all([
-    get('/watch/providers/movie', { watch_region: region() }, { ttl: 7 * DAY }),
-    get('/watch/providers/tv', { watch_region: region() }, { ttl: 7 * DAY })
-  ]);
-  const all = new Map();
-  for (const p of [...(m.results || []), ...(t.results || [])]) {
-    if (!all.has(p.provider_id)) {
-      all.set(p.provider_id, {
-        id: p.provider_id,
-        name: p.provider_name,
-        logo: img(p.logo_path, 'w92'),
-        logoLarge: img(p.logo_path, 'original'),
-        priority: p.display_priorities?.[region()] ?? 999
-      });
-    }
-  }
-  return [...all.values()].sort((a, b) => a.priority - b.priority);
-}
-
-/** Infos TMDB d'une plateforme (nom, logo officiel), ou null si inconnue dans la region. */
-async function providerInfo(id) {
-  const list = await availableProviders().catch(() => []);
-  return list.find((p) => p.id === Number(id)) || null;
-}
-
 async function checkKey(key) {
   await getJson(`${API}/configuration?api_key=${encodeURIComponent(key)}`, { timeout: 10000 });
   return true;
@@ -366,16 +328,6 @@ const CATEGORIES = [
   { id: 'tmdb-cat-kids', type: 'series', fr: 'Jeunesse', en: 'Kids', es: 'Infantil', de: 'Kinder', it: 'Bambini', params: { with_genres: '10762' }, defaultEnabled: false }
 ];
 
-// Rayons de chaque plateforme (dossiers sous la carte de la plateforme).
-const PLATFORM_LISTS = [
-  { id: 'movies-popular', type: 'movie', fr: 'Films populaires', en: 'Popular movies', es: 'Películas populares', de: 'Beliebte Filme', it: 'Film popolari', sort: 'popularity' },
-  { id: 'series-popular', type: 'series', fr: 'Séries populaires', en: 'Popular shows', es: 'Series populares', de: 'Beliebte Serien', it: 'Serie popolari', sort: 'popularity' },
-  { id: 'movies-new', type: 'movie', fr: 'Nouveaux films', en: 'New movies', es: 'Películas nuevas', de: 'Neue Filme', it: 'Nuovi film', sort: 'recent' },
-  { id: 'series-new', type: 'series', fr: 'Nouvelles séries', en: 'New shows', es: 'Series nuevas', de: 'Neue Serien', it: 'Nuove serie', sort: 'recent' },
-  { id: 'movies-top', type: 'movie', fr: 'Films les mieux notés', en: 'Top rated movies', es: 'Películas mejor valoradas', de: 'Bestbewertete Filme', it: 'Film più votati', sort: 'rating' },
-  { id: 'series-top', type: 'series', fr: 'Séries les mieux notées', en: 'Top rated shows', es: 'Series mejor valoradas', de: 'Bestbewertete Serien', it: 'Serie più votate', sort: 'rating' }
-];
-
 const tr = (x) => x[iso()] || x.en;
 
 /**
@@ -400,33 +352,6 @@ function sortParams(mediaType, sort) {
   }
 }
 
-/** Plateformes (cartes larges) : premier niveau de la bibliotheque "Plateformes". */
-function platformMetas() {
-  const images = require('./images');
-  return providers().map((p) => {
-    const card = images.platformCardUrl(p);
-    return { id: `platform:${p.id}`, type: 'platform', name: p.name, poster: card, background: card, providerId: p.id, fr: true };
-  });
-}
-
-/** Rayons d'une plateforme. */
-function platformListMetas(providerId) {
-  const p = providers().find((x) => x.id === Number(providerId));
-  if (!p) return [];
-  const card = require('./images').platformCardUrl(p);
-  return PLATFORM_LISTS.map((l) => ({
-    id: `plist:${p.id}:${l.id}`,
-    type: 'platformlist',
-    name: tr(l),
-    poster: card,
-    background: card,
-    providerId: p.id,
-    listType: l.type,
-    sort: l.sort,
-    fr: true
-  }));
-}
-
 function catalogDefs() {
   const L = labels();
   const defs = [];
@@ -434,7 +359,6 @@ function catalogDefs() {
   for (const c of CATEGORIES) {
     defs.push({ type: c.type, id: c.id, name: tr(c), plainName: true, extra: [{ name: 'genre', options: genres(c.type) }, { name: 'skip' }], defaultEnabled: c.defaultEnabled !== false });
   }
-  defs.push({ type: 'platforms', id: 'tmdb-platforms', name: L.platforms, plainName: true, extra: [{ name: 'skip' }] });
   for (const type of ['movie', 'series']) {
     const g = { name: 'genre', options: genres(type) };
     // Listes : desormais proposees en option (les categories alimentent "Mes medias").
@@ -444,9 +368,6 @@ function catalogDefs() {
       { type, id: 'tmdb-toprated', name: L.toprated, extra: [g, { name: 'skip' }], defaultEnabled: false },
       { type, id: 'tmdb-now', name: type === 'movie' ? L.nowMovie : L.nowSeries, extra: [{ name: 'skip' }], defaultEnabled: false }
     );
-    for (const p of providers()) {
-      defs.push({ type, id: `tmdb-provider-${p.id}`, name: p.name, extra: [g, { name: 'skip' }], defaultEnabled: false });
-    }
     defs.push({ type, id: 'tmdb-search', name: L.search, extra: [{ name: 'search', isRequired: true }] });
   }
   defs.push({ type: 'collection', id: 'tmdb-sagas', name: L.sagas, plainName: true, extra: [{ name: 'skip' }] });
@@ -459,7 +380,7 @@ function addons() {
   return [
     {
       url: ADDON_URL,
-      manifest: { id: 'stremfin.tmdb', name: 'TMDB', version: '1.0.0', resources: ['catalog'], types: ['movie', 'series', 'collection', 'platforms'], catalogs: catalogDefs() }
+      manifest: { id: 'stremfin.tmdb', name: 'TMDB', version: '1.0.0', resources: ['catalog'], types: ['movie', 'series', 'collection'], catalogs: catalogDefs() }
     }
   ];
 }
@@ -479,7 +400,6 @@ async function catalog(type, id, extra = {}) {
   let params = { page };
 
   if (id === 'tmdb-sagas') return { metas: await sagas(Number(extra.skip) || 0) };
-  if (id === 'tmdb-platforms') return { metas: Number(extra.skip) ? [] : platformMetas() };
   const category = CATEGORIES.find((c) => c.id === id);
   if (id === 'tmdb-search') {
     if (!extra.search) return { metas: [] };
@@ -496,19 +416,54 @@ async function catalog(type, id, extra = {}) {
   } else if (id === 'tmdb-toprated' && !genre && !extra.sort) {
     path = `/${mediaType}/top_rated`;
   } else {
-    // Categorie, genre, plateforme ou tri : /discover.
+    // Categorie, genre ou tri : /discover.
     path = `/discover/${mediaType}`;
     Object.assign(params, category?.params || {}, sortParams(mediaType, extra.sort || (id === 'tmdb-toprated' ? 'rating' : 'popularity')));
     // Genre choisi dans l'app : s'ajoute a celui de la categorie (ET logique).
     if (genre) params.with_genres = [params.with_genres, genre].filter(Boolean).join(',');
-    const prov = id.match(/^tmdb-provider-(\d+)$/);
-    if (prov) {
-      params.with_watch_providers = prov[1];
-      params.watch_region = region();
-      params.with_watch_monetization_types = 'flatrate';
-    }
   }
   const r = await get(path, params, { ttl: 3 * HOUR, stale: 2 * DAY });
+  return { metas: (r.results || []).map((x) => previewOf(x, type)) };
+}
+
+// ---- Sources des collections Nuvio ---------------------------------------------------------
+
+// Champs de "filters" deja traites a part (les autres passent tels quels a /discover).
+const SOURCE_FILTERS_DONE = ['withGenres', 'year'];
+
+/**
+ * Une page (20 titres) d'une source TMDB de collection Nuvio : decouverte (tri, genres, annee,
+ * autres filtres) ou liste, saga, societe, chaine ou personne designee par tmdbId.
+ */
+async function collectionSource(src, skip = 0) {
+  if (!enabled()) return { metas: [] };
+  const type = String(src.mediaType || '').toUpperCase() === 'TV' ? 'series' : 'movie';
+  const mediaType = type === 'series' ? 'tv' : 'movie';
+  const page = Math.floor((Number(skip) || 0) / 20) + 1;
+  if (page > 500) return { metas: [] };
+  const kind = String(src.tmdbSourceType || 'DISCOVER').toUpperCase();
+  const id = Number(src.tmdbId) || null;
+  const opts = { ttl: 3 * HOUR, stale: 2 * DAY };
+  if (kind === 'LIST' && id) {
+    const r = await get(`/list/${id}`, { page }, opts);
+    const items = (r.items || []).filter((x) => ['movie', 'tv'].includes(x.media_type || mediaType));
+    return { metas: items.map((x) => previewOf(x, (x.media_type || mediaType) === 'tv' ? 'series' : 'movie')) };
+  }
+  if (kind === 'COLLECTION' && id) return { metas: page > 1 ? [] : (await collection(id)).parts };
+  const f = src.filters || {};
+  const params = { page, sort_by: src.sortBy || 'popularity.desc' };
+  if (f.withGenres) params.with_genres = String(f.withGenres);
+  if (f.year) params[mediaType === 'movie' ? 'primary_release_year' : 'first_air_date_year'] = Number(f.year);
+  for (const [k, v] of Object.entries(f)) {
+    if (SOURCE_FILTERS_DONE.includes(k) || v === null || v === undefined || v === '') continue;
+    params[k.replace(/[A-Z]/g, (c) => '_' + c.toLowerCase())] = Array.isArray(v) ? v.join(',') : v;
+  }
+  if (kind === 'COMPANY' && id) params.with_companies = id;
+  if (kind === 'NETWORK' && id) params.with_networks = id;
+  if (kind === 'PERSON' && id) params.with_people = id;
+  // Tri par note : seulement des titres assez votes (sinon des inconnus a 10/10 en tete).
+  if (/^vote_average/.test(params.sort_by) && !params['vote_count.gte']) params['vote_count.gte'] = 200;
+  const r = await get(`/discover/${mediaType}`, params, opts);
   return { metas: (r.results || []).map((x) => previewOf(x, type)) };
 }
 
@@ -606,4 +561,4 @@ async function spotlight(limit = 10) {
   return metas.filter(Boolean);
 }
 
-module.exports = { ADDON_URL, enabled, spotlight, availableProviders, providerInfo, platformListMetas, PLATFORM_LISTS, checkKey, resolve, meta, previewMeta, released, collection, catalog, addons, warm };
+module.exports = { ADDON_URL, enabled, spotlight, collectionSource, checkKey, resolve, meta, previewMeta, released, collection, catalog, addons, warm };

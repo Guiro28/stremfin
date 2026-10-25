@@ -35,8 +35,6 @@ l'admin ou via `TMDB_API_KEY` :
 - **Traduction en arrière-plan** des éléments venant d'addons en anglais (ex. Cinemeta).
 - **Catalogues intégrés** : Tendances, Populaires, Les mieux notés, Au cinéma / En cours
   de diffusion, filtrables par genre.
-- **Plateformes** : Netflix, Prime Video, Disney+, Apple TV+, Canal+, HBO Max, Paramount+,
-  Crunchyroll, ADN, Arte, M6+, TF1+, MUBI, Hayu (désactivées par défaut, à cocher dans l'admin).
 - **Sagas** : collections TMDB (Marvel, Dune, Le Seigneur des anneaux…) déduites des films
   populaires, chacune ouverte comme un dossier avec les films dans l'ordre.
 - **Similaires** sur chaque fiche.
@@ -157,8 +155,9 @@ la racine : elles sont reconnues et envoyées directement sur `/web`.
   versions proposées, vus masqués, seulement ce qui est sorti, CSS du client web), *Accueil*, *Addons* (activation, ordre, catalogues
   affichés ou masqués, copie depuis un autre profil), *Bibliothèques* (activation,
   renommage, ordre), *Appareils*.
-- **Réglages** : serveur, lecture et réseau, métadonnées, plateformes (logo, couleur de
-  fond ou image personnalisée de la carte).
+- **Collections** : bibliothèque de collections Nuvio partagée par le serveur (voir plus bas).
+- **Réglages** : serveur, lecture et réseau, métadonnées (TMDB, identifiant d'app Trakt),
+  client web.
 - **Maintenance** : vider le cache, recharger les addons, réindexer TMDB.
 - **Sauvegardes** : une archive `.tar.gz` par jour dans `data/backups` (base de données sans
   le cache, réglages, avatars, images des tuiles), à l'heure choisie, gardée 7 jours par
@@ -183,20 +182,36 @@ Jellyfin Media Player et l'app Android pour téléphone) applique le CSS du prof
 Il suit les connexions et changements de profil ; une modification s'applique au prochain
 chargement de la page ou au retour sur l'onglet. Les apps natives n'utilisent pas de CSS.
 
-## Mes médias, plateformes et accueil
+## Mes médias, collections et accueil
 
 - **Mes médias** : Films, Séries TV, Films d'animation, Séries d'animation (et en option
   Animés, Documentaires, Séries documentaires, Jeunesse), triables dans l'app par nom,
   date ou note. Leur rangée « ajouts récents » montre les dernières sorties.
-- **Plateformes** : une bibliothèque de cartes larges (logo officiel sur fond de marque),
-  puis pour chaque service ses rayons : films / séries populaires, nouveautés, mieux notés.
-  Sur l'accueil, elle forme une rangée de cartes larges (« Plateformes, ajouts récents » :
-  le suffixe est imposé par l'app).
+- **Collections Nuvio** (page *Collections*) : on associe un compte Nuvio par code, comme
+  une TV, **en lecture seule** (Stremfin ne modifie jamais rien chez Nuvio ; seul le jeton
+  de renouvellement est gardé dans `data/config.json`). On ajoute ensuite des collections
+  d'un profil Nuvio à la bibliothèque du serveur, puis on choisit les profils Stremfin qui
+  les voient, comme pour des addons. Dans les apps :
+  - chaque collection devient une **bibliothèque** (image de fond de la collection ;
+    une collection épinglée passe en tête tant que le profil ne l'a pas placée) ;
+  - ses dossiers deviennent des **sous-dossiers** (couverture, fond et logo de la collection) ;
+  - dans un dossier, **un sous-dossier par source** (« Disney+ · Films », « Disney+ · Séries »…) ;
+    un dossier qui n'a qu'une source montre directement ses titres. Sources prises en charge :
+    catalogues d'addons (même absents du profil : l'addon est retrouvé dans le compte Nuvio),
+    découvertes TMDB (tri, genres, année) et listes Trakt (avec un identifiant d'app Trakt,
+    *Réglages → Métadonnées*).
+  - images modifiables depuis la page *Collections* (fichier ou adresse) : tuile de la
+    collection dans « Mes médias », dossiers et sous-dossiers ; un profil peut toujours
+    choisir sa propre image de tuile (onglet *Accueil*).
+
+  Les collections sont mises à jour depuis Nuvio toutes les 6 h (ou avec *Mettre à jour*) ;
+  une collection supprimée chez Nuvio reste, signalée. Ordre, nom et activation se règlent
+  dans l'onglet *Bibliothèques* de chaque profil.
 - **Accueil** (onglet du profil) : ordre des sections (Mes médias, Continuer à regarder,
   rangées des bibliothèques, À suivre) et bibliothèques avec ou sans rangée. Les rangées
-  suivent l'ordre des bibliothèques : mets *Plateformes* en tête pour l'avoir juste sous
+  suivent l'ordre des bibliothèques : mets une collection en tête pour l'avoir juste sous
   « Continuer à regarder ».
-- **Ouverture rapide** : les bibliothèques et les rayons des plateformes sont préparés en
+- **Ouverture rapide** : les bibliothèques et les dossiers des collections sont préparés en
   arrière-plan (300 premiers titres, une minute après le démarrage puis toutes les 2 h) et
   s'ouvrent en quelques dizaines de millisecondes. Les pages se chargent par lots en
   parallèle et la suite d'une grille se prépare pendant qu'on la parcourt.

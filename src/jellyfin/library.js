@@ -4,6 +4,7 @@ const stremio = require('../stremio');
 const catalog = require('../catalog');
 const config = require('../config');
 const tmdb = require('../tmdb');
+const collections = require('../collections');
 const libraryImages = require('../libraryImages');
 const { st } = require('../db');
 const dto = require('./dto');
@@ -39,7 +40,7 @@ const TRANSLATED = ['name', 'description', 'poster', 'background', 'logo', 'genr
 /** Enregistre des metas Stremio (catalogue, recherche) et renvoie leurs entrees. */
 function registerMetas(metas) {
   const list = metas
-    .filter((m) => m?.id && ['movie', 'series', 'collection', 'platform', 'platformlist'].includes(m.type))
+    .filter((m) => m?.id && ['movie', 'series', 'collection', 'colfolder', 'colcat'].includes(m.type))
     .map((m) => {
       const key = itemKey(m.type, m.id);
       const data = dto.preview(m);
@@ -106,9 +107,8 @@ function lightDto(profile, entry) {
     }
     case 'collection':
       return dto.boxSetItem(entry.uuid, entry.data, udRow(profile, entry.uuid));
-    case 'platform':
-      return dto.folderItem(entry.uuid, entry.data, udRow(profile, entry.uuid), tmdb.PLATFORM_LISTS.length);
-    case 'platformlist':
+    case 'colfolder':
+    case 'colcat':
       return dto.folderItem(entry.uuid, entry.data, udRow(profile, entry.uuid));
     case 'view':
       // Image choisie dans l'admin, sinon le fond du titre le plus populaire.
@@ -269,24 +269,13 @@ function viewByUuid(profile, uuid) {
   return catalog.views(profile).find((v) => v.uuid === ids.norm(uuid)) || null;
 }
 
-/** Rayon d'une plateforme (ex: Prime Video -> Films populaires), vu comme un catalogue TMDB. */
-function platformListView(providerId, sid, listType) {
-  return {
-    key: `plist|${providerId}|${sid}`,
-    addonUrl: tmdb.ADDON_URL,
-    type: listType,
-    catId: `tmdb-provider-${providerId}`,
-    hasSkip: true,
-    sortable: true
-  };
-}
-
 async function viewItems(profile, view, { start = 0, limit = 50, genre, sort } = {}) {
   const { metas, total } = await catalog.slice(view, start, limit, genre, releasedFilter(profile), sort);
   let items = metasToDtos(profile, metas);
   if (profile.hideWatched) items = items.filter((i) => !(i.Type === 'Movie' && i.UserData.Played));
-  // Image de la bibliotheque = fond du premier element (les apps l'affichent dans "Mes medias").
-  if (start === 0 && metas[0]) ids.register(`view|${profile.id}|${view.key}`, 'view', { image: metas[0].background || metas[0].poster });
+  // Image de la bibliotheque = fond du premier element (les apps l'affichent dans "Mes medias"),
+  // sauf image propre (fond d'une collection).
+  if (start === 0 && metas[0] && !view.image) ids.register(`view|${profile.id}|${view.key}`, 'view', { image: metas[0].background || metas[0].poster });
   return { items, total };
 }
 
@@ -341,14 +330,16 @@ async function children(profile, parentId, opts = {}) {
     const parts = (await collectionParts(profile, entry)).map((e) => lightDto(profile, e));
     return page(parts, opts);
   }
-  // Plateforme -> ses rayons ; rayon -> titres de la plateforme (pagines, triables).
-  if (entry.kind === 'platform') {
-    const lists = registerMetas(tmdb.platformListMetas(entry.data.providerId)).map((e) => lightDto(profile, e));
-    return page(lists, opts);
+  // Dossier d'une collection -> un sous-dossier par catalogue (ou ses titres s'il n'en a qu'un) ;
+  // sous-dossier -> titres du catalogue (pagines).
+  if (entry.kind === 'colfolder') {
+    const subs = await collections.subfolders(entry.data.colId, entry.data.folderId);
+    if (subs) return page(registerMetas(subs).map((e) => lightDto(profile, e)), opts);
+    return viewItems(profile, collections.folderView(entry.data.colId, entry.data.folderId), opts);
   }
-  if (entry.kind === 'platformlist') {
-    const d = entry.data;
-    return viewItems(profile, platformListView(d.providerId, d.sid, d.listType), { ...opts, sort: opts.sort || d.sort });
+  if (entry.kind === 'colcat') {
+    const view = collections.sourceViewOf(entry.data.colId, entry.data.folderId, entry.data.srcIndex);
+    return view ? viewItems(profile, view, opts) : { items: [], total: 0 };
   }
   if (entry.kind === 'view') {
     const view = viewByUuid(profile, entry.uuid);
@@ -430,8 +421,8 @@ async function imageUrl(id, type, index = 0) {
     case 'movie':
     case 'series':
     case 'collection':
-    case 'platform':
-    case 'platformlist':
+    case 'colfolder':
+    case 'colcat':
       return pick(d);
     case 'season': {
       const s = ids.get(d.seriesUuid);
@@ -452,7 +443,7 @@ async function imageUrl(id, type, index = 0) {
 }
 
 // ---- Prechauffage ----------------------------------------------------------------
-// Bibliotheques puis rayons des plateformes, prepares en arriere-plan dans l'ordre du
+// Bibliotheques puis dossiers des collections, prepares en arriere-plan dans l'ordre du
 // catalogue : une app qui en ouvre un recoit aussitot ses premiers titres (l'app Emby en
 // demande 300 d'un coup). Une liste deja en cache ne coute presque rien.
 
@@ -486,14 +477,11 @@ async function warmLibraries() {
     for (const profile of profiles) {
       const filter = releasedFilter(profile);
       for (const view of catalog.views(profile)) {
-        if (view.type !== 'platforms') {
-          await warmOne(view, filter);
-          continue;
-        }
-        // Bibliotheque "Plateformes" : ses rayons, apres toutes les bibliotheques.
-        for (const p of config.get().settings.providers) {
-          for (const m of tmdb.platformListMetas(p.id)) shelves.push({ view: platformListView(m.providerId, m.id, m.listType), filter, sort: m.sort });
-        }
+        await warmOne(view, filter);
+        if (view.type !== 'nuviocol') continue;
+        // Collection : ses dossiers et sous-dossiers, apres toutes les bibliotheques.
+        const c = collections.byId(view.catId.slice(4));
+        if (c) for (const v of collections.warmViews(c)) shelves.push({ view: v, filter });
       }
     }
     for (const s of shelves) await warmOne(s.view, s.filter, s.sort);

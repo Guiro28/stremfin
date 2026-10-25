@@ -15,6 +15,8 @@ const adminAuth = require('./adminAuth');
 const auth = require('./jellyfin/auth');
 const pkg = require('../package.json');
 const backup = require('./backup');
+const nuvio = require('./nuvio');
+const collections = require('./collections');
 const { verifyPassword } = require('./security');
 
 const router = express.Router();
@@ -29,6 +31,7 @@ router.use('/api', adminAuth.requireApi);
 router.put('/api/profiles/:id/library-image', express.raw({ type: (req) => !String(req.headers['content-type'] || '').includes('json'), limit: avatars.MAX_BYTES + 1024 }));
 router.put('/api/profiles/:id/avatar', express.raw({ type: () => true, limit: avatars.MAX_BYTES + 1024 }));
 router.put('/api/backups/upload', express.raw({ type: () => true, limit: '1gb' }));
+router.put('/api/collections/:id/image', express.raw({ type: (req) => !String(req.headers['content-type'] || '').includes('json'), limit: avatars.MAX_BYTES + 1024 }));
 router.use('/api', express.json({ limit: '2mb' }));
 
 const adminOnly = adminAuth.requireAdmin;
@@ -103,8 +106,7 @@ function profileSummary(p) {
 }
 
 function profileDetail(p) {
-  const order = p.catalogOrder || [];
-  const pos = (k) => (order.indexOf(k) === -1 ? Infinity : order.indexOf(k));
+  const pos = catalog.positionOf(p);
   return {
     ...profileSummary(p),
     createdAt: p.createdAt,
@@ -139,7 +141,7 @@ function profileDetail(p) {
     catalogs: catalog
       .allCatalogs(p)
       .map((c, i) => ({ c, i }))
-      .sort((a, b) => pos(a.c.key) - pos(b.c.key) || a.i - b.i)
+      .sort((a, b) => pos(a.c) - pos(b.c) || a.i - b.i)
       .map(({ c }) => ({
         key: c.key,
         addonName: c.addonName,
@@ -229,24 +231,105 @@ router.put('/api/settings', adminOnly, async (req, res) => {
   res.json(publicSettings(s));
 });
 
-/** Plateformes choisies, avec leur logo officiel et l'apercu de leur carte large. */
-router.get('/api/providers', adminOnly, async (req, res) => {
-  const images = require('./images');
-  const list = await Promise.all(
-    (config.get().settings.providers || []).map(async (p) => {
-      const info = await tmdb.providerInfo(p.id).catch(() => null);
-      return { ...p, logo: info?.logo || null, card: p.card || '', cardUrl: images.platformCardUrl(p) };
-    })
-  );
-  res.json(list);
+// ---- Nuvio (lecture seule) et bibliotheque de collections ----------------------------------
+
+router.get('/api/nuvio', adminOnly, (req, res) => res.json(nuvio.status()));
+
+router.post('/api/nuvio/pair', adminOnly, async (req, res) => {
+  try {
+    res.json(await nuvio.pairStart());
+  } catch (e) {
+    fail(res, 502, e.message);
+  }
 });
 
-router.get('/api/providers/available', adminOnly, async (req, res) => {
+router.post('/api/nuvio/pair/:id', adminOnly, async (req, res) => {
   try {
-    res.json(await tmdb.availableProviders());
+    res.json(await nuvio.pairPoll(req.params.id));
   } catch (e) {
-    fail(res, 502, `TMDB injoignable : ${e.message}`);
+    fail(res, 400, e.message);
   }
+});
+
+router.delete('/api/nuvio', adminOnly, (req, res) => {
+  nuvio.unlink();
+  res.json({ ok: true });
+});
+
+router.get('/api/nuvio/profiles', adminOnly, async (req, res) => {
+  try {
+    res.json(await nuvio.profiles());
+  } catch (e) {
+    fail(res, 502, e.message);
+  }
+});
+
+router.get('/api/nuvio/profiles/:index/collections', adminOnly, async (req, res) => {
+  try {
+    res.json(await collections.available(Number(req.params.index)));
+  } catch (e) {
+    fail(res, 502, e.message);
+  }
+});
+
+router.get('/api/collections', adminOnly, (req, res) => res.json(collections.list()));
+
+router.post('/api/collections/import', adminOnly, async (req, res) => {
+  if (!Array.isArray(req.body?.ids) || !req.body.ids.length) return fail(res, 400, 'Aucune collection choisie');
+  try {
+    const added = await collections.importFrom(req.body.profile, req.body.ids);
+    // Attribution directe aux profils choisis dans la meme fenetre.
+    if (Array.isArray(req.body.profiles)) {
+      for (const id of added) collections.assign(id, [...new Set([...collections.list().find((c) => c.id === id).profiles, ...req.body.profiles])]);
+    }
+    res.json({ added: added.length });
+  } catch (e) {
+    fail(res, 502, e.message);
+  }
+});
+
+router.post('/api/collections/refresh', adminOnly, async (req, res) => {
+  try {
+    res.json(await collections.refresh());
+  } catch (e) {
+    fail(res, 502, e.message);
+  }
+});
+
+router.put('/api/collections/:id/profiles', adminOnly, (req, res) => {
+  if (!collections.assign(req.params.id, req.body?.profiles)) return fail(res, 404, 'Collection introuvable');
+  res.json({ ok: true });
+});
+
+// Image de la tuile "Mes medias" de la collection, ou d'un de ses dossiers / sous-dossiers
+// (?target=dossier ou dossier:n) : fichier envoye ou adresse (JSON { url }).
+function imageTargetOr404(req, res) {
+  const c = collections.byId(req.params.id);
+  const target = String(req.query.target || '');
+  if (!c || !collections.imageTarget(c, target)) {
+    fail(res, 404, 'Collection introuvable');
+    return null;
+  }
+  return { c, target };
+}
+
+router.put('/api/collections/:id/image', adminOnly, (req, res) => {
+  const t = imageTargetOr404(req, res);
+  if (!t) return;
+  const ok = attempt(res, () => (Buffer.isBuffer(req.body) ? libraryImages.saveCollectionFile(t.c, t.target, req.body) : libraryImages.setCollectionUrl(t.c, t.target, req.body?.url)));
+  if (ok) res.json(collections.list().find((x) => x.id === t.c.id));
+});
+
+router.delete('/api/collections/:id/image', adminOnly, (req, res) => {
+  const t = imageTargetOr404(req, res);
+  if (!t) return;
+  libraryImages.clearCollection(t.c, t.target);
+  res.json(collections.list().find((x) => x.id === t.c.id));
+});
+
+router.delete('/api/collections/:id', adminOnly, (req, res) => {
+  if (!collections.remove(req.params.id)) return fail(res, 404, 'Collection introuvable');
+  res.json({ ok: true });
 });
 
 // ---- Profils ------------------------------------------------------------------------------

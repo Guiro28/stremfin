@@ -255,13 +255,13 @@ const state = { authed: false, setup: false, role: null, username: '', profileId
 const NAV_ADMIN = [
   { group: null, items: [{ id: 'dashboard', label: 'Tableau de bord', icon: 'dashboard' }] },
   { group: 'Utilisateurs', items: [{ id: 'profiles', label: 'Profils', icon: 'users' }, { id: 'devices', label: 'Appareils', icon: 'devices' }] },
+  { group: 'Bibliothèque', items: [{ id: 'collections', label: 'Collections', icon: 'layers' }] },
   {
     group: 'Réglages',
     items: [
       { id: 'settings/server', label: 'Serveur', icon: 'server' },
       { id: 'settings/playback', label: 'Lecture et réseau', icon: 'play' },
       { id: 'settings/metadata', label: 'Métadonnées', icon: 'film' },
-      { id: 'settings/platforms', label: 'Plateformes', icon: 'tv' },
       { id: 'settings/web', label: 'Client web', icon: 'globe' }
     ]
   },
@@ -434,7 +434,7 @@ PAGES.dashboard = async (main) => {
       <div class="stack">
         <div class="card">
           <div class="card-head"><div><h2>${t('État')}</h2></div></div>
-          <div class="setting"><div class="text"><b>TMDB</b><span>${t('Fiches traduites, Mes médias, plateformes, sagas.')}</span></div>
+          <div class="setting"><div class="text"><b>TMDB</b><span>${t('Fiches traduites, Mes médias, sagas, collections.')}</span></div>
             <div class="control">${o.tmdb ? `<span class="badge ok">${t('Actif')}</span>` : `<a class="btn sm" href="#/settings/metadata">${t('Configurer')}</a>`}</div></div>
           <div class="setting"><div class="text"><b>${t("Passer l'intro")}</b><span>${t('Timestamps de TheIntroDB.')}</span></div>
             <div class="control">${o.introSkip ? `<span class="badge ok">${t('Actif')}</span>` : `<span class="badge">${t('Désactivé')}</span>`}</div></div>
@@ -489,7 +489,7 @@ async function newProfileDialog() {
     body: `<div class="stack">
       <div class="field"><label>${t("Nom d'utilisateur")}</label><input name="name" type="text" maxlength="40" required></div>
       <div class="field"><label>${t('Mot de passe')}</label><input name="password" type="password" autocomplete="new-password" required><span class="help">${t('8 caractères minimum.')}</span></div>
-      <div class="field"><label>${t('Partir de')}</label><select name="from"><option value="">${t('Profil par défaut (Mes médias TMDB, plateformes, sagas)')}</option>
+      <div class="field"><label>${t('Partir de')}</label><select name="from"><option value="">${t('Profil par défaut (Mes médias TMDB, sagas)')}</option>
         ${others.map((o) => `<option value="${o.id}">${t('Copie de {name} (addons, bibliothèques, accueil, préférences)', { name: esc(o.name) })}</option>`).join('')}</select></div>
     </div>`,
     onOk: async (f) => {
@@ -942,7 +942,7 @@ function tabAddons(el, p) {
   });
 }
 
-const TYPE_LABEL = { movie: 'Films', series: 'Séries', collection: 'Sagas', platforms: 'Plateformes' };
+const TYPE_LABEL = { movie: 'Films', series: 'Séries', collection: 'Sagas', nuviocol: 'Collection' };
 const typeLabel = (type) => (TYPE_LABEL[type] ? t(TYPE_LABEL[type]) : type);
 
 function tabLibraries(el, p) {
@@ -950,7 +950,7 @@ function tabLibraries(el, p) {
   let rows = p.catalogs.map((c) => ({ ...c }));
   const original = JSON.stringify(rows.map((r) => [r.key, r.enabled, r.name]));
   let filter = { q: '', status: 'all', source: '' };
-  const sourceOf = (r) => (r.builtin ? t('TMDB intégré') : r.addonName);
+  const sourceOf = (r) => (r.builtin ? t('TMDB intégré') : r.type === 'nuviocol' ? t('Collections') : r.addonName);
   const sources = [...new Set(rows.map(sourceOf))];
 
   const dirty = () => JSON.stringify(rows.map((r) => [r.key, r.enabled, r.name])) !== original;
@@ -1172,10 +1172,12 @@ PAGES['settings/metadata'] = async (main) => {
   const LANG_OPTS = [['fr-FR', 'Français (France)'], ['fr-CA', 'Français (Canada)'], ['en-US', 'English (US)'], ['es-ES', 'Español'], ['de-DE', 'Deutsch'], ['it-IT', 'Italiano']];
   main.innerHTML = `${head(t('Métadonnées'), t("Fiches, langue, épisodes et saut d'intro."))}
     <form class="card" id="f">
-      <div class="setting"><div class="text"><b>${t('Clé API TMDB')}</b><span>${t('Fiches traduites pour tous les titres, tendances, plateformes, sagas, « Similaires ». Clé v3 gratuite sur {link}. Vérifiée avant l\'enregistrement.', { link: '<a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">themoviedb.org</a>' })}</span></div>
+      <div class="setting"><div class="text"><b>${t('Clé API TMDB')}</b><span>${t('Fiches traduites pour tous les titres, tendances, sagas, collections, « Similaires ». Clé v3 gratuite sur {link}. Vérifiée avant l\'enregistrement.', { link: '<a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">themoviedb.org</a>' })}</span></div>
         <div class="control wide"><input name="key" type="text" autocomplete="off" spellcheck="false" value="${esc(s.tmdbApiKey)}" placeholder="${esc(t('Clé v3 (32 caractères)'))}"></div></div>
-      <div class="setting"><div class="text"><b>${t('Langue des fiches')}</b><span>${t('Titres, résumés, genres. Le pays sert aussi aux plateformes et aux classifications.')}</span></div>
+      <div class="setting"><div class="text"><b>${t('Langue des fiches')}</b><span>${t('Titres, résumés, genres. Le pays sert aussi aux dates de sortie et aux classifications.')}</span></div>
         <div class="control"><select name="lang">${LANG_OPTS.map(([v, l]) => `<option value="${v}" ${s.metadataLanguage === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
+      <div class="setting"><div class="text"><b>${t("Identifiant d'app Trakt")}</b><span>${t('Pour les listes Trakt des collections : « Client ID » d\'une app créée sur {link}.', { link: '<a href="https://trakt.tv/oauth/applications" target="_blank" rel="noopener noreferrer">trakt.tv</a>' })}</span></div>
+        <div class="control wide"><input name="trakt" type="text" autocomplete="off" spellcheck="false" value="${esc(s.traktClientId || '')}" placeholder="${esc(t('Facultatif'))}"></div></div>
       <div class="setting"><div class="text"><b>${t('Masquer les épisodes pas encore sortis')}</b><span>${t("Les épisodes annoncés mais pas encore diffusés n'apparaissent pas.")}</span></div>
         <div class="control">${toggle('name="hideUnreleased"', s.hideUnreleased)}</div></div>
       <div class="setting"><div class="text"><b>${t("Passer l'intro et le générique")}</b><span>${t("Boutons dans les apps Jellyfin, d'après la base communautaire TheIntroDB.")}</span></div>
@@ -1188,6 +1190,7 @@ PAGES['settings/metadata'] = async (main) => {
     saveSettings($('button[type=submit]', f), {
       tmdbApiKey: f.key.value.trim(),
       metadataLanguage: f.lang.value,
+      traktClientId: f.trakt.value.trim(),
       hideUnreleased: f.hideUnreleased.checked,
       introSkip: f.introSkip.checked
     }).then((r) => r && render());
@@ -1233,107 +1236,223 @@ PAGES['settings/web'] = async (main) => {
   };
 };
 
-PAGES['settings/platforms'] = async (main) => {
-  const s = state.settings;
-  let list = await api('GET', '/providers');
-  const strip = (arr) => arr.map(({ id, name, color, card }) => ({ id, name, ...(color ? { color } : {}), ...(card ? { card } : {}) }));
+// ---- Collections (Nuvio, lecture seule) ----------------------------------------------------------
 
-  const persist = async (msg = t('Plateformes enregistrées')) => {
-    const r = await busy(null, () => api('PUT', '/settings', { providers: strip(list) }), msg);
-    if (r) {
-      state.settings = r;
-      list = await api('GET', '/providers');
+const SHAPE_LABEL = { POSTER: 'Affiche', LANDSCAPE: 'Paysage', SQUARE: 'Carré' };
+const SOURCE_LABEL = { addon: 'Addon', tmdb: 'TMDB', trakt: 'Trakt' };
+
+PAGES.collections = async (main) => {
+  const [link, list, profiles] = await Promise.all([api('GET', '/nuvio'), api('GET', '/collections'), api('GET', '/profiles')]);
+  const chips = (on, attrs = '') =>
+    profiles.map((p) => `<button type="button" class="chip ${on(p) ? 'on' : ''}" data-p="${esc(p.id)}" aria-pressed="${on(p)}" ${attrs}>${esc(p.name)}</button>`).join('');
+  // Dossier : image modifiable ; sous-dossiers (un par source) seulement s'il a plusieurs sources.
+  const folderBlock = (c, f) => `<div class="col-folder"><div class="row"><b>${esc(f.title)}</b><span class="badge">${t(SHAPE_LABEL[f.shape] || f.shape)}</span>${f.image ? `<span class="badge accent">${t('image perso')}</span>` : ''}<span class="grow"></span><button type="button" class="btn ghost icon-only sm" data-img="${esc(f.id)}" data-col="${esc(c.id)}" title="${esc(t('Changer l\'image'))}" aria-label="${esc(t('Changer l\'image'))}">${icon('camera')}</button></div>
+    ${f.subfolders ? '' : `<p class="small faint">${t('Une seule source : ses titres sont directement dans le dossier.')}</p>`}
+    <ul>${f.sources.map((src) => `<li>${f.subfolders ? `<button type="button" class="btn ghost icon-only sm" data-img="${esc(`${f.id}:${src.index}`)}" data-col="${esc(c.id)}" title="${esc(t('Changer l\'image'))}" aria-label="${esc(t('Changer l\'image'))}">${icon('camera')}</button>` : ''}<span class="badge ${src.broken || src.needsKey ? 'warn' : ''}">${esc(SOURCE_LABEL[src.provider] || src.provider)}</span><span>${esc(src.label)}</span>${src.type ? `<span class="small faint">${esc(typeLabel(src.type))}</span>` : ''}${src.needsKey ? `<span class="small faint">${t("identifiant d'app Trakt manquant (Métadonnées)")}</span>` : ''}${src.broken ? `<span class="small faint">${t('addon introuvable')}</span>` : ''}${src.image ? `<span class="badge accent">${t('image perso')}</span>` : ''}</li>`).join('') || `<li class="faint">${t('Aucune source')}</li>`}</ul></div>`;
+  const item = (c) => {
+    const sources = c.folders.reduce((n, f) => n + f.sources.length, 0);
+    return `<div class="item col-item" data-id="${esc(c.id)}">
+      <div class="col-thumb">${c.backdrop ? `<img src="${esc(c.backdrop)}" alt="" loading="lazy">` : icon('layers')}</div>
+      <div class="body">
+        <div class="title">${esc(c.title)}${c.pinned ? `<span class="badge accent">${t('Épinglée')}</span>` : ''}${c.missing ? `<span class="badge warn">${t('Disparue chez Nuvio')}</span>` : ''}</div>
+        <div class="meta"><span>${t('Profil Nuvio : {name}', { name: esc(c.nuvioProfile) })}</span><span>·</span><span>${t('{n} dossier(s)', { n: c.folders.length })}</span><span>·</span><span>${t('{n} source(s)', { n: sources })}</span><span>·</span><span>${t('mise à jour {ago}', { ago: ago(c.updatedAt) })}</span></div>
+        <div class="row col-for"><span class="small faint">${t('Visible pour :')}</span><div class="chips" data-for="${esc(c.id)}">${chips((p) => c.profiles.includes(p.id))}</div></div>
+        <details class="col-detail"><summary>${t('Dossiers et sources')}</summary>${c.folders.map((f) => folderBlock(c, f)).join('')}</details>
+      </div>
+      <div class="actions"><button class="btn ghost icon-only" data-img="" data-col="${esc(c.id)}" title="${esc(t('Image de la tuile'))}" aria-label="${esc(t('Image de la tuile'))}">${icon('camera')}</button><button class="btn ghost icon-only" data-rm="${esc(c.id)}" title="${esc(t('Retirer'))}" aria-label="${esc(t('Retirer'))}">${icon('trash')}</button></div>
+    </div>`;
+  };
+
+  main.innerHTML = `${head(
+    t('Collections'),
+    t('Collections Nuvio : chacune devient une bibliothèque dans les apps, et ses dossiers des sous-dossiers. Ajoute-les une fois ici, puis choisis les profils qui les voient.'),
+    link.linked ? `<button class="btn" id="cRefresh">${icon('refresh')}${t('Mettre à jour')}</button><button class="btn primary" id="cAdd">${icon('plus')}${t('Ajouter des collections')}</button>` : ''
+  )}
+    <div class="card" style="margin-bottom:16px"><div class="setting col-account">
+      <div class="text"><b>${t('Compte Nuvio')}</b><span>${link.linked ? t('Associé : {email}.', { email: esc(link.email || '—') }) : t('Associe ton compte Nuvio pour importer tes collections.')} ${t('Lecture seule : Stremfin ne modifie jamais rien chez Nuvio.')}</span></div>
+      <div class="control">${link.linked ? `<button class="btn danger" id="nUnlink">${t('Dissocier')}</button>` : `<button class="btn primary" id="nLink">${icon('link')}${t('Associer')}</button>`}</div>
+    </div></div>
+    <div class="card">
+      <div class="card-head"><div><h2>${t('Bibliothèque de collections')}</h2><p>${t("Mises à jour depuis Nuvio toutes les 6 h. L'ordre, le nom et l'activation se règlent ensuite dans l'onglet Bibliothèques de chaque profil.")}</p></div></div>
+      ${list.length ? `<div class="list" id="colList">${list.map(item).join('')}</div>` : `<div class="empty">${icon('layers')}<p>${link.linked ? t('Aucune collection pour l\'instant : ajoute-en depuis ton compte Nuvio.') : t('Associe un compte Nuvio pour ajouter des collections.')}</p></div>`}
+    </div>`;
+
+  $('#nLink') && ($('#nLink').onclick = pairNuvio);
+  $('#nUnlink') && ($('#nUnlink').onclick = async () => {
+    if (await confirmDialog(t('Dissocier le compte Nuvio ?'), t('Les collections déjà ajoutées restent, mais ne sont plus mises à jour.'), t('Dissocier'), true)) {
+      if (await busy(null, () => api('DELETE', '/nuvio'), t('Compte dissocié'))) render();
     }
-    draw();
-  };
+  });
+  $('#cRefresh') && ($('#cRefresh').onclick = async (e) => {
+    const r = await busy(e.currentTarget, () => api('POST', '/collections/refresh'));
+    if (!r) return;
+    toast(r.missing ? t('{n} collection(s) disparue(s) chez Nuvio', { n: r.missing }) : t('Collections à jour'), !!r.missing);
+    render();
+  });
+  $('#cAdd') && ($('#cAdd').onclick = () => addCollections(profiles));
 
-  const draw = () => {
-    main.innerHTML = `${head(t('Plateformes'), t('Bibliothèque « Plateformes » : une carte large par service, puis ses rayons (populaires, nouveautés, mieux notés).'), s.tmdbApiKey ? `<button class="btn primary" id="addProv">${icon('plus')}${t('Ajouter')}</button>` : '')}
-      ${s.tmdbApiKey ? '' : `<div class="card" style="margin-bottom:16px"><p>${t('Les plateformes nécessitent une {link}.', { link: `<a href="#/settings/metadata">${t('clé TMDB')}</a>` })}</p></div>`}
-      <div class="card">${list.length ? `<div class="list" id="provList">${list.map((p) => `<div class="item" data-key="${p.id}">${handleBtn(list.length < 2)}
-          <div class="logo">${p.logo ? `<img src="${esc(p.logo)}" alt="">` : icon('tv')}</div>
-          <img src="${esc(p.cardUrl)}" alt="${esc(t('Carte {name}', { name: p.name }))}" loading="lazy" style="width:128px;height:72px;border-radius:8px;object-fit:cover;flex:none;background:var(--input)">
-          <div class="body"><div class="title">${esc(p.name)}</div>
-            <div class="meta"><span>${t('Fournisseur TMDB n° {id}', { id: p.id })}</span>${p.color ? `<span class="badge">${t('fond {color}', { color: esc(p.color) })}</span>` : ''}${p.card ? `<span class="badge accent">${t('image perso')}</span>` : ''}</div></div>
-          <div class="actions"><button class="btn ghost sm" data-edit="${p.id}">${icon('settings')}${t('Carte')}</button><button class="btn ghost icon-only" data-rm="${p.id}" title="${esc(t('Retirer'))}">${icon('trash')}</button></div></div>`).join('')}</div>`
-        : `<div class="empty">${icon('tv')}<p>${t('Aucune plateforme.')}</p></div>`}</div>`;
-    const el = $('#provList');
-    if (el) {
-      sortable(el, async (keys) => {
-        list.sort((a, b) => keys.indexOf(String(a.id)) - keys.indexOf(String(b.id)));
-        await persist(t('Ordre enregistré'));
-      });
-      el.addEventListener('click', async (e) => {
-        const rm = e.target.closest('[data-rm]');
-        if (rm) {
-          list = list.filter((p) => String(p.id) !== rm.dataset.rm);
-          return persist(t('Plateforme retirée'));
-        }
-        const ed = e.target.closest('[data-edit]');
-        if (ed) editCard(list.find((p) => String(p.id) === ed.dataset.edit));
-      });
+  $('#colList')?.addEventListener('click', async (e) => {
+    const chip = e.target.closest('.chip');
+    if (chip) {
+      const box = chip.closest('[data-for]');
+      chip.classList.toggle('on');
+      chip.setAttribute('aria-pressed', chip.classList.contains('on'));
+      const chosen = $$('.chip.on', box).map((x) => x.dataset.p);
+      const ok = await busy(null, () => api('PUT', `/collections/${encodeURIComponent(box.dataset.for)}/profiles`, { profiles: chosen }), t('Profils mis à jour'));
+      if (!ok) chip.classList.toggle('on');
+      return;
     }
-    if ($('#addProv')) $('#addProv').onclick = addDialog;
-  };
-
-  /** Couleur de fond et image personnalisee de la carte d'une plateforme. */
-  const editCard = async (p) => {
-    const done = modal({
-      title: t('Carte « {name} »', { name: p.name }),
-      lead: t('Par défaut : le logo officiel centré, sur la couleur de ses bords.'),
-      okLabel: t('Enregistrer'),
-      body: `<div class="stack">
-        <img src="${esc(p.cardUrl)}" alt="" style="width:100%;aspect-ratio:16/9;border-radius:10px;object-fit:cover;background:var(--input)">
-        <div class="field"><label>${t('Nom affiché')}</label><input name="name" type="text" maxlength="40" value="${esc(p.name)}" required></div>
-        <div class="field"><label>${t('Couleur de fond (facultatif)')}</label><div class="row"><input name="colorPick" type="color" value="${esc(p.color || '#000000')}" style="width:48px;height:38px;padding:2px">
-          <input name="color" type="text" placeholder="${esc(t('automatique'))}" value="${esc(p.color || '')}" style="width:140px"><button type="button" class="btn sm ghost" id="autoColor">${t('Automatique')}</button></div></div>
-        <div class="field"><label>${t('Image de carte personnalisée (facultatif)')}</label><input name="card" type="url" placeholder="https://…/carte.png (16:9)" value="${esc(p.card)}"><span class="help">${t('Remplace la carte générée.')}</span></div>
-      </div>`,
-      onOk: async (f) => {
-        const color = f.color.value.trim();
-        if (color && !/^#[0-9a-f]{6}$/i.test(color)) throw new Error(t('Couleur invalide (format #rrggbb)'));
-        Object.assign(p, { name: f.name.value.trim() || p.name, color, card: f.card.value.trim() });
-        return true;
-      }
-    });
-    // La fenetre est deja dans la page : selecteur de couleur et bouton "Automatique".
-    const form = $('.modal');
-    form.colorPick.oninput = () => (form.color.value = form.colorPick.value);
-    $('#autoColor').onclick = () => (form.color.value = '');
-    if (await done) await persist(t('Carte enregistrée'));
-  };
-  const addDialog = async () => {
-    const avail = await busy(null, () => api('GET', '/providers/available'));
-    if (!avail) return;
-    const chosen = new Set(list.map((p) => p.id));
-    const closed = modal({
-      title: t('Ajouter des plateformes'),
-      lead: t('Services de streaming connus de TMDB pour ton pays. Clique pour ajouter.'),
-      okLabel: t('Terminé'),
-      cancelLabel: '',
-      wide: true,
-      body: `<input type="search" id="provQ" placeholder="${esc(t('Rechercher…'))}" style="margin-bottom:12px"><div class="provider-pick" id="provPick">${avail.map((p) => `<button type="button" data-id="${p.id}" data-name="${esc(p.name)}" ${chosen.has(p.id) ? 'disabled' : ''}>${p.logo ? `<img src="${esc(p.logo)}" alt="">` : ''}<span>${esc(p.name)}</span></button>`).join('')}</div>`,
-      onOk: () => true
-    });
-    $('#provPick').onclick = async (e) => {
-      const b = e.target.closest('[data-id]');
-      if (!b || b.disabled) return;
-      b.disabled = true;
-      list.push({ id: Number(b.dataset.id), name: b.dataset.name });
-      const r = await busy(null, () => api('PUT', '/settings', { providers: strip(list) }));
-      if (r) state.settings = r;
-      else b.disabled = false;
-    };
-    $('#provQ').oninput = (e) => {
-      const q = e.target.value.toLowerCase();
-      $$('#provPick [data-id]').forEach((b) => (b.style.display = b.dataset.name.toLowerCase().includes(q) ? '' : 'none'));
-    };
-    await closed;
-    list = await api('GET', '/providers');
-    draw();
-  };
-  draw();
+    const img = e.target.closest('[data-img]');
+    if (img) return collectionImage(list.find((x) => x.id === img.dataset.col), img.dataset.img);
+    const rm = e.target.closest('[data-rm]');
+    if (!rm) return;
+    const c = list.find((x) => x.id === rm.dataset.rm);
+    if (await confirmDialog(t('Retirer « {name} » ?', { name: c.title }), t("Elle disparaît des profils qui l'utilisent. Rien n'est supprimé chez Nuvio."), t('Retirer'), true)) {
+      if (await busy(null, () => api('DELETE', `/collections/${encodeURIComponent(c.id)}`), t('Collection retirée'))) render();
+    }
+  });
 };
+
+/** Appairage par code : on valide le code sur le site Nuvio, la page le detecte toute seule. */
+/**
+ * Image de la tuile d'une collection (target vide), d'un dossier ("dossier") ou d'un sous-dossier
+ * ("dossier:n") : fichier, adresse, ou retour a l'image d'origine (Nuvio ou premier titre).
+ */
+async function collectionImage(c, target) {
+  const [folderId, index] = target.split(':');
+  const folder = c.folders.find((f) => f.id === folderId);
+  const source = index !== undefined ? folder?.sources.find((x) => x.index === Number(index)) : null;
+  const name = source ? source.label : folder ? folder.title : c.title;
+  const custom = source ? source.image : folder ? folder.image : c.image;
+  const preview = custom || (source ? null : folder ? folder.nuvioImage : c.nuvioImage);
+  const url = `/collections/${encodeURIComponent(c.id)}/image?target=${encodeURIComponent(target)}`;
+  const done = modal({
+    title: t('Image de « {name} »', { name }),
+    lead: target ? t('Image du dossier dans les apps, pour tous les profils. Format conseillé : paysage 16:9. PNG, JPEG, WebP ou GIF, 3 Mo max.') : t('Tuile de la collection dans « Mes médias », pour tous les profils (un profil peut toujours choisir la sienne). Format conseillé : paysage 16:9. PNG, JPEG, WebP ou GIF, 3 Mo max.'),
+    okLabel: t("Enregistrer l'adresse"),
+    body: `<div class="stack">
+      ${preview ? `<img src="${esc(preview)}" alt="" style="width:100%;aspect-ratio:16/9;border-radius:10px;object-fit:cover;background:var(--input)">` : ''}
+      <div class="row"><button type="button" class="btn" id="cImgUpload">${icon('camera')}${t('Envoyer une image')}</button>
+        ${custom ? `<button type="button" class="btn ghost" id="cImgAuto">${t("Revenir à l'image d'origine")}</button>` : ''}</div>
+      <input type="file" id="cImgFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+      <div class="field"><label>${t("Ou adresse d'une image")}</label><input name="url" type="url" placeholder="https://…/image.jpg" value="${esc(custom && /^https?:/.test(custom) ? custom : '')}"></div>
+    </div>`,
+    onOk: async (f) => {
+      if (!f.url.value.trim()) throw new Error(t('Indique une adresse, ou envoie une image'));
+      return api('PUT', url, { url: f.url.value.trim() });
+    }
+  });
+  const close = () => $('.backdrop [data-close]')?.click();
+  $('#cImgUpload').onclick = () => $('#cImgFile').click();
+  $('#cImgFile').onchange = async (ev) => {
+    const file = ev.target.files[0];
+    ev.target.value = '';
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024) return toast(t('Image trop lourde (3 Mo max.)'), true);
+    if (await busy($('#cImgUpload'), () => api('PUT', url, file), t('Image enregistrée'))) {
+      close();
+      render();
+    }
+  };
+  if ($('#cImgAuto')) $('#cImgAuto').onclick = async () => {
+    if (await busy($('#cImgAuto'), () => api('DELETE', url), t("Image d'origine"))) {
+      close();
+      render();
+    }
+  };
+  if (await done) {
+    toast(t('Image enregistrée'));
+    render();
+  }
+}
+
+async function pairNuvio() {
+  const p = await busy(null, () => api('POST', '/nuvio/pair'));
+  if (!p) return;
+  let connected = false;
+  const check = async () => {
+    const r = await api('POST', `/nuvio/pair/${encodeURIComponent(p.id)}`);
+    if (r.status === 'connected') connected = true;
+    return connected;
+  };
+  const closed = modal({
+    title: t('Associer un compte Nuvio'),
+    lead: t("Ouvre le site Nuvio, connecte-toi et valide l'association. Cette fenêtre se ferme toute seule."),
+    okLabel: t("J'ai validé le code"),
+    body: `<div class="stack" style="text-align:center;align-items:center">
+      <a class="btn primary" href="${esc(p.webUrl)}" target="_blank" rel="noopener noreferrer">${icon('link')}${t('Ouvrir le site Nuvio')}</a>
+      <div class="small faint">${t('Code de connexion')}<div class="pair-code">${esc(p.code)}</div></div>
+      <p class="small faint">${t('En attente de ta validation…')}</p></div>`,
+    onOk: async () => {
+      if (await check()) return true;
+      throw new Error(t('Code pas encore validé sur Nuvio'));
+    }
+  });
+  const timer = setInterval(async () => {
+    try {
+      if (await check()) $('.modal [data-close]')?.click();
+    } catch (e) {
+      clearInterval(timer);
+      toast(e.message, true);
+    }
+  }, 3000);
+  await closed;
+  clearInterval(timer);
+  if (connected) {
+    toast(t('Compte Nuvio associé'));
+    render();
+  }
+}
+
+/** Ajout de collections d'un profil Nuvio a la bibliotheque, avec les profils qui les voient. */
+async function addCollections(profiles) {
+  const nprofiles = await busy(null, () => api('GET', '/nuvio/profiles'));
+  if (!nprofiles) return;
+  if (!nprofiles.length) return toast(t('Aucun profil sur ce compte Nuvio'), true);
+  const done = modal({
+    title: t('Ajouter des collections'),
+    lead: t('Choisis un profil Nuvio, puis les collections à ajouter. Une collection déjà ajoutée est simplement mise à jour.'),
+    okLabel: t('Ajouter'),
+    wide: true,
+    body: `<div class="stack">
+      <div class="field"><label>${t('Profil Nuvio')}</label><select name="np">${nprofiles.map((p) => `<option value="${p.index}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="list col-pick" id="colPick"></div>
+      <div class="field"><label>${t('Visibles pour')}</label><div class="chips" id="colFor">${profiles.map((p) => `<button type="button" class="chip on" data-p="${esc(p.id)}" aria-pressed="true">${esc(p.name)}</button>`).join('')}</div>
+        <span class="help">${t('Profils Stremfin qui voient ces collections (modifiable ensuite).')}</span></div>
+    </div>`,
+    onOk: async (form) => {
+      const ids = $$('#colPick input:checked', form).map((x) => x.value);
+      if (!ids.length) throw new Error(t('Aucune collection choisie'));
+      return api('POST', '/collections/import', { profile: Number(form.np.value), ids, profiles: $$('#colFor .chip.on', form).map((x) => x.dataset.p) });
+    }
+  });
+  const form = $('.modal');
+  $('#colFor').onclick = (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    chip.classList.toggle('on');
+    chip.setAttribute('aria-pressed', chip.classList.contains('on'));
+  };
+  const load = async () => {
+    const box = $('#colPick');
+    box.innerHTML = `<p class="muted"><span class="spinner"></span> ${t('Chargement…')}</p>`;
+    const cols = await busy(null, () => api('GET', `/nuvio/profiles/${form.np.value}/collections`));
+    if (!box.isConnected) return;
+    box.innerHTML = cols?.length
+      ? cols.map((c) => `<label class="item"><input type="checkbox" value="${esc(c.rawId)}">
+          <div class="col-thumb">${c.backdrop ? `<img src="${esc(c.backdrop)}" alt="" loading="lazy">` : icon('layers')}</div>
+          <div class="body"><div class="title">${esc(c.title)}${c.imported ? `<span class="badge ok">${t('Déjà ajoutée')}</span>` : ''}</div>
+          <div class="meta">${t('{n} dossier(s)', { n: c.folders })} · ${t('{n} source(s)', { n: c.sources })}</div></div></label>`).join('')
+      : `<div class="empty">${icon('layers')}<p>${t("Ce profil Nuvio n'a pas de collection.")}</p></div>`;
+  };
+  form.np.onchange = load;
+  load();
+  const r = await done;
+  if (r) {
+    toast(t('{n} collection(s) ajoutée(s)', { n: r.added }));
+    render();
+  }
+}
 
 // ---- Maintenance -----------------------------------------------------------------------------------
 

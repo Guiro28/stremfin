@@ -445,7 +445,8 @@ router.get(['/Users/:u/Items', '/Items'], async (req, res) => {
   const wantEpisodes = types.some((t) => t.toLowerCase() === 'episode') && q.recursive === 'true';
   const { items, total } = await library.children(p, parentId, { start, limit: limit || 100, genre, episodes: wantEpisodes, sort: librarySort(req, q) });
   const parent = ids.get(parentId);
-  const loose = ['platform', 'platformlist'].includes(parent?.kind) || (parent?.kind === 'view' && parent.data.type === 'platforms');
+  // Collection (dossiers) et dossier de collection (films et series melanges) : pas de filtre de type.
+  const loose = ['colfolder', 'colcat'].includes(parent?.kind) || (parent?.kind === 'view' && parent.data.type === 'nuviocol');
   const shown = filterPlayed(loose ? items : items.filter(typeOk), q);
   send(shown, shown.length === items.length ? total : shown.length + start);
 });
