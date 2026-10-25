@@ -1,0 +1,22 @@
+{
+  "name": "stremfin",
+  "version": "0.1.0",
+  "description": "Serveur compatible Jellyfin qui sert les catalogues et sources de tes addons Stremio/Nuvio aux applications Jellyfin.",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "http-proxy-agent": "^7.0.2",
+    "https-proxy-agent": "^7.0.5",
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^7.0.0",
+    "socks-proxy-agent": "^8.0.4",
+    "ws": "^8.18.0"
+  }
+}

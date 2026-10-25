@@ -1,0 +1,73 @@
+# Stremfin + Cloudflare WARP (sortie SOCKS5)
+#
+#   docker compose up -d
+#
+# Les addons, TMDB et les videos (mode "via le serveur") sortent par WARP grace a
+# UPSTREAM_MODE=socks / UPSTREAM_URL=socks5://warp:1080. Ces valeurs ne servent qu'au
+# 1er demarrage : ensuite tout se regle dans l'interface (Reglages -> Lecture et reseau).
+
+services:
+  warp:
+    image: caomingjun/warp
+    container_name: stremfin-warp
+    restart: unless-stopped
+    # SOCKS5 sur le port 1080, joignable par Stremfin via socks5://warp:1080.
+    # Pas de port publie sur l'hote : decommente seulement pour tes propres tests.
+    # ports:
+    #   - "1080:1080"
+    environment:
+      - WARP_SLEEP=2
+      # WARP+ (facultatif) : colle ta cle pour de meilleures perfs
+      # - WARP_LICENSE_KEY=xxxxxxxx-xxxxxxxx-xxxxxxxx
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv4.conf.all.src_valid_mark=1
+    volumes:
+      - ./warp-data:/var/lib/cloudflare-warp
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--max-time", "8", "--socks5", "localhost:1080", "https://cloudflare.com/cdn-cgi/trace"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  stremfin:
+    image: ghcr.io/guiro28/stremfin:latest
+    # Pour construire l'image localement au lieu de la telecharger, remplace la ligne
+    # ci-dessus par :
+    # build: .
+    container_name: stremfin
+    restart: unless-stopped
+    depends_on:
+      warp:
+        condition: service_healthy
+    ports:
+      - "8096:8096"        # API Jellyfin + interface Stremfin (racine)
+      - "7359:7359/udp"    # decouverte automatique sur le reseau local
+    environment:
+      - PORT=8096
+      - DATA_DIR=/app/data
+      # Sortie reseau = WARP (SOCKS5) des le 1er demarrage.
+      - UPSTREAM_MODE=socks
+      - UPSTREAM_URL=socks5://warp:1080
+      # Facultatif : compte admin initial. Sinon, l'interface (racine du serveur) le fait
+      # creer au premier acces. Ensuite, tout se regle dans l'interface.
+      # - AUTH_USER=admin
+      # - AUTH_PASS=un-mot-de-passe-solide
+      # Recommande : cle API TMDB (fiches en francais, tendances, plateformes, sagas).
+      # Elle peut aussi etre saisie dans l'interface (Reglages -> Metadonnees).
+      # - TMDB_API_KEY=ta_cle_v3
+      # Optionnel : torrents lus via un serveur de streaming Stremio (voir plus bas).
+      # - TORRENT_SERVER=http://stremio-server:11470
+    volumes:
+      - ./data:/app/data
+
+  # Decommente pour lire les sources torrent sans debrideur.
+  # stremio-server:
+  #   image: stremio/server:latest
+  #   container_name: stremio-server
+  #   restart: unless-stopped

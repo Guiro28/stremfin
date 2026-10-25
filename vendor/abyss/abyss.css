@@ -1,0 +1,2925 @@
+/* 1. IMPORTS & FONTS
+   - Override this to customise font of abyss for your setup. */
+
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans:ital,opsz,wght@0,17..18,400..700;1,17..18,400..700&display=swap');
+
+@font-face {
+    font-family: 'Material Icons Round';
+    font-style: normal;
+    font-weight: 400;
+    src: url(https://cdn.jsdelivr.net/npm/material-icons@1.13.12/iconfont/material-icons-round.woff2) format('woff2');
+}
+
+/* Force rendering on icon elements across the theme */
+.material-icons-round,
+.material-symbols-rounded,
+[class*="material-icons"] {
+    font-family: 'Material Icons Round' !important;
+    font-weight: normal;
+    font-style: normal;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+
+    -webkit-font-feature-settings: 'liga';
+    font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+/* 2. THEME VARIABLES
+   — Override these to customise abyss for your setup. */
+
+:root {
+    /* Primary accent colour — used for highlights, active states, progress bars.
+       Format: R, G, B (no rgb() wrapper) so opacity variants work cleanly. */
+    --abyss-accent: 245, 245, 247;
+    /* Space-separated twin used by Jellyfin 12's MUI channel variables. */
+    --abyss-accent-channel: 245 245 247;
+
+    /* Corner rounding applied globally */
+    --abyss-radius: 12px;
+
+    /* Fixed defaults */
+
+    /* Backgorund for drawers and dialogs */
+    --abyss-glass-tint: 42, 42, 42;
+
+    /* Custom cubic-bezier */
+    --abyss-ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --abyss-ease-snappy: cubic-bezier(0.4, 0.0, 0.2, 1);
+
+    /* Rendering controls used by the optional Lite override */
+    --abyss-backdrop-blur: 23px;
+    --abyss-glass-blur: 15px;
+}
+
+/* Jellyfin 12 exposes the built-in theme palette as CSS variables. Keep the
+   MUI and legacy surfaces on the same Abyss palette without relying on
+   generated Emotion class names. */
+html[data-theme="dark"] {
+    --jf-palette-primary-main: rgb(var(--abyss-accent));
+    --jf-palette-primary-mainChannel: var(--abyss-accent-channel);
+    --jf-palette-primary-contrastText: #121212;
+    --jf-palette-secondary-main: rgb(var(--abyss-accent));
+    --jf-palette-secondary-mainChannel: var(--abyss-accent-channel);
+    --jf-palette-secondary-contrastText: #121212;
+    --jf-palette-AppBar-defaultBg: rgba(var(--abyss-glass-tint), 0.92);
+    --jf-palette-AppBar-transparentBg: rgba(var(--abyss-glass-tint), 0.72);
+    --jf-card-borderRadius: var(--abyss-radius);
+    --jf-palette-error-main: #f92672;
+    --jf-palette-error-light: rgb(249, 38, 114);
+    --jf-palette-error-dark: rgb(172, 26, 78);
+}
+
+
+/* 3. BASE / GLOBAL */
+
+#reactRoot {
+    scrollbar-gutter: stable;
+}
+
+body {
+    font-family: "Google Sans", sans-serif;
+    font-optical-sizing: auto;
+    font-style: normal;
+    font-variation-settings: "GRAD" 0;
+    overscroll-behavior: none;
+}
+
+.material-icons {
+    font-family: 'Material Icons Round' !important;
+    font-weight: normal;
+    font-style: normal;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    font-feature-settings: 'liga';
+    -webkit-font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+}
+
+:root {
+    scrollbar-color: rgba(var(--abyss-accent), 0.8) #0000 !important;
+}
+
+::-webkit-scrollbar-track-piece {
+    background-color: #0000;
+}
+
+::-webkit-scrollbar-corner {
+    background-color: #0000;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(var(--abyss-accent), 0.8) !important;
+    border-radius: var(--abyss-radius);
+}
+
+fieldset {
+    border: 1px solid rgba(40, 40, 40, 0.8);
+    border-radius: 0.4em;
+}
+
+progress {
+    border-radius: var(--abyss-radius);
+    background: rgba(0, 0, 0, 0.5) !important;
+    border: 1px solid rgba(var(--abyss-accent), 0.22);
+}
+
+progress::-webkit-progress-bar {
+    border-radius: var(--abyss-radius);
+    background: rgba(0, 0, 0, 0.5) !important;
+    border: 0px solid rgba(var(--abyss-accent), 0.22);
+}
+
+progress::-moz-progress-bar {
+    border-radius: var(--abyss-radius);
+    background-color: rgba(var(--abyss-accent), 0.75);
+}
+
+progress::-webkit-progress-value {
+    border-radius: var(--abyss-radius);
+    background-color: rgba(var(--abyss-accent), 0.75);
+}
+
+.taskProgressOuter,
+.taskProgressInner {
+    border-radius: var(--abyss-radius) !important;
+}
+
+.taskProgressOuter {
+    background: rgba(0, 0, 0, 0.5) !important;
+    border: 1px solid rgba(var(--abyss-accent), 0.22);
+}
+
+.taskProgressInner,
+#videoOsdPage .sliderMarker.watched {
+    background: rgba(var(--abyss-accent), 1) !important;
+}
+
+#videoOsdPage .sliderMarker.unwatched {
+    background: hsl(0deg 0% 30%) !important;
+}
+
+.mdl-slider-background-flex {
+    background: hsl(0deg 0% 30%) !important;
+}
+
+#divRunningTasks span {
+    color: rgba(var(--abyss-accent), 0.75) !important;
+}
+
+#scheduledTasksPage span {
+    color: rgba(var(--abyss-accent), 0.75) !important;
+}
+
+/* Override browser default blue focus/selection colour */
+::selection {
+    background: rgba(var(--abyss-accent), 0.25);
+    color: rgb(var(--abyss-accent));
+}
+
+::-moz-selection {
+    background: rgba(var(--abyss-accent), 0.25);
+    color: rgb(var(--abyss-accent));
+}
+
+:focus-visible {
+    outline-color: rgba(var(--abyss-accent), 0.6) !important;
+}
+
+input:focus,
+textarea:focus,
+select:focus,
+.emby-input:focus,
+.emby-textarea:focus,
+.emby-select:focus,
+.emby-select-withcolor:focus,
+.checkboxOutline:focus {
+    border-color: rgba(var(--abyss-accent), 0.4) !important;
+}
+
+input[type="checkbox"]:checked,
+input[type="radio"]:checked {
+    accent-color: rgb(var(--abyss-accent));
+}
+
+/* Override Chromium/Electron blue accent globally */
+:root {
+    accent-color: rgb(var(--abyss-accent));
+}
+
+/* 4. TYPOGRAPHY */
+
+.headerTabs.sectionTabs {
+    text-size-adjust: 110%;
+    font-size: 110%;
+    padding-top: 8px;
+    margin-top: -2em;
+    width: fit-content;
+    max-width: 95vw;
+    align-self: center !important;
+    border-radius: 50px;
+}
+
+.pageTitle {
+    margin-top: auto;
+    margin-bottom: auto;
+    font-size: x-large;
+    opacity: 0.8;
+    font-weight: 500;
+    border-radius: 12px;
+}
+
+.pageTitle:not(:empty) {
+    padding: 0 12px;
+}
+
+.pageTitle.pageTitleWithLogo.pageTitleWithDefaultLogo {
+    display: none !important;
+}
+
+
+#tvRecommendedPage .pageTitle,
+#moviesPage .pageTitle,
+#musicRecommendedPage .pageTitle,
+#itemDetailPage .pageTitle {
+    display: none !important;
+}
+
+#videoOsdPage .pageTitle {
+    display: flex !important;
+}
+
+.settingsContainer .MuiTypography-h2,
+.sectionTitle {
+    font-weight: 600;
+}
+
+.settingsContainer .MuiTypography-h2,
+.homeScreenSettingsContainer .sectionTitle,
+#quickConnectPreferencesPage .sectionTitle,
+.settingsContainer .sectionTitle {
+    font-size: xx-large;
+}
+
+.settingsContainer .MuiTypography-h2 {
+    margin-block-start: 0.83em;
+}
+
+.settingsContainer .MuiInputBase-root.MuiFilledInput-underline::after,
+.settingsContainer .MuiInputBase-root.MuiFilledInput-underline::before {
+    border-bottom: none !important;
+}
+
+#favoritesTab .sectionTitle,
+.homeSectionsContainer .sectionTitle {
+    margin-left: .4em !important;
+    margin-top: .2em !important;
+    margin-bottom: .2em !important;
+}
+
+.sectionTitleTextButton>.material-icons {
+    margin: 0;
+}
+
+.sectionTitleTextButton:not(.padded-left) {
+    padding: 4px 12px 6px 6px !important;
+    margin-left: -6px !important;
+    border-radius: var(--abyss-radius);
+}
+
+.sectionTitleTextButton>.sectionTitle {
+    margin-right: 16px;
+}
+
+.inputLabel,
+.selectLabel,
+.checkboxLabel {
+    font-weight: 500;
+}
+
+.cardText {
+    padding: .06em .5em 0 .06em;
+    font-weight: 200;
+    font-size: medium;
+    opacity: 0.8;
+}
+
+.cardText-first {
+    margin-top: 4px !important;
+    font-weight: 600;
+    font-size: larger !important;
+    opacity: 1 !important;
+}
+
+.cardTextCentered,
+.cardTextCentered>.textActionButton {
+    text-align: left !important;
+}
+
+.itemName {
+    margin: .5em 0 !important;
+}
+
+.starIcon {
+    color: rgba(var(--abyss-accent), .8);
+}
+
+.dialog {
+    font-weight: 500;
+}
+
+.formDialogHeaderTitle {
+    font-weight: bold !important;
+    margin-left: 0 !important;
+}
+
+#dialogToc {
+    overflow: clip;
+    display: flex;
+    flex-direction: column;
+}
+
+#dialogToc .toc {
+    overflow-y: scroll;
+}
+
+#dialogToc .toc li {
+    margin-bottom: 12px;
+}
+
+
+/* 5. LAYOUT & STRUCTURE */
+
+/* Header */
+.headerTop {
+    padding: 2em 0 !important;
+}
+
+.skinHeader {
+    background-color: transparent;
+    display: flex !important;
+    justify-items: center !important;
+    align-self: center !important;
+    justify-content: center !important;
+}
+
+.skinHeader.semiTransparent {
+    background-color: transparent;
+}
+
+.skinHeader-withBackground::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 8em;
+    pointer-events: none;
+    background: none;
+    z-index: 1;
+}
+
+.headerLeft,
+.headerRight {
+    padding: 0 31px;
+    align-items: center;
+}
+
+.headerUserButtonRound {
+    border-radius: 50px !important;
+}
+
+/* Jellyfin 12 modern app shell (React / MUI) [BETA] */
+
+.alphaPicker-fixed-right {
+    align-self: center;
+}
+
+.alphaPicker-fixed-right .MuiPaper-root {
+    background: rgba(var(--abyss-glass-tint), 0.2);
+    -webkit-backdrop-filter: blur(var(--abyss-glass-blur));
+    backdrop-filter: blur(var(--abyss-glass-blur));
+    padding: 2px !important;
+    border-radius: 50px !important;
+}
+
+.alphaPicker-fixed-right .MuiPaper-root .MuiButtonBase-root {
+    border-radius: 50px !important;
+    font-family: monospace;
+    padding: 0 7.5px;
+    margin: 1px 0;
+}
+
+.MuiTouchRipple-root {
+    color: rgb(var(--abyss-accent));
+}
+
+header.MuiAppBar-root>.MuiToolbar-root {
+    position: relative;
+}
+
+header.MuiAppBar-root>.MuiToolbar-root>.MuiStack-root:first-of-type {
+    position: absolute;
+    left: 45%;
+    transform: translateX(-45%);
+}
+
+html[data-theme="dark"] header.MuiAppBar-root>.MuiToolbar-root:nth-of-type(2) .MuiButtonBase-root {
+    -webkit-backdrop-filter: blur(var(--abyss-glass-blur));
+    backdrop-filter: blur(var(--abyss-glass-blur));
+}
+
+header.MuiAppBar-root>.MuiToolbar-root>.MuiBox-root:last-child {
+    order: initial;
+    margin-right: initial;
+}
+
+header.MuiAppBar-root>.MuiToolbar-root>.MuiStack-root:last-child {
+    overflow: scroll;
+    scrollbar-width: none;
+}
+
+
+/*Filter button Group buttons*/
+header.MuiAppBar-root>.MuiToolbar-root>.MuiStack-root:last-child .MuiButtonGroup-root:nth-last-child(2) .MuiButtonBase-root {
+    border-radius: 12px !important;
+    padding: 0.56rem !important;
+}
+
+/*Counter Chip*/
+header.MuiAppBar-root>.MuiToolbar-root:nth-child(2)>.MuiBox-root>.MuiChip-root {
+    font-family: "Google Sans", sans-serif !important;
+    font-size: medium;
+    font-weight: 500;
+    padding: 0.75rem 0;
+    height: auto;
+    background-color: transparent !important;
+    color: rgba(var(--abyss-accent), 0.78);
+    border-radius: var(--abyss-radius) !important;
+    margin: 0;
+    transition: background-color 0.25s var(--abyss-ease), color 0.25s var(--abyss-ease), transform 0.25s var(--abyss-ease);
+    -webkit-backdrop-filter: blur(var(--abyss-glass-blur));
+    backdrop-filter: blur(var(--abyss-glass-blur));
+}
+
+
+header.MuiAppBar-root>.MuiToolbar-root:has(> .MuiStack-root:first-of-type)>.MuiBox-root:last-child {
+    order: -1;
+    margin-right: auto;
+}
+
+body:has(#videoOsdPage:not(.hide)) header.MuiAppBar-root>.MuiToolbar-root>.MuiBox-root:last-child {
+    order: initial;
+    margin-right: initial;
+}
+
+html[data-theme="dark"] .MuiBox-root .tabContent.pageTabContent.is-active.abyss-spotlight-active .featurediframe.focusable {
+    margin-top: 52px;
+}
+
+html[data-theme="dark"] header.MuiAppBar-root {
+    color: rgb(var(--abyss-accent));
+    background-color: transparent !important;
+    background: transparent !important;
+    background-image: none !important;
+    box-shadow: none !important;
+    --Paper-shadow: none;
+    --Paper-overlay: none;
+}
+
+html[data-theme="dark"] header.MuiAppBar-root {
+    background: transparent !important;
+    overflow: visible;
+}
+
+html[data-theme="dark"] .MuiButton-icon img[src*="icon-transparent"] {
+    max-height: 0.85em !important;
+    max-width: 0.85em !important;
+    opacity: 0.85;
+    filter: brightness(0) invert(1);
+}
+
+
+html[data-theme="dark"] header.MuiAppBar-root:has(> .MuiToolbar-root + .MuiToolbar-root)::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 10rem;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.28) 55%, rgba(0, 0, 0, 0) 100%);
+    -webkit-backdrop-filter: blur(var(--abyss-glass-blur));
+    backdrop-filter: blur(var(--abyss-glass-blur));
+    -webkit-mask-image: linear-gradient(to bottom, black 0%, black 55%, transparent 100%);
+    mask-image: linear-gradient(to bottom, black 0%, black 55%, transparent 100%);
+}
+
+html[data-theme="dark"] header.MuiAppBar-root.MuiAppBar-positionFixed {
+    border: none;
+    --Paper-shadow: none !important;
+}
+
+html[data-theme="dark"] header.MuiAppBar-root .MuiStack-root:first-of-type {
+    border-radius: 50px;
+    padding: 4px;
+    overflow: auto;
+    scrollbar-width: none;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(87, 87, 87, 0);
+    -webkit-backdrop-filter: blur(var(--abyss-glass-blur)) !important;
+    backdrop-filter: blur(var(--abyss-glass-blur)) !important;
+    background-color: transparent;
+    transition: all 0.45s var(--abyss-ease)
+}
+
+html[data-theme="dark"] header.MuiAppBar-root.MuiPaper-elevation1 .MuiStack-root:first-of-type {
+    border: 1px solid rgba(87, 87, 87, 0.18);
+    background-color: rgba(var(--abyss-glass-tint), 0.69) !important;
+    transition: all 0.45s var(--abyss-ease)
+}
+
+html[data-theme="dark"] header.MuiAppBar-root .MuiToolbar-root:first-of-type .MuiButtonBase-root {
+    border-radius: 50px;
+}
+
+html[data-theme="dark"] header.MuiAppBar-root .MuiButtonBase-root.MuiIconButton-root {
+    border-radius: var(--abyss-radius) !important;
+    background: transparent !important;
+    -webkit-backdrop-filter: blur(var(--abyss-glass-blur)) !important;
+    backdrop-filter: blur(var(--abyss-glass-blur)) !important;
+}
+
+html[data-theme="dark"] header.MuiAppBar-root .MuiButtonBase-root.MuiIconButton-root:has(.MuiAvatar-root) {
+    border-radius: 50px !important;
+    padding: 0 !important;
+    margin-left: 0.48rem
+}
+
+html[data-theme="dark"] header.MuiAppBar-root>.MuiToolbar-root:not(:has(> .MuiStack-root:first-of-type))>.MuiButtonBase-root:first-child {
+    margin: 0 8px !important;
+}
+
+html[data-theme="dark"] header.MuiAppBar-root .MuiBox-root {
+    gap: 0.48rem;
+}
+
+
+html[data-theme="dark"] .MuiToolbar-root {
+    min-height: 64px;
+}
+
+html[data-theme="dark"] .MuiTypography-root {
+    font-family: "Google Sans", sans-serif !important;
+}
+
+html[data-theme="dark"] .MuiToolbar-root .MuiButton-root,
+html[data-theme="dark"] .MuiToolbar-root .MuiIconButton-root {
+    color: rgba(var(--abyss-accent), 0.78);
+    border-radius: var(--abyss-radius);
+    transition: background-color 0.25s var(--abyss-ease),
+        color 0.25s var(--abyss-ease),
+        transform 0.25s var(--abyss-ease);
+}
+
+html[data-theme="dark"] .MuiToolbar-root .MuiButton-root {
+    min-width: auto;
+    padding: 0.56rem 1rem;
+    font-family: inherit;
+    font-weight: 600;
+    line-height: 1.25;
+    text-transform: none;
+}
+
+html[data-theme="dark"] .MuiToolbar-root .MuiIconButton-root {
+    padding: 0.6rem;
+}
+
+html[data-theme="dark"] .MuiToolbar-root .MuiButtonGroup-root {
+    border-radius: 50px;
+    gap: 0.1rem;
+    box-shadow: none;
+}
+
+.MuiToolbar-root .MuiButtonGroup-root .MuiButtonBase-root {
+    border: none;
+}
+
+.MuiButtonGroup-root .MuiButtonGroup-firstButton {
+    border-top-left-radius: 50px !important;
+    border-bottom-left-radius: 50px !important;
+}
+
+.MuiButtonGroup-root .MuiButtonGroup-lastButton {
+    border-top-right-radius: 50px !important;
+    border-bottom-right-radius: 50px !important;
+}
+
+html[data-theme="dark"] .MuiToolbar-root .MuiButton-root:hover,
+html[data-theme="dark"] .MuiToolbar-root .MuiIconButton-root:hover {
+    color: rgb(var(--abyss-accent));
+    background-color: rgba(var(--abyss-accent), 0.12);
+}
+
+html[data-theme="dark"] .MuiToolbar-root .MuiButton-root.MuiButton-colorPrimary {
+    color: #121212;
+    background-color: rgb(var(--abyss-accent));
+}
+
+html[data-theme="dark"] .MuiToolbar-root .MuiButton-root.MuiButton-colorPrimary:hover {
+    color: #121212;
+    background-color: rgba(var(--abyss-accent), 0.88);
+}
+
+html[data-theme="dark"] .MuiDrawer-paper,
+html[data-theme="dark"] .MuiMenu-paper,
+html[data-theme="dark"] .MuiDialog-paper {
+    color: rgb(var(--abyss-accent));
+    background-color: rgba(var(--abyss-glass-tint), 0.72);
+    background-image: none;
+    border: 1px solid rgba(var(--abyss-accent), 0.16);
+    box-shadow: 0 8px 36px rgba(0, 0, 0, 0.32);
+    -webkit-backdrop-filter: blur(var(--abyss-glass-blur));
+    backdrop-filter: blur(var(--abyss-glass-blur));
+}
+
+html[data-theme="dark"] .MuiDrawer-paper {
+    background-color: rgba(var(--abyss-glass-tint), 0.69);
+    border-radius: 32px !important;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    border: solid 1px rgba(245, 245, 247, 0.2) !important;
+    left: 24px;
+    top: 24px;
+    bottom: 24px;
+    padding: 24px 0;
+    max-height: stretch;
+    min-width: fit-content;
+    width: 42vw;
+}
+
+html[data-theme="dark"] .MuiDrawer-paper .MuiDivider-root {
+    display: none;
+}
+
+html[data-theme="dark"] .MuiDrawer-paper .MuiListItemIcon-root {
+    background: #cccccf69;
+    border-radius: 50px;
+    padding: 10px;
+    min-width: auto;
+    margin-right: 0.75em;
+}
+
+html[data-theme="dark"] .MuiDrawer-paper .MuiListItemIcon-root img[src*="icon-transparent"] {
+    max-height: 24px !important;
+    max-width: 24px !important;
+    opacity: 0.85;
+    filter: brightness(0) invert(1);
+}
+
+html[data-theme="dark"] .MuiDrawer-paper .MuiListItemButton-root:hover .MuiListItemIcon-root img[src*="icon-transparent"],
+html[data-theme="dark"] .MuiDrawer-paper .MuiListItemButton-root.Mui-selected .MuiListItemIcon-root img[src*="icon-transparent"] {
+    filter: brightness(0) invert(0);
+}
+
+html[data-theme="dark"] .MuiDrawer-paper .MuiListItemText-root .MuiTypography-root {
+    font-weight: 500;
+    font-size: large;
+}
+
+html[data-theme="dark"] .MuiListItemButton-root:hover .MuiListItemText-root .MuiTypography-root,
+html[data-theme="dark"] .MuiListItemButton-root.Mui-selected .MuiListItemText-root .MuiTypography-root {
+    font-weight: 700;
+    color: #121212;
+}
+
+html[data-theme="dark"] .MuiDrawer-paper .MuiListSubheader-root {
+    margin: 0.9em 0 0.2em;
+    letter-spacing: 0.02em;
+    opacity: 0.5;
+    font-weight: 600;
+    font-size: medium;
+}
+
+html[data-theme="dark"] .MuiMenu-paper {
+    border-radius: 24px;
+    padding: 0 8px;
+}
+
+html[data-theme="dark"] .MuiMenu-paper .MuiButtonBase-root {
+    border-radius: 16px;
+    padding: 12px 16px;
+}
+
+html[data-theme="dark"] .MuiDialog-paper {
+    border-radius: var(--abyss-radius);
+}
+
+html[data-theme="dark"] .MuiListItemButton-root {
+    margin: 2px 8px;
+    padding: 0.5em 0.9em !important;
+    margin-bottom: 2px !important;
+    border-radius: 12px !important;
+    transition: background-color 0.25s var(--abyss-ease),
+        color 0.25s var(--abyss-ease);
+}
+
+html[data-theme="dark"] .MuiListItemButton-root:hover,
+html[data-theme="dark"] .MuiMenu-paper .MuiButtonBase-root:hover {
+    background: rgb(var(--abyss-accent)) !important;
+    color: #121212;
+}
+
+html[data-theme="dark"] .MuiListItemButton-root:hover .MuiSvgIcon-root,
+html[data-theme="dark"] .MuiListItemButton-root.Mui-selected .MuiSvgIcon-root,
+html[data-theme="dark"] .MuiMenu-paper .MuiButtonBase-root:hover .MuiSvgIcon-root,
+html[data-theme="dark"] .MuiMenu-paper .MuiButtonBase-root:hover .MuiSvgIcon-root {
+    color: #121212 !important;
+}
+
+html[data-theme="dark"] .MuiListItemButton-root.Mui-selected,
+html[data-theme="dark"] .MuiListItemButton-root.Mui-selected:hover {
+    color: #121212;
+    background-color: rgb(var(--abyss-accent));
+}
+
+html[data-theme="dark"] .MuiFilledInput-root,
+html[data-theme="dark"] .MuiOutlinedInput-root {
+    border-radius: var(--abyss-radius);
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Let the Modern app bar float over Spotlight instead of reserving an opaque
+   strip above it. The loader owns this state so other routes keep their
+   normal app-bar spacing. */
+html.abyss-spotlight-visible[data-theme="dark"] .MuiAppBar-root.MuiAppBar-colorTransparent:has(+div[aria-hidden="true"]) {
+    background-color: transparent !important;
+    background-image: none !important;
+    border-bottom-color: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+html.abyss-spotlight-visible[data-theme="dark"] .MuiAppBar-root+div[aria-hidden="true"] {
+    height: 0 !important;
+}
+
+/* Main content */
+.backdropImage {
+    -webkit-filter: blur(var(--abyss-backdrop-blur)) saturate(120%) contrast(120%) brightness(25%);
+    filter: blur(var(--abyss-backdrop-blur)) saturate(120%) contrast(120%) brightness(25%);
+}
+
+.hideMainDrawer .backdropImage {
+    -webkit-filter: none;
+    filter: none;
+}
+
+.backdropContainer {
+    width: 100vw;
+    height: 100vh;
+    overflow: visible;
+}
+
+.backgroundContainer.withBackdrop {
+    background-color: rgba(0, 0, 0, 0);
+}
+
+
+
+/* Navigation / drawer */
+.editPageSidebar,
+.mainDrawer {
+    background-color: rgba(var(--abyss-glass-tint), 0.69);
+    margin: 24px 0;
+    border-radius: 32px;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    border: solid 1px rgba(245, 245, 247, 0.2) !important;
+}
+
+.mainDrawer.drawer-open {
+    margin: 24px;
+}
+
+.sidebarHeader {
+    margin: 0.9em 0 0.2em;
+    letter-spacing: 0.02em;
+    opacity: 0.5;
+    font-weight: 600;
+}
+
+[dir=ltr] .sidebarHeader {
+    padding-left: 0.8em;
+}
+
+.emby-tabs {
+    border-radius: 50px;
+}
+
+.emby-tabs-slider {
+    border-radius: 50px;
+    padding: 5px 2.5px;
+    overflow: auto;
+    scrollbar-width: none;
+    background-color: rgba(var(--abyss-glass-tint), 0.9);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(87, 87, 87, 0.18);
+}
+
+/* Engines without scrollbar-width support (Chromium <121, e.g. JMP) */
+.emby-tabs-slider::-webkit-scrollbar {
+    display: none;
+}
+
+.navMenuOptionText {
+    margin-top: 0;
+    font-weight: 500;
+    font-size: large;
+}
+
+.navMenuOptionIcon,
+.listItemIcon {
+    background: #cccccf69;
+    border-radius: 50px;
+    padding: 10px;
+}
+
+[dir=ltr] .navMenuOptionIcon {
+    margin-right: 0.75em;
+}
+
+[dir=ltr] .listItemIcon {
+    background: #cccccf69 !important;
+    border-radius: 50px !important;
+    padding: 10px !important;
+}
+
+[dir=ltr] .navMenuOption {
+    padding: 0.5em 0.9em !important;
+    margin-bottom: 2px !important;
+    border-radius: 12px !important;
+}
+
+.scrollContainer {
+    padding: 36px 12px 0 12px;
+}
+
+/* Footer */
+.appfooter {
+    background: rgba(0, 0, 0, 0.9);
+    margin: 24px;
+    border-radius: 24px;
+}
+
+/* Backdrop / detail ribbon */
+.layout-tv .itemBackdrop,
+.layout-desktop .itemBackdrop {
+    height: 20vh !important;
+    display: inherit;
+}
+
+.layout-tv .detailRibbon,
+.layout-desktop .detailRibbon {
+    background: rgba(0, 0, 0, .2) !important;
+    margin-top: 0;
+    padding-top: .5em;
+    padding-bottom: .5em;
+}
+
+.itemBackdrop::after {
+    background: rgba(0, 0, 0, .5) !important;
+}
+
+#itemDetailPage .detailLogo {
+    position: static;
+    margin-left: 32.5%;
+    display: block;
+    filter: drop-shadow(0 0 10px rgba(2, 2, 2, 0.75));
+    -webkit-filter: drop-shadow(0 0 10px rgba(2, 2, 2, 0.75));
+    flex-shrink: 0;
+    background-position: 0 50%;
+    margin-bottom: 2vh;
+}
+
+/* Infobanner */
+.infoBanner {
+    background: #101010;
+}
+
+/* Blurhash canvas */
+.blurhash-canvas {
+    -webkit-filter: blur(var(--abyss-backdrop-blur)) saturate(120%) contrast(120%) brightness(25%);
+    filter: opacity(60%) saturate(60%);
+}
+
+/* Default card backgrounds */
+.defaultCardBackground1 {
+    background-color: #0a0a0a;
+}
+
+.defaultCardBackground2 {
+    background-color: #141414;
+}
+
+.defaultCardBackground3 {
+    background-color: #212121;
+}
+
+.defaultCardBackground4 {
+    background-color: #333333;
+}
+
+.defaultCardBackground5 {
+    background-color: #666666;
+}
+
+/* Hide card text in My Media section */
+.homeSectionsContainer .verticalSection:has([data-type="CollectionFolder"]) .cardText {
+    display: none !important;
+}
+
+.homeSectionsContainer {
+    padding: 0 7px !important;
+}
+
+#indexPage:has(.featurediframe) #favoritesTab {
+    margin-top: 7.5rem !important;
+}
+
+
+
+/* Disable theme selectors - managed by Abyss */
+
+.selectContainer:has(#selectTheme),
+.selectDashboardThemeContainer {
+    cursor: not-allowed !important;
+}
+
+/* Lock theme selectors only when dark theme is active */
+.selectContainer:has(#selectTheme option[value="dark"]:checked),
+.selectContainer:has(#selectDashboardTheme option[value="dark"]:checked) {
+    cursor: not-allowed !important;
+}
+
+.selectContainer:has(#selectTheme option[value="dark"]:checked) #selectTheme,
+.selectContainer:has(#selectDashboardTheme option[value="dark"]:checked) #selectDashboardTheme {
+    pointer-events: none !important;
+    opacity: 0.4 !important;
+}
+
+.selectContainer:has(#selectTheme option[value="dark"]:checked) #selectTheme+.selectArrow,
+.selectContainer:has(#selectDashboardTheme option[value="dark"]:checked) #selectDashboardTheme+.selectArrow {
+    opacity: 0.4 !important;
+}
+
+html[data-theme="dark"] #displayPreferencesPage .MuiFormControl-root:has(input[name="theme"]),
+html[data-theme="dark"] #displayPreferencesPage .MuiFormControl-root:has(input[name="dashboardTheme"]) {
+    cursor: not-allowed !important;
+}
+
+html[data-theme="dark"] #displayPreferencesPage .MuiFormControl-root:has(input[name="theme"]) .MuiInputLabel-root,
+html[data-theme="dark"] #displayPreferencesPage .MuiFormControl-root:has(input[name="theme"]) .MuiInputBase-root,
+html[data-theme="dark"] #displayPreferencesPage .MuiFormControl-root:has(input[name="dashboardTheme"]) .MuiInputLabel-root,
+html[data-theme="dark"] #displayPreferencesPage .MuiFormControl-root:has(input[name="dashboardTheme"]) .MuiInputBase-root {
+    opacity: 0.4 !important;
+}
+
+html[data-theme="dark"] #displayPreferencesPage .MuiFormControl-root:has(input[name="theme"]) .MuiInputBase-root,
+html[data-theme="dark"] #displayPreferencesPage .MuiFormControl-root:has(input[name="dashboardTheme"]) .MuiInputBase-root {
+    pointer-events: none !important;
+}
+
+
+/* 6. COMPONENTS */
+
+/* Buttons & Interactive */
+
+.raised,
+.fab,
+a[data-role="button"] {
+    background: rgba(40, 40, 40, 0.8) !important;
+    transition: background 0.37s var(--abyss-ease),
+        color 0.37s var(--abyss-ease),
+        border-color 0.37s var(--abyss-ease),
+        box-shadow 0.37s var(--abyss-ease) !important;
+}
+
+.raised:hover,
+.fab:hover,
+a[data-role="button"]:hover {
+    background: rgba(var(--abyss-accent), 0.5) !important;
+}
+
+.raised:hover,
+.fab:hover,
+.navMenuOption:hover,
+.listItem:hover,
+.actionSheetMenuItem:hover {
+    background: rgb(var(--abyss-accent)) !important;
+    color: #121212;
+    font-weight: 700;
+}
+
+.listItem-content:hover {
+    color: #121212;
+}
+
+.actionSheetMenuItem {
+    border-radius: var(--abyss-radius) !important;
+}
+
+.actionSheetContent {
+    padding: .7em .6em !important;
+}
+
+.cardContent.cardImageContainer {
+    box-shadow: 0 0 3px rgba(200, 200, 200, 0.35) inset;
+}
+
+.paper-icon-button-light:hover,
+.paper-icon-button-light:hover:not(:disabled) {
+    background-color: rgba(0, 0, 0, 0.4) !important;
+}
+
+.paper-icon-button-light {
+    border-radius: var(--abyss-radius);
+}
+
+.emby-tab-button {
+    padding: 0.5em 1.5em;
+    margin: 0 2.5px;
+    border-radius: 50px;
+    border: 3px solid transparent;
+}
+
+.emby-tab-button-active {
+    background: rgb(var(--abyss-accent)) !important;
+    color: #121212 !important;
+    border-radius: 50px;
+}
+
+.emby-tab-button-active:hover {
+    color: #121212 !important;
+}
+
+.button-flat:hover {
+    background: rgba(0, 0, 0, 0.4);
+    color: rgb(var(--abyss-accent)) !important;
+}
+
+.detailButton {
+    border-radius: var(--abyss-radius);
+    max-width: 15vw !important;
+}
+
+.button-submit {
+    position: sticky;
+    bottom: 24px;
+    margin-top: 48px !important;
+    box-shadow: 0 0 24px 2px rgba(var(--abyss-accent), 0.2);
+    z-index: 2;
+    color: rgba(245, 245, 247);
+}
+
+html[data-theme="dark"] #displayPreferencesPage form button[type="submit"].MuiButton-root {
+    position: sticky;
+    bottom: 48px;
+    width: 97%;
+    align-self: center;
+    margin-top: 48px !important;
+    box-shadow: 0 0 24px 2px rgba(var(--abyss-accent), 0.2);
+    z-index: 2;
+    min-height: 3.25rem;
+    border-radius: var(--abyss-radius);
+    color: rgb(var(--abyss-accent)) !important;
+    font-weight: 500;
+    font-family: "Google Sans", sans-serif;
+    border: solid 1px rgba(245, 245, 247, 0.2) !important;
+}
+
+html[data-theme="dark"] #displayPreferencesPage form button[type="submit"].MuiButton-root:hover {
+    font-weight: 700;
+    color: #121212 !important;
+    background-color: rgba(var(--abyss-accent), 0.88) !important;
+}
+
+/* Active / played / link states */
+.paper-icon-button-light:hover,
+.raised.homeLibraryButton:hover,
+.button-flat:hover,
+.playstatebutton-icon-played,
+.ratingbutton-icon-withrating,
+.paper-icon-button-light:hover:not(:disabled),
+.emby-tab-button:hover,
+.selectLabelFocused,
+.inputLabelFocused,
+.textareaLabelFocused,
+.buttonActive,
+.button-link {
+    color: rgb(var(--abyss-accent));
+}
+
+#itemDetailPage .button-link {
+    text-align: left;
+}
+
+.ratingbutton-icon-withrating {
+    color: rgb(249, 38, 114) !important;
+}
+
+/* Theme user setting tab buttons */
+div[data-role="controlgroup"] a.ui-btn-active {
+    background: rgba(0, 0, 0, 0.5) !important;
+    color: white !important;
+}
+
+div[data-role="controlgroup"] a[data-role="button"] {
+    display: table-cell !important;
+    margin: 0 !important;
+}
+
+/* Home Library Buttons */
+
+.homeLibraryButton {
+    min-width: 12em;
+    margin: 0.4em;
+    width: auto !important;
+}
+
+.raised.homeLibraryButton {
+    background: rgba(0, 0, 0, 0.3) !important;
+    transition: background 0.37s var(--abyss-ease),
+        border-color 0.37s var(--abyss-ease),
+        box-shadow 0.37s var(--abyss-ease);
+    border: solid 1px rgba(var(--abyss-accent), 0) !important;
+}
+
+.raised.homeLibraryButton:hover {
+    background: rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Dialogs & Overlays */
+
+.playerStats-stats,
+.upNextContainer,
+.dialog,
+.toast {
+    border-radius: 24px !important;
+}
+
+.iconOsd {
+    right: 24px;
+    top: 8.5%;
+    border-radius: 18px !important;
+}
+
+.iconOsdIcon {
+    margin: .5em .63em 0 .63em;
+}
+
+.iconOsdProgressOuter {
+    margin: 1.5em .25em 0.35em;
+}
+
+.formDialogHeader {
+    border-top-left-radius: var(--abyss-radius);
+    border-top-right-radius: var(--abyss-radius);
+}
+
+.formDialogFooter {
+    border-bottom-left-radius: var(--abyss-radius);
+    border-bottom-right-radius: var(--abyss-radius);
+}
+
+.formDialogFooter-clear,
+.formDialogHeader-clear,
+.innerCardFooterClear {
+    background-color: transparent !important;
+}
+
+.formDialogContent {
+    margin-bottom: 6.2em;
+}
+
+.dialogContentInner {
+    padding: .5em 1em 1em;
+    padding-right: 1em;
+    padding-left: 1em;
+}
+
+/* Cards */
+
+.visualCardBox,
+.cardImageContainer {
+    box-shadow: none;
+}
+
+.cardBox-bottompadded {
+    margin-bottom: 0.6em !important;
+}
+
+.cardOverlayContainer {
+    border-radius: var(--abyss-radius) !important;
+    border: solid 1px rgba(var(--abyss-accent), 0.0) !important;
+    transition: border-color 0.15s var(--abyss-ease) !important;
+}
+
+
+.button-submit,
+.cardOverlayContainer:hover,
+.dialog,
+.toast,
+.upNextContainer,
+.playerStats-stats,
+.raised.homeLibraryButton:hover {
+    border: solid 1px rgba(245, 245, 247, 0.2) !important;
+}
+
+.cardPadder {
+    background-color: #0000 !important;
+    box-shadow: none !important;
+    border-radius: var(--abyss-radius) !important;
+}
+
+.card.show-animation:focus>.cardBox {
+    -webkit-transform: scale(1.1);
+    transform: scale(1.1);
+    transition: transform 0.37s var(--abyss-ease) !important;
+}
+
+
+
+/* Card Indicators */
+.indicator {
+    border: 0.5px solid rgba(0, 0, 0, 0.1);
+}
+
+.cardIndicators,
+.listItemIndicators {
+    right: .225em;
+    top: .225em;
+    padding: 2px;
+}
+
+.mediaSourceIndicator {
+    left: 0.5em;
+    top: 0.5em;
+    background: rgba(0, 0, 0, 0.4);
+    box-shadow: none;
+    border-radius: var(--abyss-radius);
+}
+
+.innerCardFooter {
+    margin: .5em;
+    background: rgba(0, 0, 0, 0.4);
+    box-shadow: none;
+}
+
+.countIndicator {
+    background: rgba(var(--abyss-accent), 0.8);
+    box-shadow: none;
+    border-radius: 10px !important;
+    padding: 4px;
+    font-weight: bolder;
+}
+
+.playedIndicator {
+    background: rgb(var(--abyss-accent));
+    box-shadow: none;
+    border-radius: 10px !important;
+    padding: 4px;
+    font-weight: bolder;
+}
+
+.cardOverlayButton-br button[title="Watched"] .MuiSvgIcon-root[data-testid="CheckIcon"] {
+    border-radius: 8px;
+    background: rgb(var(--abyss-accent));
+    color: black;
+}
+
+.cardOverlayButton-br.cardIndicators {
+    bottom: 0;
+    position: absolute;
+}
+
+/* Indicators & Progress */
+
+.missingIndicator,
+.unairedIndicator {
+    background: #ae3030eb;
+    padding: .3em .6em;
+    color: #fff;
+}
+
+.transcodingProgress>div,
+.itemProgressBarForeground {
+    background-color: rgba(var(--abyss-accent), 0.3);
+}
+
+.playbackProgress>div {
+    background-color: rgba(var(--abyss-accent), 0.75);
+}
+
+.backgroundProgress>div {
+    background: rgba(0, 0, 0, 0);
+    background-color: #0000;
+}
+
+.itemProgressBar {
+    background: rgba(0, 0, 0, 0.25);
+}
+
+/* Sliders */
+
+.mdl-slider-background-lower {
+    background-color: rgb(var(--abyss-accent));
+}
+
+.mdl-slider::-moz-range-thumb {
+    border-radius: 50%;
+    background: rgb(var(--abyss-accent));
+}
+
+.mdl-slider::-ms-thumb {
+    border-radius: 50%;
+    background: rgb(var(--abyss-accent));
+}
+
+.mdl-slider::-webkit-slider-thumb {
+    border-radius: 50%;
+    background: rgb(var(--abyss-accent));
+}
+
+.sliderMarker {
+    width: 3px;
+    border-radius: 2px;
+}
+
+/* Toggle Switches */
+
+.mdl-switch__input:checked+.mdl-switch__label+.mdl-switch__trackContainer>.mdl-switch__track {
+    background: rgba(var(--abyss-accent), 0.5);
+}
+
+.mdl-switch__input:checked+.mdl-switch__label+.mdl-switch__trackContainer>.mdl-switch__thumb {
+    background: rgb(var(--abyss-accent));
+}
+
+/* Spinner */
+
+.mdl-spinner__layer-1 {
+    border-color: rgb(var(--abyss-accent));
+}
+
+.mdl-spinner__layer-2 {
+    border-color: rgba(128, 128, 128, 1);
+}
+
+.mdl-spinner__layer-3 {
+    border-color: rgba(40, 40, 40, 1);
+}
+
+.mdl-spinner__layer-4 {
+    border-color: rgba(0, 0, 0, 1);
+}
+
+/* Progress Ring */
+
+.progressring-spiner {
+    border-color: rgb(var(--abyss-accent)) !important;
+    border-width: .35em;
+}
+
+.progressring {
+    margin: .4em;
+}
+
+.progressring-bg {
+    display: none;
+}
+
+/* Lists */
+
+.listItem {
+    padding-left: 1em;
+    margin-bottom: 2px !important;
+}
+
+.listItem bdi:first-of-type {
+    font-weight: 500;
+    font-variation-settings: "wght" 500;
+    transition: color 0.3s ease;
+}
+
+.listItem bdi p {
+    font-weight: 400 !important;
+    font-variation-settings: "wght" 400 !important;
+}
+
+.listItem:hover bdi:first-of-type {
+    font-weight: 600;
+    font-variation-settings: "wght" 600;
+}
+
+.listItem:hover bdi p,
+.listItem:hover bdi p::before {
+    font-weight: 400 !important;
+    font-variation-settings: "wght" 400 !important;
+}
+
+.listItem-border {
+    border-color: rgba(var(--abyss-accent), 0) !important;
+}
+
+.listItemIcon {
+    background: #0000 !important;
+    border-radius: var(--abyss-radius) !important;
+}
+
+.listItem-indexnumberleft {
+    margin: 1em;
+}
+
+.listItemImageButton {
+    margin: auto;
+    font-size: 1.6em !important;
+    border-radius: var(--abyss-radius) !important;
+}
+
+.listItemImageButton-icon {
+    padding: 0;
+}
+
+.listItemImageButton:hover {
+    color: rgb(var(--abyss-accent));
+}
+
+.secondary.listItem-overview.listItemBodyText {
+    height: unset !important;
+    margin: 0;
+}
+
+.listItem:hover,
+.listItem:hover .secondary,
+.listItem:hover .listItem-secondaryText,
+.listItem:hover p,
+.listItem:hover span,
+.listItem:hover div,
+.listItem:hover .runtime,
+.listItem:hover .starIcon::before,
+.listItem:hover .starRatingContainer,
+.listItem:hover .listItem-overview {
+    color: #121212b7 !important;
+}
+
+.listItem:hover,
+.listItem:hover .listItemBodyText {
+    color: #121212 !important;
+}
+
+.listItem:hover .material-icons,
+.listItem:hover .listItemImageButton {
+    color: #121212 !important;
+}
+
+.listItem:hover .countIndicator,
+.listItem:hover .playedIndicator {
+    background: rgba(0, 0, 0, 0.15);
+    color: #121212 !important;
+}
+
+.listItem:hover .itemProgressBarForeground {
+    background-color: rgba(18, 18, 18, 0.6) !important;
+}
+
+.listItem:hover .itemProgressBar {
+    background: rgba(18, 18, 18, 0.2) !important;
+}
+
+.listItem:hover .ratingbutton-icon-withrating {
+    color: rgb(249, 38, 114) !important;
+}
+
+.listItem:hover .listItemImageButton-icon {
+    color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* Form Inputs */
+#homeScreenPreferencesPage,
+#languagePreferencesPage {
+    & form {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    & .button-submit {
+        width: 97%;
+        align-self: center !important;
+    }
+}
+
+#quickConnectPreferencesPage .inputContainer {
+    text-align: center;
+}
+
+.emby-input,
+.emby-textarea {
+    padding: .4em .55em;
+}
+
+.emby-textarea {
+    font-family: monospace;
+    font-size: 10pt;
+}
+
+.emby-select {
+    padding: .35em 1.9em .35em .35em;
+}
+
+.selectArrow {
+    margin-top: 1.05em;
+}
+
+.itemSelectionPanel,
+.checkboxOutline,
+.emby-input,
+.emby-textarea,
+.emby-select-withcolor,
+.checkboxOutline:focus,
+.emby-input:focus,
+.emby-textarea:focus,
+.emby-select-withcolor:focus {
+    border: 1px solid rgba(40, 40, 40, 0.8);
+}
+
+.checkboxOutline {
+    border-color: rgba(var(--abyss-accent), 0.3) !important;
+    transition: background 0.2s var(--abyss-ease),
+        border-color 0.2s var(--abyss-ease);
+}
+
+input[type="checkbox"]:checked~.checkboxOutline,
+input[type="checkbox"]:checked+.checkboxOutline {
+    background: rgb(var(--abyss-accent)) !important;
+    border-color: rgb(var(--abyss-accent)) !important;
+}
+
+.checkboxIcon {
+    color: #121212 !important;
+}
+
+input[type="checkbox"]:focus~.checkboxOutline,
+input[type="checkbox"]:focus+.checkboxOutline {
+    outline: 2px solid rgba(var(--abyss-accent), 0.4) !important;
+    outline-offset: 2px;
+}
+
+#txtQuickConnectCode {
+    font-size: xxx-large;
+    font-weight: 900;
+    letter-spacing: 12px;
+    text-align: center;
+    margin-top: 12px;
+}
+
+/* Paper / Table */
+
+.sessionCardFooter {
+    border: none;
+}
+
+#user_usage_report_table,
+.detailTable {
+    background: rgba(0, 0, 0, .5);
+}
+
+.detailTableBodyRow-shaded {
+    background: #0000 !important;
+}
+
+/* Sync Play */
+
+.syncPlayIconCircle {
+    color: rgb(var(--abyss-accent)) !important;
+    text-shadow: none !important;
+}
+
+/* Subtitle Preview */
+
+.subtitleappearance-preview {
+    background: linear-gradient(140deg, rgb(var(--abyss-accent)), #111) !important;
+}
+
+.subtitleappearance-preview #sliderVertical {
+    margin: 24px !important;
+}
+
+.subtitle {
+    padding-left: 0 !important;
+}
+
+/* Others */
+#userProfilePage .readOnlyContent,
+.readOnlyContent .verticalSection,
+#languagePreferencesPage .settingsContainer .verticalSection,
+.subtitleAppearanceSection,
+.homeScreenSettingsContainer .perLibrarySettings,
+.homeScreenSettingsContainer .verticalSection-extrabottompadding,
+.settingsContainer .MuiStack-root .MuiStack-root {
+    padding: 16px;
+    background-color: rgba(var(--abyss-glass-tint), 0.69);
+    border-radius: 32px;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    border: solid 1px rgba(245, 245, 247, 0.2) !important;
+}
+
+.settingsContainer .MuiStack-root .MuiStack-root .MuiStack-root {
+    border-radius: 12px !important;
+    padding: 0 !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+    margin: 8px !important;
+}
+
+.homeScreenSettingsContainer .verticalSection-extrabottompadding .verticalSection {
+    padding: 0 !important;
+    border-radius: 0;
+    background: none !important;
+    box-shadow: none;
+    border: none !important;
+}
+
+.homeScreenSettingsContainer .perLibrarySettings {
+    margin-bottom: 36px !important;
+}
+
+.homeScreenSettingsContainer .paperList {
+    padding: 12px;
+    background-color: rgba(var(--abyss-glass-tint), 0.69);
+    border-radius: 24px !important;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    margin: 0 !important;
+}
+
+.readOnlyContent .adminSection {
+    border-radius: 32px 32px 6px 6px !important;
+    margin-bottom: 12px !important;
+}
+
+.readOnlyContent .userSection {
+    border-radius: 6px 6px 32px 32px !important;
+}
+
+.readOnlyContent .userSection .sectionTitle {
+    padding-top: 0 !important;
+}
+
+#userProfilePage .readOnlyContent {
+    padding: 0 !important;
+}
+
+#userProfilePage .readOnlyContent div {
+    align-items: baseline !important;
+    margin-right: 12px !important;
+}
+
+#image,
+#uploadImage {
+    border-radius: 24px !important;
+    margin: 12px !important;
+}
+
+#quickConnectPreferencesPage {
+    justify-items: center;
+}
+
+.itemSelectionPanel {
+    padding: 12px !important;
+}
+
+.selectionCommandsPanel {
+    padding: 1.5em 24px !important;
+}
+
+.selectionCommandsPanel * {
+    color: rgb(var(--abyss-accent));
+}
+
+[dir=ltr] .playerStats-stats {
+    padding: 1em 3em 2em 2em;
+}
+
+
+.playerStats-stat {
+    align-items: baseline;
+}
+
+.playerStats-stat-header {
+    font-size: medium !important;
+}
+
+.playerStats-stat-label {
+    opacity: 0.5;
+    padding-bottom: 2px;
+}
+
+.playerStats-stat-value {
+    font-family: monospace;
+    font-size: medium;
+}
+
+.playerStats-closeButton {
+    margin: 10px;
+}
+
+[dir="ltr"] .upNextContainer {
+    margin: 0px 2em 10.4em 0px;
+}
+
+#castCollapsible,
+#scenesCollapsible,
+#similarCollapsible,
+.moreFromSeasonSection {
+    overflow: hidden;
+}
+
+.playstatebutton-icon-played::before {
+    background-color: rgba(var(--abyss-accent), 0.8);
+    border-radius: 8px;
+    color: #000;
+}
+
+.listItem-content:hover .playstatebutton-icon-played::before {
+    background-color: #000;
+    color: rgba(var(--abyss-accent), 0.8);
+}
+
+.listItem-content:hover .playedIndicator {
+    background: rgba(var(--abyss-accent));
+    color: #121212 !important;
+}
+
+
+/* 7. ROUNDED CORNERS */
+
+.missingIndicator,
+.unairedIndicator,
+.detailTable,
+.primaryImageWrapper>img,
+.toast,
+.paperList,
+.cardContent,
+.sessionNowPlayingInnerContent,
+.subtitleappearance-preview,
+.listItemImage,
+.listItemImageButton,
+.listItemButton,
+.listItem,
+.cardImage,
+.fab,
+.raised,
+.multiSelectCheckboxOutline,
+.itemSelectionPanel,
+.cardContent-button,
+.cardContent-shadow,
+.itemDetailImage,
+.cardImageContainer,
+.listItemIcon,
+.blurhash-canvas,
+.countIndicator,
+.playedIndicator,
+.listItem-border,
+.visualCardBox,
+.chapterThumbTextContainer,
+.chapterThumbContainer,
+.chapterThumb,
+.emby-input,
+.emby-textarea,
+.nowPlayingPageImage,
+.upNextDialog-poster-img,
+.cardOverlayButtonIcon,
+.innerCardFooter {
+    border-radius: var(--abyss-radius) !important;
+}
+
+.osdPoster img {
+    border-radius: var(--abyss-radius);
+    border: none;
+}
+
+div[data-role="controlgroup"] a[data-role="button"]:first-child {
+    border-bottom-left-radius: var(--abyss-radius);
+    border-top-left-radius: var(--abyss-radius);
+}
+
+div[data-role="controlgroup"] a[data-role="button"]:last-child {
+    border-bottom-right-radius: var(--abyss-radius);
+    border-top-right-radius: var(--abyss-radius);
+}
+
+#dashboardPage .cardContent,
+#dashboardPage .sessionNowPlayingInnerContent {
+    border-radius: var(--abyss-radius) var(--abyss-radius) 0 0 !important;
+}
+
+#divVirtualFolders .cardImageContainer,
+#divVirtualFolders .cardContent {
+    border-radius: var(--abyss-radius) var(--abyss-radius) 0 0 !important;
+}
+
+#userProfilesPage .cardImage,
+#userProfilesPage .cardContent {
+    border-radius: var(--abyss-radius) var(--abyss-radius) 0 0 !important;
+}
+
+[dir=ltr] .emby-select,
+#inputTextColor,
+.checkboxOutline {
+    border-radius: 8px !important;
+}
+
+.dialog-fullscreen {
+    border-radius: 8px !important;
+}
+
+.upNextContainer,
+.playerStats,
+.playerStats-stats {
+    border-radius: 24px !important;
+}
+
+.detailImageContainer .cardImageContainer,
+.detailImageContainer .card {
+    border-radius: 24px !important;
+}
+
+/* 8. MEDIA PLAYER */
+
+.nowPlayingPageImage {
+    border: none;
+}
+
+.osdPoster img {
+    border-radius: var(--abyss-radius);
+    border: none;
+}
+
+.startTimeText,
+.endTimeText {
+    width: 3.4em;
+    display: block;
+    text-align: center;
+}
+
+.osdTitle {
+    margin-left: 0.5em;
+}
+
+.skinHeader.osdHeader {
+    height: 5em;
+}
+
+.osdTextContainer {
+    margin: 0 !important;
+    margin-top: 0.2em !important;
+    padding-left: 0.5em !important;
+    padding-right: 0.5em !important;
+}
+
+.nowPlayingBarCurrentTime {
+    width: 6em;
+}
+
+.upNextDialog-countdownText {
+    color: rgb(var(--abyss-accent));
+}
+
+.iconOsdProgressInner {
+    background: rgb(var(--abyss-accent));
+}
+
+/* Chapter thumb */
+.chapterThumb {
+    height: 14vh;
+    min-width: 14vh;
+    box-shadow: 0 0 1.9vh #000;
+}
+
+.chapterThumbText {
+    font-size: 1em;
+}
+
+.chapterThumbTextContainer {
+    right: auto;
+    bottom: 4px;
+    padding: .25em 0.7em;
+}
+
+.chapterThumbContainer {
+    box-shadow: 0 0 1.9vh #000;
+}
+
+.sliderBubble {
+    background: #0000;
+    -webkit-transform: translate3d(-50%, -108%, 0);
+    transform: translate3d(-50%, -108%, 0);
+}
+
+/* Playing Bar */
+.nowPlayingBarTop {
+    margin-top: 24px;
+}
+
+.videoOsdBottom .osdControls,
+.nowPlayingBar {
+    border-radius: 24px;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    padding: 12px;
+}
+
+.nowPlayingBar .nowPlayingImage {
+    width: 2.91em;
+    border-radius: 8px;
+}
+
+.nowPlayingBarPositionContainer {
+    top: -1.5em;
+    padding: 0 8px;
+}
+
+.nowPlayingBarInfoContainer {
+    margin-left: 8px;
+}
+
+body:has(#videoOsdPage) .skinHeader .MuiTypography-root.MuiTypography-body1 {
+    font-size: large;
+    font-weight: 500;
+    -webkit-backdrop-filter: blur(var(--abyss-glass-blur));
+    backdrop-filter: blur(var(--abyss-glass-blur));
+    padding: 4px 12px;
+    border-radius: 12px;
+}
+
+.videoOsdBottom {
+    padding: 0 !important;
+    margin: 24px !important;
+    border-radius: 24px;
+    background: none !important;
+}
+
+.osdTimeText {
+    margin-left: 0 !important;
+    opacity: 0.5;
+}
+
+/* Track selector */
+.trackSelections .selectContainer .detailTrackSelect {
+    padding: .5em 1.9em .5em .5em;
+}
+
+.trackSelections .selectContainer .selectArrowContainer .selectArrow {
+    margin-top: .2em;
+}
+
+.trackSelections .selectContainer {
+    align-items: center;
+}
+
+/* Slider track rounding */
+.mdl-slider-background-flex,
+.mdl-slider-background-flex-inner,
+.mdl-slider-background-upper,
+.mdl-slider-background-lower {
+    border-radius: 2px;
+}
+
+
+/* 9. DASHBOARD & ADMIN */
+
+.dashboardSection h3 {
+    margin: .5em 0em .5em .5em;
+}
+
+.dashboardSection .sectionTitleTextButton>.material-icons.material-icons {
+    margin-top: .5em;
+    margin-bottom: .5em;
+    margin-right: .2em;
+}
+
+#dashboardPage .playbackProgress>div {
+    background-color: rgba(var(--abyss-accent), 0.75) !important;
+}
+
+#dashboardPage .transcodingProgress>div {
+    background-color: rgba(var(--abyss-accent), 0.35) !important;
+}
+
+.navMenuOption-selected {
+    background: rgb(var(--abyss-accent)) !important;
+    color: #121212 !important;
+}
+
+
+/* 10. ITEM DETAIL PAGE */
+
+.mainDetailButtons {
+    font-size: 120%;
+}
+
+.hide+.detailPageWrapperContainer .itemName {
+    display: block !important;
+}
+
+.sectionTitleTextButton:hover {
+    color: transparent;
+}
+
+/* Progress bars on item pages */
+#indexPage .innerCardFooterClear,
+.libraryPage .innerCardFooterClear,
+#itemDetailPage .innerCardFooterClear {
+    background-color: transparent !important;
+    box-shadow: none;
+}
+
+#indexPage .itemProgressBarForeground,
+.libraryPage .itemProgressBarForeground,
+#itemDetailPage .itemProgressBarForeground,
+#indexPage .itemProgressBar,
+.libraryPage .itemProgressBar,
+#itemDetailPage .itemProgressBar {
+    border-radius: var(--abyss-radius);
+}
+
+#indexPage .itemProgressBarForeground,
+.libraryPage .itemProgressBarForeground,
+#itemDetailPage .itemProgressBarForeground {
+    background-color: rgba(var(--abyss-accent), 0.95) !important;
+}
+
+#indexPage .itemProgressBar,
+.libraryPage .itemProgressBar,
+#itemDetailPage .itemProgressBar {
+    height: 7px;
+    background: rgba(0, 0, 0, 0.4);
+    margin: .5em .8em;
+}
+
+#itemDetailPage .detailButton {
+    padding: 8px !important;
+    margin-right: 8px !important;
+}
+
+#itemDetailPage .btnPlay {
+    background: rgba(255, 255, 255, 0.95);
+    color: #111;
+    max-width: none !important;
+}
+
+#itemDetailPage .btnPlay:hover {
+    background: #fff;
+    color: #111 !important;
+    transform: scale(1.03);
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.25);
+}
+
+#itemDetailPage .btnPlay .detailButton-content {
+    flex-direction: row !important;
+}
+
+#itemDetailPage .btnReplay {
+    background: rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+#itemDetailPage .btnReplay:hover {
+    background: rgba(255, 255, 255, 1);
+    color: rgba(0, 0, 0, 0.9) !important;
+    transform: scale(1.05);
+}
+
+#itemDetailPage:has(.btnReplay.hide) .btnPlayTrailer {
+    background: rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+#itemDetailPage:has(.btnReplay.hide) #itemDetailPage .btnPlayTrailer:hover {
+    background: rgba(255, 255, 255, 1);
+    color: rgba(0, 0, 0, 0.9) !important;
+    transform: scale(1.05);
+}
+
+/* 11. LOGIN PAGE */
+
+#loginPage {
+    background-size: cover !important;
+}
+
+#loginPage .readOnlyContent,
+#loginPage form {
+    max-width: 22em;
+}
+
+#loginPage h1 {
+    display: none;
+}
+
+#loginPage .padded-left.padded-right.padded-bottom-page {
+    margin-top: 8em;
+}
+
+#loginPage .raised.cancel.block.btnForgotPassword.emby-button {
+    margin-top: 0.8em;
+    background: rgba(var(--abyss-accent), 0.0) !important;
+}
+
+#loginPage .raised.cancel.block.btnForgotPassword.emby-button:hover {
+    color: rgb(var(--abyss-accent)) !important;
+}
+
+.manualLoginForm {
+    border-radius: 24px;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    border: solid 1px rgba(245, 245, 247, 0.2) !important;
+    padding: 24px 12px 7px;
+    margin-bottom: 24px;
+}
+
+
+/* 12. CAST THUMBNAILS (responsive sizing) */
+
+.layout-desktop #castContent .card.overflowPortraitCard,
+.layout-desktop #guestCastContent .card.overflowPortraitCard {
+    width: 10vw !important;
+    font-size: 90% !important;
+}
+
+.layout-desktop #castContent .cardScalable,
+.layout-desktop #guestCastContent .cardScalable {
+    width: calc(10vw - 0.6em) !important;
+    height: calc(14vw - 0.6em) !important;
+}
+
+.layout-tablet #castContent .card.overflowPortraitCard,
+.layout-tablet #guestCastContent .card.overflowPortraitCard {
+    width: 17vw !important;
+    font-size: 90% !important;
+}
+
+.layout-tablet #castContent .cardScalable,
+.layout-tablet #guestCastContent .cardScalable {
+    width: calc(17vw - 0.6em) !important;
+    height: calc(12vw - 0.6em) !important;
+}
+
+.layout-mobile #castContent .card.overflowPortraitCard,
+.layout-mobile #guestCastContent .card.overflowPortraitCard {
+    width: 35vw !important;
+    font-size: 90% !important;
+}
+
+.layout-mobile #castContent .cardScalable,
+.layout-mobile #guestCastContent .cardScalable {
+    width: calc(35vw - 0.6em) !important;
+    height: calc(35vw - 0.6em) !important;
+}
+
+.layout-mobile .innerCardFooterClear {
+    padding-right: 24px !important;
+}
+
+.layout-mobile .noItemsMessage.centerMessage {
+    font-size: 28px;
+}
+
+.layout-mobile .centerMessage {
+    width: 90% !important;
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+
+    .layout-mobile #castContent .card.overflowPortraitCard,
+    .layout-mobile #guestCastContent .card.overflowPortraitCard {
+        width: 31.2vw !important;
+        font-size: 90% !important;
+    }
+
+    .layout-mobile #castContent .cardScalable,
+    .layout-mobile #guestCastContent .cardScalable {
+        width: calc(31.2vw - 0.6em) !important;
+        height: calc(31.2vw - 0.6em) !important;
+    }
+
+    .layout-mobile .innerCardFooterClear {
+        padding-right: 24px !important;
+    }
+}
+
+/* 13. RESPONSIVE / MEDIA QUERIES */
+
+/* Mobile layout tweaks */
+
+.layout-mobile .detailPagePrimaryContainer {
+    background: transparent;
+}
+
+.layout-mobile .adminDrawerLogo {
+    border-bottom: none;
+}
+
+.layout-mobile #itemDetailPage .parentName,
+.layout-mobile #itemDetailPage .parentNameLast,
+.layout-mobile #itemDetailPage .itemName.subtitle {
+    text-align: left;
+    justify-content: left;
+}
+
+.layout-mobile #itemDetailPage .mainDetailButtons,
+.layout-mobile #itemDetailPage .itemMiscInfo {
+    justify-content: left;
+}
+
+.layout-mobile .itemBackdrop {
+    position: relative;
+    background-size: cover;
+    background-position: center 20%;
+    background-repeat: no-repeat;
+    margin-top: 0;
+    z-index: 0;
+    -webkit-mask-image:
+        linear-gradient(to bottom, black 40%, transparent 100%),
+        linear-gradient(to right, transparent 0%, black 25%, black 70%, transparent 100%),
+        linear-gradient(to bottom, transparent 0%, black 8%);
+    -webkit-mask-composite: source-in;
+    mask-image:
+        linear-gradient(to bottom, black 40%, transparent 100%),
+        linear-gradient(to right, transparent 0%, black 25%, black 70%, transparent 100%),
+        linear-gradient(to bottom, transparent 0%, black 8%);
+    mask-composite: intersect;
+}
+
+.layout-mobile .detailLogo {
+    margin-top: -15vh;
+    margin-bottom: 4vh !important;
+    margin-left: 40vw !important;
+    width: 50vw !important;
+}
+
+.layout-mobile .sectionTitleTextButton>.material-icons {
+    padding-top: .2em;
+}
+
+.layout-mobile .listItemImageButton {
+    background: rgba(0, 0, 0, 0);
+}
+
+.layout-mobile .sectionTitle {
+    padding-top: 0em;
+}
+
+.layout-mobile #itemDetailPage .itemName.infoText.parentNameLast {
+    display: block;
+}
+
+.layout-mobile :not(.sectionTitleContainer-cards)>.sectionTitle-cards {
+    padding-top: 0em;
+}
+
+/* TV Layout */
+
+.card:focus .cardBox.visualCardBox,
+.card:focus .cardBox:not(.visualCardBox) .cardScalable {
+    border-radius: 24px !important;
+    border: 0.3em solid rgb(var(--abyss-accent)) !important;
+    transition: all 0.5s !important;
+}
+
+.layout-tv .pageTitle,
+.layout-tv .cardText {
+    font-size: revert;
+}
+
+.layout-tv .emby-tab-button {
+    padding: 0.3em 1.2em;
+    margin: 4px;
+}
+
+.layout-tv .sliderMarker {
+    height: 24px !important;
+}
+
+.layout-tv .chapterThumbContainer {
+    transform: scale(1.5) !important;
+    top: -72px !important;
+}
+
+.emby-button.show-focus:focus,
+.headerButton.show-focus:focus,
+.actionSheetMenuItem.show-focus:focus {
+    background: rgb(var(--abyss-accent)) !important;
+    color: #121212 !important;
+}
+
+.headerButton.show-focus:focus,
+.raised.button-submit.emby-button.show-focus:focus {
+    transform: scale(1.02) !important;
+    transition: transform 0.3s !important;
+    margin-top: .4em !important;
+    margin-bottom: .4em !important;
+}
+
+.headerUserButton.show-focus:focus {
+    transform: none !important;
+}
+
+#itemDetailPage .emby-button.show-focus:focus {
+    transform: scale(1.1) !important;
+    padding: 0 .4em;
+    margin: .4em;
+    border-radius: 10px;
+    background: rgb(var(--abyss-accent)) !important;
+    color: #121212 !important;
+}
+
+.emby-tab-button.show-focus {
+    background: transparent;
+    transform: none !important;
+    color: #999;
+}
+
+.emby-button.emby-tab-button.show-focus:focus {
+    background: transparent !important;
+    transform: none !important;
+    border-color: rgb(var(--abyss-accent));
+    color: rgb(var(--abyss-accent)) !important;
+}
+
+.emby-tab-button.show-focus:focus .emby-button-foreground {
+    transform: scale(1.1) !important;
+    font-weight: 500;
+    transition: 0.3s;
+}
+
+.emby-tab-button.show-focus:focus.emby-tab-button-active {
+    background: rgb(var(--abyss-accent)) !important;
+    color: #121212 !important;
+    border-color: transparent !important;
+    border-radius: 50px;
+}
+
+.emby-select-withcolor {
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.libraryPage .paper-icon-button-light.show-focus:focus,
+#videoOsdPage .paper-icon-button-light.show-focus:focus {
+    background: rgb(var(--abyss-accent)) !important;
+    color: #121212 !important;
+    padding: 4px !important;
+}
+
+/* Desktop layout & TV*/
+.layout-desktop #itemDetailPage .btnPlay,
+.layout-tv #itemDetailPage .btnPlay {
+    margin-right: 12px !important;
+    padding: .4em 1.4em .4em 1em !important;
+}
+
+.layout-desktop #itemDetailPage .btnPlay .detailButton-content::after,
+.layout-tv #itemDetailPage .btnPlay .detailButton-content::after {
+    content: "Play";
+    margin-left: 0.45em;
+    font-weight: 700;
+    font-size: 0.9em;
+}
+
+.layout-desktop #itemDetailPage:has(.btnReplay:not(.hide)) .btnPlay .detailButton-content::after,
+.layout-tv #itemDetailPage:has(.btnReplay:not(.hide)) .btnPlay .detailButton-content::after {
+    content: "Resume";
+}
+
+.layout-tv .detailImageContainer .card,
+.layout-desktop .detailImageContainer .card {
+    position: fixed !important;
+    top: 15% !important;
+}
+
+.layout-tv .detailPageSecondaryContainer.padded-left,
+.layout-desktop .detailPageSecondaryContainer.padded-left {
+    padding-left: max(env(safe-area-inset-left), 32.45vw);
+}
+
+
+
+.withSectionTabs .headerTop {
+    width: 100% !important;
+    align-self: center !important;
+}
+
+@media (max-width: 100em) {
+    .withSectionTabs .headerTop {
+        padding-bottom: 0;
+    }
+}
+
+@media all and (min-width: 75em) {
+    .cardOverlayFab-primary {
+        background-color: #00000000;
+    }
+
+    .cardOverlayButtonIcon {
+        background-color: #00000000 !important;
+    }
+
+    .cardOverlayContainer {
+        background-color: rgba(0, 0, 0, 0.7);
+    }
+
+    .headerTabs.sectionTabs {
+        margin-top: -4.9em !important;
+    }
+}
+
+@media all and (max-width: 75em) {
+    .cardOverlayFab-primary {
+        background-color: #00000000;
+    }
+
+    .cardOverlayButtonIcon {
+        background-color: #00000000 !important;
+    }
+
+    .cardOverlayContainer {
+        background-color: rgba(0, 0, 0, 0.7);
+    }
+
+    .cardOverlayButton {
+        padding: 0.25em;
+    }
+}
+
+/* Tablets (mobile layout): clear the absolutely positioned detail image (left 5% + max-width 30vw) */
+@media screen and (min-width: 768px) {
+    .layout-mobile .detailRibbon {
+        padding-left: calc(35vw + 1.5rem) !important;
+    }
+
+    .layout-mobile #itemDetailPage .itemName.originalTitle {
+        text-align: left;
+    }
+}
+
+@media all and (max-width: 26em) {
+    .homeLibraryButton {
+        min-width: 45%;
+        width: auto !important;
+    }
+
+    .pageTitle {
+        font-size: medium !important;
+        font-weight: 500;
+        padding: 0 6px !important;
+    }
+
+    .sectionTitle {
+        font-size: 1.2em;
+        font-weight: 500;
+    }
+
+    .headerLeft,
+    .headerRight {
+        padding: 0 12px;
+    }
+
+    .detailImageContainer .cardImageContainer,
+    .detailImageContainer .card {
+        border-radius: 12px !important;
+    }
+
+    .emby-tab-button {
+        padding: 0.4em 1.2em;
+    }
+
+    .paper-icon-button-light>.material-icons {
+        font-size: 1.4em !important;
+    }
+
+    .paper-icon-button-light {
+        padding: 8px;
+    }
+
+    .btnPause {
+        position: fixed !important;
+        left: 42vw;
+        transform: translateY(-45vh);
+        font-size: 2em;
+    }
+
+    .MuiDrawer-paper {
+        width: 60vw;
+    }
+}
+
+@media screen and (max-height: 26em) and (orientation: landscape) {
+    .pageTitle {
+        font-size: large !important;
+    }
+
+    .btnPause {
+        position: fixed !important;
+        left: 42vw;
+        transform: translateY(-45vh);
+        font-size: 2em;
+        backdrop-filter: blur(15px) !important;
+        background-color: rgba(var(--abyss-glass-tint), 0.69) !important;
+        border-radius: 20px !important;
+    }
+
+    body:has(#indexPage.homePage:not(.hide)) .headerTabs.sectionTabs {
+        margin-top: -4.9em !important;
+    }
+}
+
+@media all and (min-width: 100em) {
+    .button-flat {
+        margin: .2em !important;
+        padding: .85em !important;
+    }
+
+    .listItemImage.listItemImage-large.itemAction.lazy {
+        height: 160px !important;
+    }
+
+    .listItem-content {
+        height: unset !important;
+    }
+}
+
+@media all and (max-width: 100em) {
+    .mainDetailButtons {
+        font-size: 155%;
+    }
+
+    .listItemImage.listItemImage-large.itemAction.lazy {
+        height: 160px !important;
+    }
+
+    .listItem-content {
+        height: unset !important;
+    }
+
+    .secondary.listItem-overview.listItemBodyText {
+        height: unset !important;
+        margin: 0;
+    }
+
+    #indexPage .itemProgressBar,
+    .libraryPage .itemProgressBar,
+    #itemDetailPage .itemProgressBar {
+        margin-right: .8em;
+    }
+}
+
+@media (min-aspect-ratio: 1.98/1) {
+    .detailImageContainer .card {
+        width: 21vw !important;
+    }
+
+    .detailRibbon {
+        padding-left: 28.45vw !important;
+    }
+
+    .detailPagePrimaryContent,
+    .layout-tv .detailPageSecondaryContainer.padded-left,
+    .layout-desktop .detailPageSecondaryContainer.padded-left {
+        padding-left: 28.45vw !important;
+    }
+
+    .detailPageContent {
+        padding-left: 28.45vw !important;
+    }
+}
+
+@media (min-aspect-ratio: 2.7/1) {
+    .detailImageContainer .card {
+        width: 16vw !important;
+    }
+
+    .detailRibbon {
+        padding-left: 23.45vw !important;
+    }
+
+    .detailPagePrimaryContent,
+    .layout-tv .detailPageSecondaryContainer.padded-left,
+    .layout-desktop .detailPageSecondaryContainer.padded-left {
+        padding-left: 23.45vw !important;
+    }
+
+    .detailPageContent {
+        padding-left: 23.45vw !important;
+    }
+}
+
+/* Backdrop filter support */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+
+    html[data-theme="dark"] .MuiDialog-paper,
+    .manualLoginForm,
+    .dialog,
+    .iconOsd,
+    .mainDrawer,
+    .toast,
+    .emby-tabs-slider,
+    .videoOsdBottom .osdControls,
+    .readOnlyContent .verticalSection,
+    .button-submit,
+    .upNextContainer,
+    .selectionCommandsPanel,
+    .playerStats-stats,
+    .appfooter,
+    html[data-theme="dark"] #displayPreferencesPage form button[type="submit"].MuiButton-root {
+        -webkit-backdrop-filter: blur(var(--abyss-glass-blur)) !important;
+        backdrop-filter: blur(var(--abyss-glass-blur)) !important;
+        background-color: rgba(var(--abyss-glass-tint), 0.69) !important;
+    }
+
+    .raised.cancel.block.btnForgotPassword.emby-button,
+    .btnQuick,
+    .pageTitle,
+    .videoOsdBottom,
+    .headerButton {
+        -webkit-backdrop-filter: blur(var(--abyss-glass-blur)) !important;
+        backdrop-filter: blur(var(--abyss-glass-blur)) !important;
+    }
+
+    .paper-icon-button-light:hover,
+    #itemDetailPage .itemProgressBar,
+    #dashboardPage .backgroundProgress>div {
+        backdrop-filter: blur(4px);
+    }
+
+    .indicator {
+        backdrop-filter: blur(2px);
+    }
+
+    @media all and (max-width: 75em) {
+        .cardOverlayButtonIcon {
+            background-color: rgba(0, 0, 0, 0.35) !important;
+            backdrop-filter: blur(4px);
+        }
+    }
+
+    #indexPage .itemProgressBar,
+    .libraryPage .itemProgressBar,
+    #itemDetailPage .itemProgressBar {
+        backdrop-filter: blur(4px);
+        background: rgba(0, 0, 0, 0.35) !important;
+    }
+
+    body:has(.nowPlayingBar:not(.hide)) .backgroundContainer.withBackdrop {
+        -webkit-backdrop-filter: blur(var(--abyss-glass-blur));
+        backdrop-filter: blur(var(--abyss-glass-blur));
+    }
+}
+
+/* Item container margins */
+.itemsContainer>.card>.cardBox {
+    margin-left: 0.6em !important;
+    margin-right: 0.8em;
+}
+
+/* Episode list image sizing */
+.listItemImage.listItemImage-large.itemAction.lazy {
+    transition: filter 0.15s var(--abyss-ease);
+    margin-top: 3px;
+    margin-bottom: 3px;
+}
+
+/* 14. SEARCH PAGE */
+
+.searchSuggestionsList .emby-button {
+    color: rgba(var(--abyss-accent), 0.6);
+    font-weight: 100;
+    font-size: 18px;
+    letter-spacing: 1px;
+    text-align: left;
+}
+
+#searchTextInput {
+    font-weight: bold;
+    font-size: 24px;
+    padding: 12px 18px;
+    letter-spacing: 1.1px;
+}
+
+.searchFieldsInner .inputLabel {
+    display: none;
+}
+
+.searchfields-icon {
+    align-self: center !important;
+}
+
+.verticalSection.searchSuggestions .sectionTitle {
+    display: none;
+}
+
+.verticalSection.searchSuggestions {
+    text-align: left !important;
+    padding: 12px 0 0 0 !important;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-height: calc(100vh - 190px);
+    overflow: hidden;
+}
+
+.searchSuggestionsList {
+    width: fit-content;
+    min-width: min(908px, calc(100vw - 70px));
+    padding-left: 50px;
+    box-sizing: border-box;
+    overflow-y: auto;
+    max-height: 100%;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(var(--abyss-accent), 0.5) transparent;
+}
+
+.searchSuggestionsList::-webkit-scrollbar {
+    width: 4px;
+}
+
+.searchSuggestionsList::-webkit-scrollbar-thumb {
+    background: rgba(var(--abyss-accent), 0.5);
+    border-radius: var(--abyss-radius);
+}
+
+.searchSuggestionsList::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.noItemsMessage.centerMessage {
+    font-weight: 100 !important;
+    font-size: 36px;
+    letter-spacing: 1.2px;
+    opacity: 0.8;
+}
+
+.centerMessage {
+    padding: 2em 0 !important;
+}
+
+@media all and (max-width: 50em) {
+    .searchSuggestionsList {
+        min-width: calc(100vw - 80px);
+        padding-left: 44px;
+    }
+}
+
+/* 15. ANIMATIONS & KEYFRAMES */
+
+html[data-theme="dark"] .MuiDrawer-root *,
+.playstatebutton-icon-played::before,
+.cardOverlayContainer,
+.cardOverlayButtonIcon,
+.cardOverlayButton,
+.paper-icon-button-light,
+.emby-tab-button,
+.emby-tab-button-active,
+.button-flat,
+.navMenuOption,
+.listItem,
+.actionSheetMenuItem {
+    transition: background 0.37s var(--abyss-ease),
+        color 0.37s var(--abyss-ease),
+        border-color 0.37s var(--abyss-ease),
+        opacity 0.37s var(--abyss-ease),
+        transform 0.37s var(--abyss-ease) !important;
+}
+
+.mainDrawer {
+    transition: transform 0.18s var(--abyss-ease-snappy) !important;
+}
+
+/* Favourite button heart animation — all contexts */
+@keyframes abyss-heart-pop {
+    0% {
+        transform: scale(1);
+    }
+
+    40% {
+        transform: scale(1.3);
+    }
+
+    70% {
+        transform: scale(0.95);
+    }
+
+    100% {
+        transform: scale(1);
+    }
+}
+
+@keyframes abyss-heart-glow {
+    0% {
+        filter: drop-shadow(0 0 0px rgba(249, 38, 114, 0));
+    }
+
+    40% {
+        filter: drop-shadow(0 0 10px rgba(249, 38, 114, 0.9));
+    }
+
+    100% {
+        filter: drop-shadow(0 0 0px rgba(249, 38, 114, 0));
+    }
+}
+
+.ratingbutton-withrating .material-icons.favorite {
+    animation: abyss-heart-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) normal none,
+        abyss-heart-glow 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) normal none;
+}
+
+/* Section entrance animations, all pages */
+@keyframes abyss-section-fade-up {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.settingsContainer .MuiStack-root .MuiStack-root,
+.verticalSection:nth-child(1) {
+    animation: abyss-section-fade-up 0.7s var(--abyss-ease) both 0.05s;
+}
+
+.verticalSection:nth-child(2) {
+    animation: abyss-section-fade-up 0.7s var(--abyss-ease) both 0.1s;
+}
+
+.verticalSection:nth-child(3) {
+    animation: abyss-section-fade-up 0.7s var(--abyss-ease) both 0.15s;
+}
+
+.verticalSection:nth-child(4) {
+    animation: abyss-section-fade-up 0.7s var(--abyss-ease) both 0.2s;
+}
+
+.verticalSection:nth-child(5) {
+    animation: abyss-section-fade-up 0.7s var(--abyss-ease) both 0.25s;
+}
+
+.verticalSection:nth-child(6) {
+    animation: abyss-section-fade-up 0.7s var(--abyss-ease) both 0.3s;
+}
+
+.verticalSection:nth-child(7) {
+    animation: abyss-section-fade-up 0.7s var(--abyss-ease) both 0.35s;
+}
+
+.verticalSection:nth-child(8) {
+    animation: abyss-section-fade-up 0.7s var(--abyss-ease) both 0.4s;
+}
+
+.verticalSection:nth-child(n+9) {
+    animation: abyss-section-fade-up 0.7s var(--abyss-ease) both 0.45s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}

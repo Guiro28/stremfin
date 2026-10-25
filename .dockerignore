@@ -1,0 +1,8 @@
+node_modules
+data
+warp-data
+npm-debug.log
+.git
+.github
+.gitignore
+web

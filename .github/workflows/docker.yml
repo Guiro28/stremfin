@@ -1,0 +1,148 @@
+name: Build & push image Docker
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    # Ne reconstruit pas pour des changements qui n'affectent pas l'image.
+    paths-ignore:
+      - '**.md'
+      - 'docker-compose*.yml'
+      - '.gitignore'
+      - '.gitattributes'
+      - 'LICENSE'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docker-compose*.yml'
+      - '.gitignore'
+      - '.gitattributes'
+      - 'LICENSE'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    name: Test ${{ matrix.platform }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            tag: amd64
+          - platform: linux/arm64
+            tag: arm64
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (émulation arm64)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.platform }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: stremfin:test-${{ matrix.tag }}
+          cache-from: type=gha,scope=${{ matrix.tag }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.tag }}
+
+      - name: Smoke test et persistance
+        env:
+          IMAGE: stremfin:test-${{ matrix.tag }}
+        run: |
+          start() {
+            docker run -d --name stremfin-test -p 8096:8096 \
+              -v stremfin-test-data:/app/data "$IMAGE"
+            for i in $(seq 1 60); do
+              if curl -fsS http://localhost:8096/System/Info/Public >/dev/null; then return 0; fi
+              sleep 1
+            done
+            docker logs stremfin-test
+            return 1
+          }
+          docker volume create stremfin-test-data
+          start
+          # Client web Jellyfin embarque, avec le theme Abyss.
+          curl -fsS http://localhost:8096/web/ | grep -q 'abyss.css'
+          # Premier lancement : creation du compte administrateur.
+          curl -fsS -X POST http://localhost:8096/stremfin/api/auth/setup \
+            -H 'Content-Type: application/json' -H 'X-Stremfin: 1' \
+            -d '{"username":"admin","password":"ci-test-password"}' >/dev/null
+          # Les donnees survivent au redemarrage du conteneur.
+          docker rm -f stremfin-test
+          start
+          curl -fsS http://localhost:8096/stremfin/api/auth/status | tee status.json
+          grep -q '"setup":false' status.json
+
+  build:
+    name: Build & push image Docker
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (émulation arm64)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Connexion à GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Métadonnées (tags & labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      - name: Build & push (amd64 + arm64)
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Vérifier le manifeste multi-architecture
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          # github.repository peut contenir des majuscules ; Docker exige des minuscules.
+          IMAGE="$(echo "${REGISTRY}/${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')@${DIGEST}"
+          docker buildx imagetools inspect "$IMAGE" | tee manifest.txt
+          grep -q 'Platform:.*linux/amd64' manifest.txt
+          grep -q 'Platform:.*linux/arm64' manifest.txt

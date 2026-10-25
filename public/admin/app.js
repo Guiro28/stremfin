@@ -1,0 +1,1344 @@
+'use strict';
+// Interface d'administration de Stremfin (application d'une page, sans dependance).
+
+// ---- Utilitaires ------------------------------------------------------------------------
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const ICONS = {
+  dashboard: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.4 3.3-5.5 6.5-5.5s5.9 2.1 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M17.5 14.5c2 .4 3.5 2 4 4.5"/>',
+  devices: '<rect x="2" y="4" width="15" height="11" rx="1.5"/><path d="M6 19h7"/><rect x="18" y="8" width="4" height="12" rx="1"/>',
+  server: '<rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+  play: '<circle cx="12" cy="12" r="9"/><path d="M10 8.5l5 3.5-5 3.5z"/>',
+  film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
+  tv: '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M8 2l4 4 4-4"/>',
+  wrench: '<path d="M14.5 6.5a4 4 0 0 0 5.2 5.2L21 13l-8 8-3-3 8-8-1.3-1.3a4 4 0 0 0-5.2-5.2l2.8 2.8-2 2-2.8-2.8"/>',
+  shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
+  logout: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5M5 12h11"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
+  refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
+  grip: '<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>',
+  camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+  layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+  puzzle: '<path d="M9 3h4v3a2 2 0 1 0 4 0V3h4v6h-3a2 2 0 1 0 0 4h3v8h-6v-3a2 2 0 1 0-4 0v3H3v-8h3a2 2 0 1 0 0-4H3V3z"/>',
+  sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  check: '<path d="M5 12l5 5 9-10"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  alert: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
+};
+
+function icon(name, extra = '') {
+  return `<svg class="icon ${extra}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
+}
+
+const LOGO = '<svg viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>';
+
+function ago(ts) {
+  if (!ts) return 'jamais';
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return "à l'instant";
+  if (s < 3600) return `il y a ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
+  if (s < 30 * 86400) return `il y a ${Math.floor(s / 86400)} j`;
+  return new Date(ts).toLocaleDateString('fr-FR');
+}
+
+function duration(ms) {
+  const h = Math.floor(ms / 3600e3);
+  if (h >= 24) return `${Math.floor(h / 24)} j ${h % 24} h`;
+  return `${h} h ${Math.floor((ms % 3600e3) / 60e3)} min`;
+}
+
+function hue(name) {
+  let h = 0;
+  for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return h;
+}
+
+function avatar(p, size = 'm') {
+  if (p.avatarUrl) return `<div class="avatar ${size}"><img src="${esc(p.avatarUrl)}" alt=""></div>`;
+  const initials = String(p.name || '?').trim().split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+  return `<div class="avatar ${size}" style="background:hsl(${hue(p.name)} 55% 42%)">${esc(initials)}</div>`;
+}
+
+function toast(msg, error = false) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (error ? ' error' : '');
+  el.textContent = msg;
+  $('#toasts').appendChild(el);
+  setTimeout(() => el.remove(), error ? 5000 : 2600);
+}
+
+async function api(method, path, body) {
+  const init = { method, headers: { 'X-Stremfin': '1' }, credentials: 'same-origin' };
+  if (body instanceof Blob) {
+    init.body = body;
+    init.headers['Content-Type'] = body.type || 'application/octet-stream';
+  } else if (body !== undefined) {
+    init.body = JSON.stringify(body);
+    init.headers['Content-Type'] = 'application/json';
+  }
+  const r = await fetch('/stremfin/api' + path, init);
+  let data = null;
+  try { data = await r.json(); } catch {}
+  if (r.status === 401 && !path.startsWith('/auth/')) {
+    state.authed = false;
+    render();
+    throw new Error(data?.error || 'Session expirée');
+  }
+  if (!r.ok) throw new Error(data?.error || `Erreur ${r.status}`);
+  return data;
+}
+
+/** Execute une action asynchrone en desactivant le bouton et en affichant les erreurs. */
+async function busy(btn, fn, okMsg) {
+  const label = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>' + label;
+  }
+  try {
+    const r = await fn();
+    if (okMsg) toast(okMsg);
+    return r;
+  } catch (e) {
+    toast(e.message, true);
+    return undefined;
+  } finally {
+    if (btn && btn.isConnected) {
+      btn.disabled = false;
+      btn.innerHTML = label;
+    }
+  }
+}
+
+// ---- Fenetres modales -----------------------------------------------------------------------
+
+function modal({ title, lead = '', body = '', okLabel = 'Valider', okClass = 'primary', cancelLabel = 'Annuler', onOk, wide = false }) {
+  return new Promise((resolve) => {
+    const bd = document.createElement('div');
+    bd.className = 'backdrop';
+    bd.innerHTML = `<form class="modal" style="${wide ? 'width:min(720px,100%)' : ''}" novalidate>
+      <h2>${esc(title)}</h2>${lead ? `<p class="lead">${lead}</p>` : ''}
+      <div class="modal-body">${body}</div>
+      <div class="foot">${cancelLabel ? `<button type="button" class="btn ghost" data-close>${esc(cancelLabel)}</button>` : ''}
+        ${okLabel ? `<button type="submit" class="btn ${okClass}">${esc(okLabel)}</button>` : ''}</div>
+    </form>`;
+    const close = (v) => {
+      bd.remove();
+      document.removeEventListener('keydown', onKey);
+      resolve(v);
+    };
+    const onKey = (e) => e.key === 'Escape' && close(null);
+    document.addEventListener('keydown', onKey);
+    bd.addEventListener('mousedown', (e) => e.target === bd && close(null));
+    $('[data-close]', bd)?.addEventListener('click', () => close(null));
+    const form = $('form', bd);
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = $('button[type=submit]', form);
+      if (!onOk) return close(true);
+      const r = await busy(btn, () => onOk(form));
+      if (r !== undefined && r !== false) close(r);
+    });
+    document.body.appendChild(bd);
+    ($('input:not([type=hidden]), select', form) || $('button[type=submit]', form))?.focus();
+  });
+}
+
+function confirmDialog(title, lead, okLabel = 'Confirmer', danger = false) {
+  return modal({ title, lead, okLabel, okClass: danger ? 'danger solid' : 'primary' });
+}
+
+// ---- Listes reordonnables (souris, tactile et clavier) ----------------------------------------
+
+function sortable(list, onChange) {
+  const keys = () => $$('.item', list).map((i) => i.dataset.key);
+  list.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.handle');
+    if (!handle || !list.contains(handle) || handle.disabled) return;
+    const item = handle.closest('.item');
+    e.preventDefault();
+    const before = keys().join('|');
+    item.classList.add('dragging');
+    // Suivi sur toute la fenetre : le pointeur peut quitter la poignee pendant le glisser.
+    const move = (ev) => {
+      const others = $$('.item:not(.dragging)', list);
+      const next = others.find((o) => {
+        const r = o.getBoundingClientRect();
+        return ev.clientY < r.top + r.height / 2;
+      });
+      if (next) list.insertBefore(item, next);
+      else list.appendChild(item);
+    };
+    const up = () => {
+      item.classList.remove('dragging');
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      if (keys().join('|') !== before) onChange(keys());
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  });
+  list.addEventListener('keydown', (e) => {
+    const handle = e.target.closest('.handle');
+    if (!handle || handle.disabled || !['ArrowUp', 'ArrowDown'].includes(e.key)) return;
+    e.preventDefault();
+    const item = handle.closest('.item');
+    if (e.key === 'ArrowUp' && item.previousElementSibling) list.insertBefore(item, item.previousElementSibling);
+    else if (e.key === 'ArrowDown' && item.nextElementSibling) list.insertBefore(item.nextElementSibling, item);
+    else return;
+    handle.focus();
+    onChange(keys());
+  });
+}
+
+const handleBtn = (disabled = false) =>
+  `<button type="button" class="handle" title="Glisser pour réordonner (ou flèches haut/bas)" aria-label="Déplacer" ${disabled ? 'disabled style="visibility:hidden"' : ''}>${icon('grip')}</button>`;
+
+const toggle = (attrs, checked, disabled = false) =>
+  `<label class="switch"><input type="checkbox" ${attrs} ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}><span></span></label>`;
+
+// ---- Etat et navigation ------------------------------------------------------------------------
+
+const state = { authed: false, setup: false, role: null, username: '', profileId: null, info: null, settings: null, profiles: [], profile: null };
+
+const NAV_ADMIN = [
+  { group: null, items: [{ id: 'dashboard', label: 'Tableau de bord', icon: 'dashboard' }] },
+  { group: 'Utilisateurs', items: [{ id: 'profiles', label: 'Profils', icon: 'users' }, { id: 'devices', label: 'Appareils', icon: 'devices' }] },
+  {
+    group: 'Réglages',
+    items: [
+      { id: 'settings/server', label: 'Serveur', icon: 'server' },
+      { id: 'settings/playback', label: 'Lecture et réseau', icon: 'play' },
+      { id: 'settings/metadata', label: 'Métadonnées', icon: 'film' },
+      { id: 'settings/platforms', label: 'Plateformes', icon: 'tv' },
+      { id: 'settings/web', label: 'Client web', icon: 'globe' }
+    ]
+  },
+  { group: 'Système', items: [{ id: 'maintenance', label: 'Maintenance', icon: 'wrench' }, { id: 'security', label: 'Sécurité', icon: 'shield' }] }
+];
+
+/** Un utilisateur ne voit que les onglets de son propre profil. */
+function navFor() {
+  if (state.role === 'admin') return NAV_ADMIN;
+  return [{ group: 'Mon compte', items: PROFILE_TABS.map((t) => ({ id: `me/${t.id}`, label: t.label, icon: t.icon })) }];
+}
+
+function route() {
+  const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  if (state.role !== 'admin') return { page: 'me', parts: ['me', parts[0] === 'me' ? parts[1] || 'login' : 'login'] };
+  if (!parts.length) return { page: 'dashboard', parts: [] };
+  if (parts[0] === 'settings') return { page: `settings/${parts[1] || 'server'}`, parts };
+  return { page: parts[0], parts };
+}
+
+function go(hash) {
+  if (location.hash === hash) render();
+  else location.hash = hash;
+}
+
+window.addEventListener('hashchange', () => render());
+
+async function boot() {
+  try {
+    const s = await api('GET', '/auth/status');
+    state.setup = s.setup;
+    state.authed = s.authenticated;
+    state.username = s.username || '';
+    state.role = s.role;
+    state.profileId = s.profileId;
+    state.web = s.web;
+  } catch (e) {
+    $('#app').innerHTML = `<div class="auth"><div class="card"><p>${esc(e.message)}</p></div></div>`;
+    return;
+  }
+  render();
+}
+
+async function render() {
+  if (!state.authed) return renderAuth();
+  if (!$('.shell')) renderShell();
+  const r = route();
+  const here = r.page === 'me' ? `me/${r.parts[1]}` : r.page;
+  $$('.nav-item[data-nav]').forEach((a) => a.classList.toggle('active', here === a.dataset.nav || here.startsWith(a.dataset.nav + '/')));
+  $('.shell').classList.remove('menu-open');
+  const main = $('#main');
+  try {
+    if (!state.info) state.info = await api('GET', '/server-info');
+    if (state.role === 'admin' && !state.settings) state.settings = await api('GET', '/settings');
+    const page = PAGES[r.page] || (state.role === 'admin' ? PAGES.dashboard : PAGES.me);
+    await page(main, r.parts);
+  } catch (e) {
+    if (state.authed) main.innerHTML = `<div class="card empty">${icon('alert')}<p>${esc(e.message)}</p></div>`;
+  }
+  window.scrollTo(0, 0);
+}
+
+function renderShell() {
+  document.title = state.role === 'admin' ? 'Stremfin · Administration' : 'Stremfin · Mon espace';
+  $('#app').innerHTML = `<div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-logo">${LOGO}</div><div><div class="brand-name">Stremfin</div><div class="brand-sub">${state.role === 'admin' ? 'Administration' : 'Mon espace'}</div></div></div>
+      ${navFor().map((g) => `${g.group ? `<div class="nav-group">${g.group}</div>` : ''}${g.items
+        .map((i) => `<a class="nav-item" data-nav="${i.id}" href="#/${i.id}">${icon(i.icon)}<span>${i.label}</span></a>`)
+        .join('')}`).join('')}
+      ${state.web ? `<a class="nav-item" href="/web/" target="_blank" rel="noopener">${icon('play')}<span>Regarder</span></a>` : ''}
+      <div class="sidebar-foot">
+        <div class="avatar s" style="background:hsl(${hue(state.username)} 55% 42%)">${esc(state.username.slice(0, 1).toUpperCase())}</div>
+        <div class="who"><b>${esc(state.username)}</b><span class="small muted">${state.role === 'admin' ? 'Administrateur' : 'Utilisateur'}</span></div>
+        <button class="btn ghost icon-only" id="logout" title="Se déconnecter" aria-label="Se déconnecter">${icon('logout')}</button>
+      </div>
+    </aside>
+    <div>
+      <div class="topbar"><button class="btn ghost icon-only" id="menu" aria-label="Menu">${icon('menu')}</button><b>Stremfin</b></div>
+      <main class="main" id="main"></main>
+    </div>
+  </div>`;
+  $('#logout').onclick = async () => {
+    await api('POST', '/auth/logout').catch(() => {});
+    Object.assign(state, { authed: false, role: null, profileId: null, info: null, settings: null });
+    render();
+  };
+  $('#menu').onclick = () => $('.shell').classList.toggle('menu-open');
+}
+
+// ---- Connexion / premier lancement -----------------------------------------------------------------
+
+function renderAuth() {
+  const setup = state.setup;
+  $('#app').innerHTML = `<div class="auth"><form class="card stack" id="authForm" novalidate>
+    <div class="brand"><div class="brand-logo">${LOGO}</div><div class="brand-name">Stremfin</div></div>
+    <h1>${setup ? 'Bienvenue' : 'Connexion'}</h1>
+    <p class="lead">${setup ? 'Crée le compte administrateur. Il protège cette interface.' : 'Administrateur ou utilisateur : connecte-toi avec ton compte Stremfin.'}</p>
+    <div class="field"><label for="u">Nom d'utilisateur</label><input id="u" type="text" autocomplete="username" required></div>
+    <div class="field"><label for="p">Mot de passe</label><input id="p" type="password" autocomplete="${setup ? 'new-password' : 'current-password'}" required>
+      ${setup ? '<span class="help">8 caractères minimum.</span>' : ''}</div>
+    ${setup ? '<div class="field"><label for="p2">Confirmer le mot de passe</label><input id="p2" type="password" autocomplete="new-password" required></div>' : ''}
+    <div class="error" id="authError"></div>
+    <button class="btn primary" type="submit">${setup ? 'Créer le compte' : 'Se connecter'}</button>
+    ${setup ? '' : `<p class="small muted" style="text-align:center">Connecter une app avec Quick Connect : <a href="/pin">page /pin</a></p>
+      ${state.web ? `<a class="btn ghost" href="/web/">${icon('play')}Regarder dans le navigateur</a>` : ''}`}
+  </form></div>`;
+  $('#u').focus();
+  $('#authForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const err = $('#authError');
+    err.textContent = '';
+    const username = $('#u').value.trim();
+    const password = $('#p').value;
+    if (setup && password !== $('#p2').value) return (err.textContent = 'Les mots de passe ne correspondent pas');
+    const r = await busy($('#authForm button[type=submit]'), async () => {
+      try {
+        return await api('POST', setup ? '/auth/setup' : '/auth/login', { username, password });
+      } catch (ex) {
+        err.textContent = ex.message;
+        return false;
+      }
+    });
+    if (r) {
+      Object.assign(state, { authed: true, setup: false, username, role: r.role || 'admin', profileId: r.profileId || null, info: null, settings: null });
+      if (location.hash && state.role !== 'admin') location.hash = '';
+      render();
+    }
+  };
+}
+
+// ---- Pages -----------------------------------------------------------------------------------------
+
+const PAGES = {};
+
+function head(title, sub = '', actions = '') {
+  return `<div class="page-head"><div><h1>${title}</h1>${sub ? `<p class="sub">${sub}</p>` : ''}</div><div class="row">${actions}</div></div>`;
+}
+
+function serverAddress() {
+  return (state.info?.publicUrl || location.origin).replace(/\/+$/, '');
+}
+
+// Tableau de bord
+PAGES.dashboard = async (main) => {
+  const o = await api('GET', '/overview');
+  main.innerHTML = `${head('Tableau de bord', `${esc(o.serverName)} · version ${esc(o.version)} · en ligne depuis ${duration(o.uptime)}`)}
+    <div class="grid grid-4">
+      <div class="stat"><div class="label">${icon('users')} Profils</div><div class="value">${o.profiles}</div></div>
+      <div class="stat"><div class="label">${icon('devices')} Appareils actifs</div><div class="value">${o.activeDevices}</div><div class="hint">sur ${o.devices} connecté${o.devices > 1 ? 's' : ''} · 24 h</div></div>
+      <div class="stat"><div class="label">${icon('layers')} Titres indexés</div><div class="value">${o.indexedItems.toLocaleString('fr-FR')}</div></div>
+      <div class="stat"><div class="label">${icon('refresh')} Entrées en cache</div><div class="value">${o.cacheEntries.toLocaleString('fr-FR')}</div></div>
+    </div>
+    <div class="grid grid-2" style="margin-top:16px">
+      <div class="card">
+        <div class="card-head"><div><h2>Activité récente</h2><p>Derniers titres lancés, tous profils confondus.</p></div></div>
+        ${o.recent.length ? o.recent.map((r) => `<div class="recent">
+            ${r.image ? `<img src="${esc(r.image)}" alt="" loading="lazy">` : '<div class="ph"></div>'}
+            <div class="grow"><b>${esc(r.title)}</b><div class="small muted">${esc(r.profile)} · ${ago(r.at)}${r.played ? ' · vu' : ''}</div></div>
+          </div>`).join('') : `<div class="empty">${icon('clock')}<p>Rien de lancé pour l'instant.</p></div>`}
+      </div>
+      <div class="stack">
+        <div class="card">
+          <div class="card-head"><div><h2>État</h2></div></div>
+          <div class="setting"><div class="text"><b>TMDB</b><span>Fiches traduites, Mes médias, plateformes, sagas.</span></div>
+            <div class="control">${o.tmdb ? '<span class="badge ok">Actif</span>' : '<a class="btn sm" href="#/settings/metadata">Configurer</a>'}</div></div>
+          <div class="setting"><div class="text"><b>Passer l'intro</b><span>Timestamps de TheIntroDB.</span></div>
+            <div class="control">${o.introSkip ? '<span class="badge ok">Actif</span>' : '<span class="badge">Désactivé</span>'}</div></div>
+          <div class="setting"><div class="text"><b>Addons</b><span>${o.brokenAddons.length ? `${o.brokenAddons.length} addon(s) injoignable(s)` : 'Tous les manifests répondent.'}</span></div>
+            <div class="control">${o.brokenAddons.length ? '<a class="btn sm" href="#/maintenance">Voir</a>' : '<span class="badge ok">OK</span>'}</div></div>
+        </div>
+        <div class="howto">
+          <h3>Connecter une app Jellyfin</h3>
+          <ol>
+            <li>Dans l'app : <b>Ajouter un serveur</b>, adresse <code>${esc(serverAddress())}</code></li>
+            <li>Nom d'utilisateur et mot de passe du profil</li>
+            <li>Ou <b>Quick Connect</b> : code à saisir sur <a href="/pin" target="_blank">${esc(serverAddress())}/pin</a></li>
+          </ol>
+        </div>
+      </div>
+    </div>`;
+};
+
+// Liste des profils
+PAGES.profiles = async (main, parts) => {
+  if (parts[1]) return profilePage(main, parts[1], parts[2] || 'login', false);
+  state.profiles = await api('GET', '/profiles');
+  main.innerHTML = `${head('Profils', 'Chaque profil a ses identifiants, ses addons, ses bibliothèques, son accueil et sa progression.', `<button class="btn primary" id="newProfile">${icon('plus')}Nouveau profil</button>`)}
+    <div class="profile-grid">
+      ${state.profiles.map((p) => `<a class="card profile-card ${p.disabled ? 'disabled' : ''}" href="#/profiles/${p.id}">
+        <div class="top">${avatar(p)}<div class="grow"><div class="name">${esc(p.name)}</div>
+          <div class="row" style="gap:5px;margin-top:4px">
+            ${p.disabled ? '<span class="badge bad">Désactivé</span>' : ''}
+            ${p.hasPassword ? '' : '<span class="badge warn">Sans mot de passe</span>'}
+            ${p.showOnLogin ? '<span class="badge accent">Visible</span>' : ''}
+          </div></div></div>
+        <div class="stats">
+          <div><b>${p.addonsCount}</b><span>addons</span></div>
+          <div><b>${p.librariesCount}</b><span>biblio.</span></div>
+          <div><b>${p.devicesCount}</b><span>appareils</span></div>
+          <div><b>${p.watchedCount}</b><span>vus</span></div>
+        </div>
+        <div class="small muted">Dernière activité : ${ago(p.lastSeen)}</div>
+      </a>`).join('')}
+      <button class="card profile-card new" id="newProfile2">${icon('plus')}<span>Ajouter un profil</span></button>
+    </div>`;
+  $('#newProfile').onclick = newProfileDialog;
+  $('#newProfile2').onclick = newProfileDialog;
+};
+
+async function newProfileDialog() {
+  const others = state.profiles.length ? state.profiles : await api('GET', '/profiles');
+  const p = await modal({
+    title: 'Nouveau profil',
+    lead: "L'utilisateur se connectera aux apps et à son espace avec ce nom et ce mot de passe.",
+    okLabel: 'Créer',
+    body: `<div class="stack">
+      <div class="field"><label>Nom d'utilisateur</label><input name="name" type="text" maxlength="40" required></div>
+      <div class="field"><label>Mot de passe</label><input name="password" type="password" autocomplete="new-password" required><span class="help">8 caractères minimum.</span></div>
+      <div class="field"><label>Partir de</label><select name="from"><option value="">Profil par défaut (Mes médias TMDB, plateformes, sagas)</option>
+        ${others.map((o) => `<option value="${o.id}">Copie de ${esc(o.name)} (addons, bibliothèques, accueil, préférences)</option>`).join('')}</select></div>
+    </div>`,
+    onOk: async (f) => {
+      const body = { name: f.name.value.trim(), password: f.password.value };
+      return f.from.value ? api('POST', `/profiles/${f.from.value}/duplicate`, body) : api('POST', '/profiles', body);
+    }
+  });
+  if (p) {
+    toast(`Profil « ${p.name} » créé`);
+    go(`#/profiles/${p.id}`);
+  }
+}
+
+// Fiche d'un profil (admin) ou "Mon compte" (utilisateur)
+const PROFILE_TABS = [
+  { id: 'login', label: 'Connexion', icon: 'key' },
+  { id: 'prefs', label: 'Préférences', icon: 'sliders' },
+  { id: 'home', label: 'Accueil', icon: 'dashboard' },
+  { id: 'addons', label: 'Addons', icon: 'puzzle' },
+  { id: 'libraries', label: 'Bibliothèques', icon: 'layers' },
+  { id: 'devices', label: 'Appareils', icon: 'devices' }
+];
+
+PAGES.me = (main, parts) => profilePage(main, state.profileId, parts[1] || 'login', true);
+
+async function profilePage(main, id, tab, self) {
+  const p = (state.profile = await api('GET', `/profiles/${id}`));
+  p.self = self;
+  const base = self ? '#/me/' : `#/profiles/${p.id}/`;
+  const counts = { addons: p.addons.length, libraries: p.catalogs.filter((c) => c.enabled && c.browsable).length, devices: p.devices.length };
+  main.innerHTML = `${self ? '' : '<div class="row" style="margin-bottom:14px"><a class="btn ghost sm" href="#/profiles">← Profils</a></div>'}
+    <div class="profile-hero">
+      <button class="avatar-edit" id="avatarBtn" title="Changer l'avatar" aria-label="Changer l'avatar">${avatar(p, 'l')}<span class="overlay">${icon('camera')}</span></button>
+      <input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+      <div class="info"><h1>${esc(p.name)}
+        ${p.disabled ? '<span class="badge bad">Désactivé</span>' : '<span class="badge ok">Actif</span>'}
+        ${p.hasPassword ? '' : '<span class="badge warn">Sans mot de passe</span>'}</h1>
+        <p class="muted" style="margin-top:4px">Créé ${ago(p.createdAt)} · dernière activité ${ago(p.lastSeen)} · ${p.watchedCount} titre(s) en cours ou vus</p></div>
+      <div class="row">
+        ${p.avatarUrl ? `<button class="btn sm" id="avatarDel">${icon('trash')}Retirer l'avatar</button>` : ''}
+        ${self ? '' : `<button class="btn sm" id="dupProfile">${icon('copy')}Dupliquer</button><button class="btn sm danger" id="delProfile">${icon('trash')}Supprimer</button>`}
+      </div>
+    </div>
+    <nav class="tabs">${PROFILE_TABS.map((t) => `<a class="tab ${t.id === tab ? 'active' : ''}" href="${base}${t.id}">${icon(t.icon)}${t.label}${counts[t.id] !== undefined ? `<span class="count">${counts[t.id]}</span>` : ''}</a>`).join('')}</nav>
+    <div id="tab"></div>`;
+
+  $('#avatarBtn').onclick = () => $('#avatarFile').click();
+  $('#avatarFile').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024) return toast('Image trop lourde (3 Mo max.)', true);
+    if (await busy(null, () => api('PUT', `/profiles/${p.id}/avatar`, file), 'Avatar mis à jour')) render();
+  };
+  if ($('#avatarDel')) $('#avatarDel').onclick = async () => (await busy(null, () => api('DELETE', `/profiles/${p.id}/avatar`), 'Avatar retiré')) && render();
+  if (!self) {
+    $('#dupProfile').onclick = async () => {
+      const copy = await modal({
+        title: `Dupliquer « ${p.name} »`,
+        lead: 'Le nouveau profil reprend les addons, les bibliothèques, l\'accueil et les préférences, sans progression.',
+        okLabel: 'Dupliquer',
+        body: `<div class="stack"><div class="field"><label>Nom du nouveau profil</label><input name="name" type="text" maxlength="40" value="${esc(p.name)} (copie)" required></div>
+          <div class="field"><label>Mot de passe</label><input name="password" type="password" autocomplete="new-password" required><span class="help">8 caractères minimum.</span></div></div>`,
+        onOk: (f) => api('POST', `/profiles/${p.id}/duplicate`, { name: f.name.value, password: f.password.value })
+      });
+      if (copy) {
+        toast('Profil dupliqué');
+        go(`#/profiles/${copy.id}`);
+      }
+    };
+    $('#delProfile').onclick = async () => {
+      const ok = await confirmDialog(`Supprimer « ${p.name} » ?`, 'Ses appareils seront déconnectés et sa progression (reprise, vus, favoris) effacée. Action irréversible.', 'Supprimer', true);
+      if (ok && (await busy(null, () => api('DELETE', `/profiles/${p.id}`), 'Profil supprimé'))) go('#/profiles');
+    };
+  }
+  const tabs = { login: tabLogin, prefs: tabPrefs, home: tabHome, addons: tabAddons, libraries: tabLibraries, devices: tabDevices };
+  (tabs[tab] || tabLogin)($('#tab'), p);
+}
+
+async function patchProfile(p, body, msg = 'Enregistré') {
+  const r = await busy(null, () => api('PATCH', `/profiles/${p.id}`, body), msg);
+  if (r) {
+    r.self = p.self;
+    state.profile = r;
+  }
+  return r;
+}
+
+function passwordDialog(p) {
+  return modal({
+    title: p.hasPassword ? 'Changer le mot de passe' : 'Définir un mot de passe',
+    lead: 'Les apps connectées à ce profil devront se reconnecter.',
+    okLabel: 'Enregistrer',
+    body: `<div class="stack">
+      ${p.self ? '<div class="field"><label>Mot de passe actuel</label><input name="cur" type="password" autocomplete="current-password" required></div>' : ''}
+      <div class="field"><label>Nouveau mot de passe</label><input name="pw" type="password" autocomplete="new-password" required><span class="help">8 caractères minimum.</span></div>
+      <div class="field"><label>Confirmer</label><input name="pw2" type="password" autocomplete="new-password" required></div></div>`,
+    onOk: async (f) => {
+      if (f.pw.value !== f.pw2.value) throw new Error('Les mots de passe ne correspondent pas');
+      return api('PATCH', `/profiles/${p.id}`, { password: f.pw.value, currentPassword: f.cur?.value });
+    }
+  });
+}
+
+function tabLogin(el, p) {
+  el.innerHTML = `<div class="grid grid-2">
+    <div class="stack">
+      <div class="card">
+        <div class="card-head"><div><h2>Identifiants</h2><p>Pour les apps Jellyfin et pour ${p.self ? 'cet espace' : "l'espace utilisateur du profil"}.</p></div></div>
+        ${p.self
+          ? `<div class="field"><label>Nom d'utilisateur</label><input type="text" value="${esc(p.name)}" disabled><span class="help">Modifiable par l'administrateur.</span></div>`
+          : `<form class="field" id="nameForm"><label>Nom d'utilisateur</label>
+              <div class="row"><input class="grow" name="name" type="text" maxlength="40" value="${esc(p.name)}" required style="width:auto"><button class="btn" type="submit">Renommer</button></div></form>`}
+        <div class="divider"></div>
+        <div class="row between"><div><b>Mot de passe</b><div class="small ${p.hasPassword ? 'muted' : ''}" style="${p.hasPassword ? '' : 'color:var(--warn)'}">${p.hasPassword ? 'Défini.' : 'Aucun : ce profil ne peut pas se connecter.'}</div></div>
+          <button class="btn sm ${p.hasPassword ? '' : 'primary'}" id="pwSet">${p.hasPassword ? 'Changer' : 'Définir'}</button></div>
+      </div>
+      ${p.self ? '' : `<div class="card">
+        <div class="card-head"><div><h2>Accès</h2></div></div>
+        <div class="setting"><div class="text"><b>Visible à la connexion</b><span>Le profil apparaît sur l'écran « Qui regarde ? » de tous les appareils (sinon, seulement sur ceux déjà connectés).</span></div>
+          <div class="control">${toggle('id="showOnLogin"', p.showOnLogin)}</div></div>
+        <div class="setting"><div class="text"><b>Profil désactivé</b><span>Plus aucune connexion possible ; les appareils et l'espace utilisateur sont déconnectés.</span></div>
+          <div class="control">${toggle('id="disabled"', p.disabled)}</div></div>
+      </div>`}
+    </div>
+    <div class="howto">
+      <h3>Se connecter depuis une app</h3>
+      <ol><li>Adresse du serveur : <code>${esc(serverAddress())}</code></li>
+        <li>Nom <b>${esc(p.name)}</b> + son mot de passe</li>
+        <li>Ou <b>Quick Connect</b> : l'app affiche un code à 6 chiffres, à saisir sur <a href="/pin" target="_blank">${esc(serverAddress())}/pin</a> ou ici :</li></ol>
+      <form class="row" id="qcForm" style="margin-top:12px"><input class="grow" name="code" type="text" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="000000" style="width:auto;font-family:var(--mono);letter-spacing:.2em">
+        <button class="btn primary" type="submit">Approuver</button></form>
+    </div>
+  </div>`;
+
+  if ($('#nameForm')) $('#nameForm').onsubmit = async (e) => {
+    e.preventDefault();
+    if (await patchProfile(p, { name: e.target.name.value }, 'Profil renommé')) render();
+  };
+  $('#pwSet').onclick = async () => (await passwordDialog(p)) && (toast('Mot de passe enregistré'), render());
+  if ($('#showOnLogin')) $('#showOnLogin').onchange = async (e) => {
+    if (!(await patchProfile(p, { showOnLogin: e.target.checked }))) e.target.checked = !e.target.checked;
+  };
+  if ($('#disabled')) $('#disabled').onchange = async (e) => {
+    if (e.target.checked && !(await confirmDialog(`Désactiver « ${p.name} » ?`, 'Ses appareils seront déconnectés et il ne pourra plus se connecter.', 'Désactiver', true))) {
+      e.target.checked = false;
+      return;
+    }
+    if (await patchProfile(p, { disabled: e.target.checked }, e.target.checked ? 'Profil désactivé' : 'Profil réactivé')) render();
+  };
+  $('#qcForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const code = e.target.code.value.trim();
+    if (!/^\d{6}$/.test(code)) return toast('Le code fait 6 chiffres', true);
+    if (await busy($('#qcForm button'), () => api('POST', '/quickconnect', { code, profileId: p.id }), 'Appareil approuvé')) e.target.reset();
+  };
+}
+
+const LANGS = [
+  ['fr', 'Français'], ['en', 'Anglais'], ['es', 'Espagnol'], ['de', 'Allemand'], ['it', 'Italien']
+];
+
+function tabPrefs(el, p) {
+  const tmdbOn = !!state.info?.tmdb;
+  el.innerHTML = `<div class="card">
+    <div class="setting"><div class="text"><b>Langues audio prioritaires</b><span>Les sources dans ces langues passent en premier, avant la qualité (dans l'ordre de sélection).</span></div>
+      <div class="control"><div class="chips" id="langs">${LANGS.map(([v, l]) => `<button type="button" class="chip ${p.preferredLanguages.includes(v) ? 'on' : ''}" data-lang="${v}">${l}${p.preferredLanguages.includes(v) ? ` <span class="faint">${p.preferredLanguages.indexOf(v) + 1}</span>` : ''}</button>`).join('')}</div></div></div>
+    <div class="setting"><div class="text"><b>Qualité par défaut</b><span>Lancée sans choix explicite ; à défaut, la plus proche disponible.</span></div>
+      <div class="control"><div class="segmented" id="quality">${[['2160', '4K'], ['1080', '1080p'], ['720', '720p']].map(([v, l]) => `<button type="button" data-q="${v}" class="${p.defaultQuality === v ? 'on' : ''}">${l}</button>`).join('')}</div></div></div>
+    <div class="setting"><div class="text"><b>Versions proposées</b><span>Sur la fiche d'un film ou d'un épisode : 3 qualités, ou les 5 meilleures releases de chaque qualité trouvées par les addons (jusqu'à 15).</span></div>
+      <div class="control"><div class="segmented" id="versionMode">${[['quality', '3 qualités'], ['releases', '5 releases par qualité']].map(([v, l]) => `<button type="button" data-v="${v}" class="${p.versionMode === v ? 'on' : ''}">${l}</button>`).join('')}</div></div></div>
+    <div class="setting"><div class="text"><b>Masquer les films déjà vus</b><span>Ils disparaissent des bibliothèques une fois terminés.</span></div>
+      <div class="control">${toggle('id="hideWatched"', p.hideWatched)}</div></div>
+    <div class="setting"><div class="text"><b>Seulement ce qui est sorti</b><span>Masque films et séries pas encore disponibles en VOD, DVD ou à la TV.${tmdbOn ? '' : ' Nécessite une clé TMDB.'}</span></div>
+      <div class="control">${toggle('id="onlyReleased"', p.onlyReleased, !tmdbOn)}</div></div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <div class="card-head"><div><h2>CSS du client web</h2><p>Personnalise l'apparence de Jellyfin web pour ce profil : navigateur, Jellyfin Media Player, app Android pour téléphone. Les apps natives (Android TV, Wholphin…) ne l'utilisent pas.</p></div></div>
+    <textarea id="customCss" rows="12" spellcheck="false" placeholder="/* Exemple */&#10;.skinHeader { background: #101820; }" style="width:100%;font-family:var(--mono);font-size:13px;resize:vertical">${esc(p.customCss)}</textarea>
+    <div class="row" style="margin-top:10px;justify-content:space-between"><span class="small faint">S'applique au prochain chargement de la page dans Jellyfin web.</span><button class="btn primary" id="cssSave">Enregistrer le CSS</button></div>
+  </div>`;
+  $('#cssSave').onclick = async (e) => {
+    const r = await busy(e.currentTarget, () => api('PATCH', `/profiles/${p.id}`, { customCss: $('#customCss').value }), 'CSS enregistré');
+    if (r) {
+      r.self = p.self;
+      state.profile = r;
+    }
+  };
+  $('#langs').onclick = async (e) => {
+    const chip = e.target.closest('[data-lang]');
+    if (!chip) return;
+    const v = chip.dataset.lang;
+    const langs = p.preferredLanguages.includes(v) ? p.preferredLanguages.filter((x) => x !== v) : [...p.preferredLanguages, v];
+    if (await patchProfile(p, { preferredLanguages: langs })) tabPrefs(el, state.profile);
+  };
+  $('#quality').onclick = async (e) => {
+    const b = e.target.closest('[data-q]');
+    if (b && (await patchProfile(p, { defaultQuality: b.dataset.q }))) tabPrefs(el, state.profile);
+  };
+  $('#versionMode').onclick = async (e) => {
+    const b = e.target.closest('[data-v]');
+    if (b && (await patchProfile(p, { versionMode: b.dataset.v }))) tabPrefs(el, state.profile);
+  };
+  for (const k of ['hideWatched', 'onlyReleased']) {
+    $('#' + k).onchange = async (e) => {
+      if (!(await patchProfile(p, { [k]: e.target.checked }))) e.target.checked = !e.target.checked;
+    };
+  }
+}
+
+// Accueil des apps Jellyfin : sections (homesection0..9) et rangees "ajouts recents" par bibliotheque.
+const SECTIONS = [
+  ['smalllibrarytiles', 'Mes médias (grandes vignettes)'],
+  ['librarybuttons', 'Mes médias (boutons)'],
+  ['resume', 'Continuer à regarder'],
+  ['nextup', 'À suivre (épisodes)'],
+  ['latestmedia', 'Rangées des bibliothèques (« ajouts récents »)']
+];
+const RECOMMENDED_HOME = ['smalllibrarytiles', 'resume', 'latestmedia', 'nextup'];
+
+function tabHome(el, p) {
+  let sections = p.homeSections ? [...p.homeSections] : null;
+  const original = JSON.stringify(sections);
+  const dirty = () => JSON.stringify(sections) !== original;
+  const excluded = new Set(p.latestExcludes);
+
+  /** Applique une reponse du serveur (profil a jour) en gardant les sections non enregistrees. */
+  const apply = (r) => {
+    if (!r) return;
+    r.self = p.self;
+    state.profile = r;
+    p.libraries = r.libraries;
+    p.latestExcludes = r.latestExcludes;
+    excluded.clear();
+    r.latestExcludes.forEach((k) => excluded.add(k));
+    draw();
+  };
+
+  const draw = () => {
+    el.innerHTML = `<div class="grid grid-2">
+      <div class="card">
+        <div class="card-head"><div><h2>Sections de l'accueil</h2><p>Ordre des blocs sur la page d'accueil des apps Jellyfin.</p></div></div>
+        <div class="segmented" id="mode" style="margin-bottom:14px"><button type="button" data-m="app" class="${sections ? '' : 'on'}">Laisser l'app décider</button><button type="button" data-m="custom" class="${sections ? 'on' : ''}">Personnaliser</button></div>
+        ${sections ? `<div class="list" id="secList">${sections.map((s, i) => `<div class="item" data-key="${i}">${handleBtn(sections.length < 2)}
+            <div class="body"><select data-sec="${i}">${SECTIONS.map(([v, l]) => `<option value="${v}" ${v === s ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+            <div class="actions"><button class="btn ghost icon-only" data-rmsec="${i}" title="Retirer">${icon('trash')}</button></div></div>`).join('')}</div>
+          <div class="row" style="margin-top:10px">${sections.length < 10 ? `<button class="btn sm" id="addSec">${icon('plus')}Ajouter une section</button>` : ''}<button class="btn sm ghost" id="preset">Disposition recommandée</button></div>`
+        : `<p class="muted">Chaque app garde sa propre disposition (réglable dans l'app : Paramètres → Accueil).</p>`}
+        <p class="small faint" style="margin-top:12px">Les apps appliquent la disposition au prochain chargement de l'accueil. Si l'utilisateur la change dans l'app, elle est reprise ici.</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><h2>Mes médias et rangées</h2><p>Tuiles de « Mes médias » et rangées de l'accueil, dans cet ordre (Jellyfin utilise le même ordre pour les deux).</p></div></div>
+        ${p.libraries.length ? `<div class="list" id="libOrder">${p.libraries.map((l) => `<div class="item" data-key="${esc(l.key)}">${handleBtn(p.libraries.length < 2)}
+            <div style="width:96px;height:54px;border-radius:6px;overflow:hidden;flex:none;background:var(--bg);display:grid;place-items:center">${l.preview ? `<img src="${esc(l.preview)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover">` : icon('layers')}</div>
+            <div class="body"><div class="title">${esc(l.name)}</div><div class="meta"><span class="badge">${TYPE_LABEL[l.type] || l.type}</span>${l.image ? '<span class="badge accent">image perso</span>' : ''}</div></div>
+            <div class="actions"><button class="btn ghost icon-only" data-img="${esc(l.key)}" title="Changer l'image de la tuile" aria-label="Changer l'image">${icon('camera')}</button>
+              <label class="row small muted" style="gap:6px" title="Rangée « ajouts récents » sur l'accueil">Rangée ${toggle(`data-latest="${esc(l.key)}" aria-label="Rangée sur l'accueil"`, !excluded.has(l.key))}</label></div></div>`).join('')}</div>`
+          : `<div class="empty">${icon('layers')}<p>Aucune bibliothèque active.</p></div>`}
+        <input type="file" id="libImgFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+      </div>
+    </div>
+    <div class="savebar ${dirty() ? '' : 'hidden'}" id="homeSave"><span>Sections non enregistrées</span><div class="row"><button class="btn ghost" id="homeCancel">Annuler</button><button class="btn primary" id="homeDo">Enregistrer</button></div></div>`;
+
+    // ---- Sections ----
+    $('#mode').onclick = (e) => {
+      const b = e.target.closest('[data-m]');
+      if (!b) return;
+      sections = b.dataset.m === 'custom' ? sections || [...RECOMMENDED_HOME] : null;
+      draw();
+    };
+    const list = $('#secList');
+    if (list) {
+      sortable(list, (keys) => {
+        sections = keys.map((k) => sections[Number(k)]);
+        draw();
+      });
+      list.addEventListener('change', (e) => {
+        const i = e.target.dataset.sec;
+        if (i !== undefined) {
+          sections[Number(i)] = e.target.value;
+          draw();
+        }
+      });
+      list.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-rmsec]');
+        if (!b) return;
+        sections.splice(Number(b.dataset.rmsec), 1);
+        draw();
+      });
+    }
+    if ($('#addSec')) $('#addSec').onclick = () => {
+      sections.push(SECTIONS.find(([v]) => !sections.includes(v))?.[0] || 'latestmedia');
+      draw();
+    };
+    if ($('#preset')) $('#preset').onclick = () => {
+      sections = [...RECOMMENDED_HOME];
+      draw();
+    };
+    $('#homeCancel').onclick = () => {
+      sections = original === 'null' ? null : JSON.parse(original);
+      draw();
+    };
+    $('#homeDo').onclick = async (e) => {
+      const r = await busy(e.currentTarget, () => api('PATCH', `/profiles/${p.id}`, { homeSections: sections }), 'Accueil enregistré');
+      if (r) {
+        r.self = p.self;
+        state.profile = r;
+        tabHome(el, r);
+      }
+    };
+
+    // ---- Mes medias et rangees (enregistre aussitot) ----
+    const libs = $('#libOrder');
+    if (!libs) return;
+    sortable(libs, async (keys) => apply(await busy(null, () => api('PUT', `/profiles/${p.id}/libraries/order`, { keys }), 'Ordre enregistré')));
+    libs.addEventListener('change', async (e) => {
+      const key = e.target.dataset.latest;
+      if (!key) return;
+      if (e.target.checked) excluded.delete(key);
+      else excluded.add(key);
+      const r = await busy(null, () => api('PATCH', `/profiles/${p.id}`, { latestExcludes: [...excluded] }), e.target.checked ? 'Rangée affichée' : 'Rangée masquée');
+      if (r) apply(r);
+      else draw();
+    });
+    libs.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-img]');
+      if (b) imageDialog(p.libraries.find((l) => l.key === b.dataset.img));
+    });
+  };
+
+  /** Image d'une tuile : fichier, adresse, ou retour a l'image automatique. */
+  const imageDialog = async (lib) => {
+    const enc = encodeURIComponent(lib.key);
+    const done = modal({
+      title: `Image de « ${lib.name} »`,
+      lead: 'Format conseillé : paysage 16:9 (par exemple 1280 × 720). PNG, JPEG, WebP ou GIF, 3 Mo max.',
+      okLabel: 'Enregistrer l\'adresse',
+      body: `<div class="stack">
+        ${lib.preview ? `<img src="${esc(lib.preview)}" alt="" style="width:100%;aspect-ratio:16/9;border-radius:10px;object-fit:cover;background:var(--bg)">` : ''}
+        <div class="row"><button type="button" class="btn" id="imgUpload">${icon('camera')}Envoyer une image</button>
+          ${lib.image ? '<button type="button" class="btn ghost" id="imgAuto">Revenir à l\'image automatique</button>' : ''}</div>
+        <div class="field"><label>Ou adresse d'une image</label><input name="url" type="url" placeholder="https://…/image.jpg" value="${esc(lib.image && /^https?:/.test(lib.image) ? lib.image : '')}"></div>
+      </div>`,
+      onOk: async (f) => {
+        if (!f.url.value.trim()) throw new Error('Indique une adresse, ou envoie une image');
+        return api('PUT', `/profiles/${p.id}/library-image?key=${enc}`, { url: f.url.value.trim() });
+      }
+    });
+    const close = () => $('.backdrop [data-close]')?.click();
+    $('#imgUpload').onclick = () => $('#libImgFile').click();
+    $('#libImgFile').onchange = async (ev) => {
+      const file = ev.target.files[0];
+      ev.target.value = '';
+      if (!file) return;
+      if (file.size > 3 * 1024 * 1024) return toast('Image trop lourde (3 Mo max.)', true);
+      const r = await busy($('#imgUpload'), () => api('PUT', `/profiles/${p.id}/library-image?key=${enc}`, file), 'Image enregistrée');
+      if (r) {
+        close();
+        apply(r);
+      }
+    };
+    if ($('#imgAuto')) $('#imgAuto').onclick = async () => {
+      const r = await busy($('#imgAuto'), () => api('DELETE', `/profiles/${p.id}/library-image?key=${enc}`), 'Image automatique');
+      if (r) {
+        close();
+        apply(r);
+      }
+    };
+    const r = await done;
+    if (r && r !== true) {
+      toast('Image enregistrée');
+      apply(r);
+    }
+  };
+
+  draw();
+}
+
+function tabAddons(el, p) {
+  el.innerHTML = `<div class="card">
+    <div class="card-head"><div><h2>Addons Stremio</h2><p>L'ordre compte : pour une fiche, le premier addon capable de la fournir est utilisé (après TMDB).</p></div>
+      <div class="row">${p.self ? '' : `<button class="btn sm" id="copyAddons">${icon('copy')}Copier depuis…</button>`}<button class="btn sm" id="refreshAddons">${icon('refresh')}Recharger</button></div></div>
+    <form class="row" id="addAddon" style="margin-bottom:16px"><input class="grow" name="url" type="url" placeholder="https://…/manifest.json ou stremio://…" style="width:auto" required>
+      <button class="btn primary" type="submit">${icon('plus')}Ajouter</button></form>
+    ${p.addons.length ? `<div class="list" id="addonList">${p.addons.map((a) => `<div class="item ${a.enabled ? '' : 'off'}" data-key="${esc(a.url)}">
+        ${handleBtn(p.addons.length < 2)}
+        <div class="logo">${a.logo ? `<img src="${esc(a.logo)}" alt="" loading="lazy" onerror="this.remove()">` : icon('puzzle')}</div>
+        <div class="body"><div class="title">${esc(a.name)} ${a.version ? `<span class="faint small">v${esc(a.version)}</span>` : ''} ${a.ok ? '' : '<span class="badge bad">Injoignable</span>'}</div>
+          <div class="meta">${a.resources.map((r) => `<span class="badge">${esc(r)}</span>`).join('')}${a.description ? `<span class="small">${esc(a.description.slice(0, 120))}</span>` : ''}</div></div>
+        <div class="actions">
+          ${a.catalogCount ? `<button class="btn sm ${a.catalogsHidden ? '' : 'ghost'}" data-cats="${a.index}" title="${a.catalogsHidden ? 'Ses catalogues ne sont pas proposés comme bibliothèques' : 'Ses catalogues sont proposés dans Bibliothèques'}">${icon('layers')}${a.catalogsHidden ? 'Catalogues masqués' : `${a.catalogCount} catalogue${a.catalogCount > 1 ? 's' : ''}`}</button>` : ''}
+          ${a.configureUrl ? `<a class="btn ghost icon-only" href="${esc(a.configureUrl)}" target="_blank" rel="noopener noreferrer" title="Configurer l'addon">${icon('settings')}</a>` : ''}
+          ${toggle(`data-enable="${a.index}" aria-label="Activer"`, a.enabled)}
+          <button class="btn ghost icon-only" data-del="${a.index}" title="Retirer">${icon('trash')}</button>
+        </div></div>`).join('')}</div>
+      <p class="small faint" style="margin-top:10px">« Catalogues » : cliquer pour garder l'addon seulement pour ses sources et ses fiches, sans proposer ses catalogues.</p>`
+      : `<div class="empty">${icon('puzzle')}<p>Aucun addon. Ajoute au moins un addon de sources pour pouvoir lire.</p></div>`}
+  </div>`;
+
+  const refresh = (r) => {
+    if (!r) return;
+    r.self = p.self;
+    state.profile = r;
+    tabAddons(el, r);
+  };
+  $('#addAddon').onsubmit = async (e) => {
+    e.preventDefault();
+    refresh(await busy($('#addAddon button'), () => api('POST', `/profiles/${p.id}/addons`, { url: e.target.url.value }), 'Addon ajouté'));
+  };
+  $('#refreshAddons').onclick = async (e) => refresh(await busy(e.currentTarget, () => api('POST', `/profiles/${p.id}/addons/refresh`), 'Manifests rechargés'));
+  if ($('#copyAddons')) $('#copyAddons').onclick = async () => {
+    const others = (await api('GET', '/profiles')).filter((o) => o.id !== p.id);
+    if (!others.length) return toast("Il n'y a pas d'autre profil", true);
+    const r = await modal({
+      title: 'Copier des addons',
+      okLabel: 'Copier',
+      body: `<div class="stack"><div class="field"><label>Depuis le profil</label><select name="from">${others.map((o) => `<option value="${o.id}">${esc(o.name)} (${o.addonsCount} addons)</option>`).join('')}</select></div>
+        <div class="field"><label>Mode</label><select name="mode"><option value="merge">Ajouter ceux qui manquent</option><option value="replace">Remplacer tous les addons de ce profil</option></select></div></div>`,
+      onOk: (f) => api('POST', `/profiles/${p.id}/addons/copy`, { from: f.from.value, mode: f.mode.value })
+    });
+    if (r) {
+      toast('Addons copiés');
+      refresh(r);
+    }
+  };
+  const list = $('#addonList');
+  if (!list) return;
+  const addonUrl = (idx) => `/profiles/${p.id}/addons/${idx}?url=${encodeURIComponent(p.addons[Number(idx)].url)}`;
+  sortable(list, async (urls) => refresh(await busy(null, () => api('PUT', `/profiles/${p.id}/addons/order`, { urls }), 'Ordre enregistré')));
+  list.addEventListener('change', async (e) => {
+    const idx = e.target.dataset.enable;
+    if (idx === undefined) return;
+    const r = await busy(null, () => api('PATCH', addonUrl(idx), { enabled: e.target.checked }), e.target.checked ? 'Addon activé' : 'Addon désactivé');
+    if (r) refresh(r);
+    else e.target.checked = !e.target.checked;
+  });
+  list.addEventListener('click', async (e) => {
+    const cats = e.target.closest('[data-cats]');
+    if (cats) {
+      const a = p.addons[Number(cats.dataset.cats)];
+      refresh(await busy(cats, () => api('PATCH', addonUrl(cats.dataset.cats), { catalogsHidden: !a.catalogsHidden }), a.catalogsHidden ? 'Catalogues proposés' : 'Catalogues masqués'));
+      return;
+    }
+    const del = e.target.closest('[data-del]');
+    if (!del) return;
+    const a = p.addons[Number(del.dataset.del)];
+    if (await confirmDialog(`Retirer « ${a.name} » ?`, 'Ses catalogues disparaîtront des bibliothèques de ce profil.', 'Retirer', true)) {
+      refresh(await busy(null, () => api('DELETE', addonUrl(del.dataset.del)), 'Addon retiré'));
+    }
+  });
+}
+
+const TYPE_LABEL = { movie: 'Films', series: 'Séries', collection: 'Sagas', platforms: 'Plateformes' };
+
+function tabLibraries(el, p) {
+  // Copie de travail : rien n'est envoye avant "Enregistrer".
+  let rows = p.catalogs.map((c) => ({ ...c }));
+  const original = JSON.stringify(rows.map((r) => [r.key, r.enabled, r.name]));
+  let filter = { q: '', status: 'all', source: '' };
+  const sources = [...new Set(rows.map((r) => (r.builtin ? 'TMDB intégré' : r.addonName)))];
+
+  const dirty = () => JSON.stringify(rows.map((r) => [r.key, r.enabled, r.name])) !== original;
+  const visible = (r) =>
+    (filter.status === 'all' || (filter.status === 'on' ? r.enabled : !r.enabled)) &&
+    (!filter.source || (r.builtin ? 'TMDB intégré' : r.addonName) === filter.source) &&
+    (!filter.q || `${r.name || r.defaultName} ${r.addonName}`.toLowerCase().includes(filter.q.toLowerCase()));
+  const filtered = () => filter.q || filter.status !== 'all' || filter.source;
+
+  el.innerHTML = `<div class="card">
+    <div class="card-head"><div><h2>Bibliothèques</h2><p>Catalogues affichés comme bibliothèques dans les apps, dans cet ordre. Les catalogues « recherche » servent seulement à la recherche.</p></div></div>
+    <div class="toolbar">
+      <input type="search" id="libSearch" placeholder="Rechercher…">
+      <div class="segmented" id="libStatus"><button type="button" data-s="all" class="on">Toutes</button><button type="button" data-s="on">Actives</button><button type="button" data-s="off">Inactives</button></div>
+      <select id="libSource" style="width:auto"><option value="">Toutes les sources</option>${sources.map((s) => `<option>${esc(s)}</option>`).join('')}</select>
+      <span class="grow"></span>
+      <button class="btn sm" id="libAllOn">Tout activer</button><button class="btn sm" id="libAllOff">Tout désactiver</button>
+    </div>
+    <p class="small faint" id="libHint" style="margin:-4px 0 10px"></p>
+    <div class="list" id="libList"></div>
+    <div id="libEmpty"></div>
+  </div>
+  <div class="savebar hidden" id="libSave"><span>Modifications non enregistrées</span><div class="row"><button class="btn ghost" id="libCancel">Annuler</button><button class="btn primary" id="libDo">Enregistrer</button></div></div>`;
+
+  const draw = () => {
+    const list = $('#libList');
+    const shown = rows.filter(visible);
+    list.innerHTML = shown.map((r) => `<div class="item ${r.enabled ? '' : 'off'}" data-key="${esc(r.key)}">
+        ${handleBtn(filtered())}
+        ${toggle(`data-on="${esc(r.key)}" aria-label="Activer"`, r.enabled)}
+        <div class="body"><input class="inline-name" data-name="${esc(r.key)}" value="${esc(r.name)}" placeholder="${esc(r.defaultName)}" maxlength="60" aria-label="Nom affiché">
+          <div class="meta"><span class="badge ${r.builtin ? 'accent' : ''}">${esc(r.builtin ? 'TMDB intégré' : r.addonName)}</span><span class="badge">${TYPE_LABEL[r.type] || r.type}</span>${r.browsable ? '' : '<span class="badge warn">Recherche</span>'}</div></div>
+      </div>`).join('');
+    $('#libEmpty').innerHTML = shown.length ? '' : `<div class="empty">${icon('layers')}<p>Aucun catalogue ne correspond.</p></div>`;
+    $('#libHint').textContent = filtered() ? 'Retire les filtres pour réordonner par glisser-déposer.' : 'Glisse les poignées pour changer l\'ordre. Clique sur un nom pour le renommer.';
+    $('#libSave').classList.toggle('hidden', !dirty());
+  };
+  draw();
+
+  sortable($('#libList'), (keys) => {
+    rows.sort((a, b) => keys.indexOf(a.key) - keys.indexOf(b.key));
+    draw();
+  });
+  $('#libList').addEventListener('change', (e) => {
+    const key = e.target.dataset.on;
+    if (key) {
+      rows.find((r) => r.key === key).enabled = e.target.checked;
+      draw();
+    }
+  });
+  $('#libList').addEventListener('input', (e) => {
+    const key = e.target.dataset.name;
+    if (key) {
+      rows.find((r) => r.key === key).name = e.target.value;
+      $('#libSave').classList.toggle('hidden', !dirty());
+    }
+  });
+  $('#libSearch').oninput = (e) => {
+    filter.q = e.target.value;
+    draw();
+  };
+  $('#libStatus').onclick = (e) => {
+    const b = e.target.closest('[data-s]');
+    if (!b) return;
+    filter.status = b.dataset.s;
+    $$('#libStatus button').forEach((x) => x.classList.toggle('on', x === b));
+    draw();
+  };
+  $('#libSource').onchange = (e) => {
+    filter.source = e.target.value;
+    draw();
+  };
+  const setAll = (v) => {
+    rows.filter(visible).forEach((r) => (r.enabled = v));
+    draw();
+  };
+  $('#libAllOn').onclick = () => setAll(true);
+  $('#libAllOff').onclick = () => setAll(false);
+  $('#libCancel').onclick = () => tabLibraries(el, state.profile);
+  $('#libDo').onclick = async (e) => {
+    const catalogs = {};
+    for (const r of rows) {
+      catalogs[r.key] = { enabled: r.enabled };
+      if (r.name.trim()) catalogs[r.key].name = r.name.trim();
+    }
+    const res = await busy(e.currentTarget, () => api('PATCH', `/profiles/${p.id}`, { catalogs, catalogOrder: rows.map((r) => r.key) }), 'Bibliothèques enregistrées');
+    if (res) {
+      res.self = p.self;
+      state.profile = res;
+      tabLibraries(el, res);
+      const count = res.catalogs.filter((c) => c.enabled && c.browsable).length;
+      const badge = $('.tab.active .count');
+      if (badge) badge.textContent = count;
+    }
+  };
+}
+
+function deviceRows(devices, withProfile) {
+  return `<div class="table-wrap"><table class="table"><thead><tr>
+      <th>Appareil</th><th>Application</th>${withProfile ? '<th>Profil</th>' : ''}<th>Dernière activité</th><th></th></tr></thead><tbody>
+      ${devices.map((d) => `<tr><td><b>${esc(d.device || 'Inconnu')}</b><div class="small faint">connecté ${ago(d.created)}</div></td>
+        <td>${esc(d.client || '?')} <span class="faint small">${esc(d.version || '')}</span></td>
+        ${withProfile ? `<td><a href="#/profiles/${d.profileId}">${esc(d.profileName)}</a></td>` : ''}
+        <td>${ago(d.lastSeen)}</td>
+        <td class="actions"><button class="btn sm danger" data-revoke="${d.id}">Déconnecter</button></td></tr>`).join('')}
+    </tbody></table></div>`;
+}
+
+function bindRevoke(root, after) {
+  root.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-revoke]');
+    if (!b) return;
+    if (await busy(b, () => api('DELETE', `/devices/${b.dataset.revoke}`), 'Appareil déconnecté')) after();
+  });
+}
+
+function tabDevices(el, p) {
+  el.innerHTML = `<div class="card">
+    <div class="card-head"><div><h2>Appareils connectés</h2><p>Applications ayant une session ouverte sur ce profil.</p></div>
+      ${p.devices.length ? '<button class="btn sm danger" id="revokeAll">Tout déconnecter</button>' : ''}</div>
+    ${p.devices.length ? deviceRows(p.devices, false) : `<div class="empty">${icon('devices')}<p>Aucun appareil connecté.</p></div>`}
+  </div>`;
+  bindRevoke(el, () => render());
+  if ($('#revokeAll')) $('#revokeAll').onclick = async () => {
+    if (await confirmDialog('Déconnecter tous les appareils ?', 'Il faudra se reconnecter sur chacun.', 'Déconnecter', true)) {
+      if (await busy(null, () => api('DELETE', `/profiles/${p.id}/devices`), 'Appareils déconnectés')) render();
+    }
+  };
+}
+
+// Tous les appareils
+PAGES.devices = async (main) => {
+  const devices = await api('GET', '/devices');
+  main.innerHTML = `${head('Appareils', 'Toutes les applications connectées, tous profils confondus.')}
+    <div class="card">${devices.length ? deviceRows(devices, true) : `<div class="empty">${icon('devices')}<p>Aucun appareil connecté.</p></div>`}</div>`;
+  bindRevoke(main, () => render());
+};
+
+// ---- Reglages ------------------------------------------------------------------------------------
+
+/** Enregistre une partie des reglages et met a jour l'etat local. */
+async function saveSettings(btn, patch) {
+  const s = await busy(btn, () => api('PUT', '/settings', patch), 'Réglages enregistrés');
+  if (s) state.settings = s;
+  return s;
+}
+
+PAGES['settings/server'] = async (main) => {
+  const s = state.settings;
+  main.innerHTML = `${head('Serveur', 'Identité du serveur et adresse donnée aux apps.')}
+    <form class="card" id="f">
+      <div class="setting"><div class="text"><b>Nom du serveur</b><span>Affiché dans les apps et la découverte réseau.</span></div>
+        <div class="control wide"><input name="serverName" type="text" maxlength="60" value="${esc(s.serverName)}" required></div></div>
+      <div class="setting"><div class="text"><b>URL publique</b><span>Adresse HTTPS si le serveur est derrière un reverse-proxy. Vide : déduite de chaque requête.</span></div>
+        <div class="control wide"><input name="publicUrl" type="url" placeholder="https://jelly.mondomaine.com" value="${esc(s.publicUrl)}"></div></div>
+      <div class="setting"><div class="text"><b>Langue des libellés</b><span>Noms générés par le serveur (Saison, Films, Séries…).</span></div>
+        <div class="control"><select name="language"><option value="fr" ${s.language === 'fr' ? 'selected' : ''}>Français</option><option value="en" ${s.language === 'en' ? 'selected' : ''}>English</option></select></div></div>
+      <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">Enregistrer</button></div>
+    </form>`;
+  $('#f').onsubmit = (e) => {
+    e.preventDefault();
+    const f = e.target;
+    saveSettings($('button[type=submit]', f), { serverName: f.serverName.value, publicUrl: f.publicUrl.value, language: f.language.value });
+  };
+};
+
+PAGES['settings/playback'] = async (main) => {
+  const s = state.settings;
+  main.innerHTML = `${head('Lecture et réseau', 'Comment les vidéos et les addons sont joints.')}
+    <form class="card" id="f">
+      <div class="setting"><div class="text"><b>Lecture des vidéos</b><span><b>Via le serveur</b> : la vidéo passe par ce serveur (IP du serveur ou WARP). <b>Directe</b> : l'app lit la source elle-même.</span></div>
+        <div class="control"><div class="segmented" id="mode"><button type="button" data-v="proxy" class="${s.streamMode === 'proxy' ? 'on' : ''}">Via le serveur</button><button type="button" data-v="redirect" class="${s.streamMode === 'redirect' ? 'on' : ''}">Directe</button></div></div></div>
+      <div class="setting"><div class="text"><b>Sortie réseau</b><span>Pour joindre les addons et les vidéos (ex. Cloudflare WARP en SOCKS5).</span></div>
+        <div class="control"><select name="upMode"><option value="direct">Directe</option><option value="socks">SOCKS5</option><option value="http">Proxy HTTP</option></select></div></div>
+      <div class="setting" id="upUrlRow"><div class="text"><b>Adresse du proxy de sortie</b><span>Ex. <code>socks5://127.0.0.1:40000</code> ou <code>http://user:pass@hote:port</code>.</span></div>
+        <div class="control wide"><input name="upUrl" type="text" value="${esc(s.upstream.url)}" placeholder="socks5://127.0.0.1:40000"></div></div>
+      <div class="setting"><div class="text"><b>Serveur de streaming Stremio</b><span>Pour lire les sources torrent sans débrideur. Vide : torrents ignorés.</span></div>
+        <div class="control wide"><input name="torrentServer" type="url" value="${esc(s.torrentServer)}" placeholder="http://stremio-server:11470"></div></div>
+      <div class="setting"><div class="text"><b>Attente max des addons de sources</b><span>Au-delà, un addon trop lent est ignoré pour cette recherche.</span></div>
+        <div class="control"><div class="row"><input name="timeout" type="number" min="3" max="60" step="1" value="${Math.round(s.streamTimeout / 1000)}" style="width:90px"><span class="muted">secondes</span></div></div></div>
+      <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">Enregistrer</button></div>
+    </form>`;
+  const f = $('#f');
+  let mode = s.streamMode;
+  f.upMode.value = s.upstream.mode;
+  const syncUp = () => $('#upUrlRow').classList.toggle('hidden', f.upMode.value === 'direct');
+  syncUp();
+  f.upMode.onchange = syncUp;
+  $('#mode').onclick = (e) => {
+    const b = e.target.closest('[data-v]');
+    if (!b) return;
+    mode = b.dataset.v;
+    $$('#mode button').forEach((x) => x.classList.toggle('on', x === b));
+  };
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    const t = Number(f.timeout.value);
+    if (!(t >= 3 && t <= 60)) return toast("L'attente doit être entre 3 et 60 secondes", true);
+    saveSettings($('button[type=submit]', f), {
+      streamMode: mode,
+      upstream: { mode: f.upMode.value, url: f.upMode.value === 'direct' ? '' : f.upUrl.value },
+      torrentServer: f.torrentServer.value,
+      streamTimeout: t * 1000
+    });
+  };
+};
+
+PAGES['settings/metadata'] = async (main) => {
+  const s = state.settings;
+  const LANG_OPTS = [['fr-FR', 'Français (France)'], ['fr-CA', 'Français (Canada)'], ['en-US', 'English (US)'], ['es-ES', 'Español'], ['de-DE', 'Deutsch'], ['it-IT', 'Italiano']];
+  main.innerHTML = `${head('Métadonnées', 'Fiches, langue, épisodes et saut d\'intro.')}
+    <form class="card" id="f">
+      <div class="setting"><div class="text"><b>Clé API TMDB</b><span>Fiches traduites pour tous les titres, tendances, plateformes, sagas, « Similaires ». Clé v3 gratuite sur <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">themoviedb.org</a>. Vérifiée avant l'enregistrement.</span></div>
+        <div class="control wide"><input name="key" type="text" autocomplete="off" spellcheck="false" value="${esc(s.tmdbApiKey)}" placeholder="Clé v3 (32 caractères)"></div></div>
+      <div class="setting"><div class="text"><b>Langue des fiches</b><span>Titres, résumés, genres. Le pays sert aussi aux plateformes et aux classifications.</span></div>
+        <div class="control"><select name="lang">${LANG_OPTS.map(([v, l]) => `<option value="${v}" ${s.metadataLanguage === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
+      <div class="setting"><div class="text"><b>Masquer les épisodes pas encore sortis</b><span>Les épisodes annoncés mais pas encore diffusés n'apparaissent pas.</span></div>
+        <div class="control">${toggle('name="hideUnreleased"', s.hideUnreleased)}</div></div>
+      <div class="setting"><div class="text"><b>Passer l'intro et le générique</b><span>Boutons dans les apps Jellyfin, d'après la base communautaire TheIntroDB.</span></div>
+        <div class="control">${toggle('name="introSkip"', s.introSkip)}</div></div>
+      <div class="row end" style="margin-top:8px">${s.tmdbApiKey ? '<button class="btn danger" type="button" id="keyDel">Retirer la clé</button>' : ''}<button class="btn primary" type="submit">Enregistrer</button></div>
+    </form>`;
+  const f = $('#f');
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    saveSettings($('button[type=submit]', f), {
+      tmdbApiKey: f.key.value.trim(),
+      metadataLanguage: f.lang.value,
+      hideUnreleased: f.hideUnreleased.checked,
+      introSkip: f.introSkip.checked
+    }).then((r) => r && render());
+  };
+  if ($('#keyDel')) $('#keyDel').onclick = async () => {
+    if (await confirmDialog('Retirer la clé TMDB ?', 'Les fiches reviendront aux addons (souvent en anglais) et les catalogues TMDB intégrés disparaîtront.', 'Retirer', true)) {
+      if (await saveSettings(null, { tmdbApiKey: '' })) render();
+    }
+  };
+};
+
+PAGES['settings/web'] = async (main) => {
+  const s = state.settings;
+  let theme = s.webTheme === 'none' ? 'none' : 'abyss';
+  let source = s.webSpotlightSource === 'resume' ? 'resume' : 'trending';
+  main.innerHTML = `${head('Client web', 'Apparence de Jellyfin web servi par Stremfin (navigateur, Jellyfin Media Player, app Android pour téléphone).')}
+    <form class="card" id="f">
+      <div class="setting"><div class="text"><b>Thème</b><span><b>Abyss</b> : thème sombre minimaliste, surfaces en verre dépoli, police Google Sans (<a href="https://github.com/AumGupta/abyss-jellyfin" target="_blank" rel="noopener noreferrer">AumGupta/abyss-jellyfin</a>, licence MIT). Polices et fichiers servis par Stremfin, sans appel externe.</span></div>
+        <div class="control"><div class="segmented" id="theme"><button type="button" data-v="abyss" class="${theme === 'abyss' ? 'on' : ''}">Abyss</button><button type="button" data-v="none" class="${theme === 'none' ? 'on' : ''}">Jellyfin d'origine</button></div></div></div>
+      <div class="setting"><div class="text"><b>Bannière Spotlight</b><span>Grande bannière en haut de l'accueil, qui défile toute seule. Avec le thème Abyss seulement.</span></div>
+        <div class="control">${toggle('name="spotlight"', s.webSpotlight !== false)}</div></div>
+      <div class="setting"><div class="text"><b>Contenu de Spotlight</b><span><b>Films tendance</b> : tendances du jour sur TMDB, même hors de tes bibliothèques, avec année et note. <b>Mes reprises</b> : reprises en cours, épisodes à suivre, puis derniers ajouts.${state.info?.tmdb ? '' : ' Les films tendance nécessitent une clé TMDB.'}</span></div>
+        <div class="control"><div class="segmented" id="source"><button type="button" data-v="trending" class="${source === 'trending' ? 'on' : ''}">Films tendance</button><button type="button" data-v="resume" class="${source === 'resume' ? 'on' : ''}">Mes reprises</button></div></div></div>
+      <p class="small faint">Chaque profil peut ajouter son propre CSS (onglet Préférences du profil) : il s'applique après le thème. Les changements s'appliquent au prochain chargement de Jellyfin web.</p>
+      <div class="row end" style="margin-top:8px">${state.web ? '<a class="btn ghost" href="/web/" target="_blank" rel="noopener">' + icon('play') + 'Ouvrir Jellyfin web</a>' : ''}<button class="btn primary" type="submit">Enregistrer</button></div>
+    </form>`;
+  const f = $('#f');
+  $('#theme').onclick = (e) => {
+    const b = e.target.closest('[data-v]');
+    if (!b) return;
+    theme = b.dataset.v;
+    $$('#theme button').forEach((x) => x.classList.toggle('on', x === b));
+  };
+  $('#source').onclick = (e) => {
+    const b = e.target.closest('[data-v]');
+    if (!b) return;
+    source = b.dataset.v;
+    $$('#source button').forEach((x) => x.classList.toggle('on', x === b));
+  };
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    saveSettings($('button[type=submit]', f), { webTheme: theme, webSpotlight: f.spotlight.checked, webSpotlightSource: source });
+  };
+};
+
+PAGES['settings/platforms'] = async (main) => {
+  const s = state.settings;
+  let list = await api('GET', '/providers');
+  const strip = (arr) => arr.map(({ id, name, color, card }) => ({ id, name, ...(color ? { color } : {}), ...(card ? { card } : {}) }));
+
+  const persist = async (msg = 'Plateformes enregistrées') => {
+    const r = await busy(null, () => api('PUT', '/settings', { providers: strip(list) }), msg);
+    if (r) {
+      state.settings = r;
+      list = await api('GET', '/providers');
+    }
+    draw();
+  };
+
+  const draw = () => {
+    main.innerHTML = `${head('Plateformes', 'Bibliothèque « Plateformes » : une carte large par service, puis ses rayons (populaires, nouveautés, mieux notés).', s.tmdbApiKey ? `<button class="btn primary" id="addProv">${icon('plus')}Ajouter</button>` : '')}
+      ${s.tmdbApiKey ? '' : `<div class="card" style="margin-bottom:16px"><p>Les plateformes nécessitent une <a href="#/settings/metadata">clé TMDB</a>.</p></div>`}
+      <div class="card">${list.length ? `<div class="list" id="provList">${list.map((p) => `<div class="item" data-key="${p.id}">${handleBtn(list.length < 2)}
+          <div class="logo">${p.logo ? `<img src="${esc(p.logo)}" alt="">` : icon('tv')}</div>
+          <img src="${esc(p.cardUrl)}" alt="Carte ${esc(p.name)}" loading="lazy" style="width:128px;height:72px;border-radius:8px;object-fit:cover;flex:none;background:var(--bg)">
+          <div class="body"><div class="title">${esc(p.name)}</div>
+            <div class="meta"><span>Fournisseur TMDB n° ${p.id}</span>${p.color ? `<span class="badge">fond ${esc(p.color)}</span>` : ''}${p.card ? '<span class="badge accent">image perso</span>' : ''}</div></div>
+          <div class="actions"><button class="btn ghost sm" data-edit="${p.id}">${icon('settings')}Carte</button><button class="btn ghost icon-only" data-rm="${p.id}" title="Retirer">${icon('trash')}</button></div></div>`).join('')}</div>`
+        : `<div class="empty">${icon('tv')}<p>Aucune plateforme.</p></div>`}</div>`;
+    const el = $('#provList');
+    if (el) {
+      sortable(el, async (keys) => {
+        list.sort((a, b) => keys.indexOf(String(a.id)) - keys.indexOf(String(b.id)));
+        await persist('Ordre enregistré');
+      });
+      el.addEventListener('click', async (e) => {
+        const rm = e.target.closest('[data-rm]');
+        if (rm) {
+          list = list.filter((p) => String(p.id) !== rm.dataset.rm);
+          return persist('Plateforme retirée');
+        }
+        const ed = e.target.closest('[data-edit]');
+        if (ed) editCard(list.find((p) => String(p.id) === ed.dataset.edit));
+      });
+    }
+    if ($('#addProv')) $('#addProv').onclick = addDialog;
+  };
+
+  /** Couleur de fond et image personnalisee de la carte d'une plateforme. */
+  const editCard = async (p) => {
+    const done = modal({
+      title: `Carte « ${p.name} »`,
+      lead: 'Par défaut : le logo officiel centré, sur la couleur de ses bords.',
+      okLabel: 'Enregistrer',
+      body: `<div class="stack">
+        <img src="${esc(p.cardUrl)}" alt="" style="width:100%;aspect-ratio:16/9;border-radius:10px;object-fit:cover;background:var(--bg)">
+        <div class="field"><label>Nom affiché</label><input name="name" type="text" maxlength="40" value="${esc(p.name)}" required></div>
+        <div class="field"><label>Couleur de fond (facultatif)</label><div class="row"><input name="colorPick" type="color" value="${esc(p.color || '#000000')}" style="width:48px;height:38px;padding:2px">
+          <input name="color" type="text" placeholder="automatique" value="${esc(p.color || '')}" style="width:140px"><button type="button" class="btn sm ghost" id="autoColor">Automatique</button></div></div>
+        <div class="field"><label>Image de carte personnalisée (facultatif)</label><input name="card" type="url" placeholder="https://…/carte.png (16:9)" value="${esc(p.card)}"><span class="help">Remplace la carte générée.</span></div>
+      </div>`,
+      onOk: async (f) => {
+        const color = f.color.value.trim();
+        if (color && !/^#[0-9a-f]{6}$/i.test(color)) throw new Error('Couleur invalide (format #rrggbb)');
+        Object.assign(p, { name: f.name.value.trim() || p.name, color, card: f.card.value.trim() });
+        return true;
+      }
+    });
+    // La fenetre est deja dans la page : selecteur de couleur et bouton "Automatique".
+    const form = $('.modal');
+    form.colorPick.oninput = () => (form.color.value = form.colorPick.value);
+    $('#autoColor').onclick = () => (form.color.value = '');
+    if (await done) await persist('Carte enregistrée');
+  };
+  const addDialog = async () => {
+    const avail = await busy(null, () => api('GET', '/providers/available'));
+    if (!avail) return;
+    const chosen = new Set(list.map((p) => p.id));
+    const closed = modal({
+      title: 'Ajouter des plateformes',
+      lead: 'Services de streaming connus de TMDB pour ton pays. Clique pour ajouter.',
+      okLabel: 'Terminé',
+      cancelLabel: '',
+      wide: true,
+      body: `<input type="search" id="provQ" placeholder="Rechercher…" style="margin-bottom:12px"><div class="provider-pick" id="provPick">${avail.map((p) => `<button type="button" data-id="${p.id}" data-name="${esc(p.name)}" ${chosen.has(p.id) ? 'disabled' : ''}>${p.logo ? `<img src="${esc(p.logo)}" alt="">` : ''}<span>${esc(p.name)}</span></button>`).join('')}</div>`,
+      onOk: () => true
+    });
+    $('#provPick').onclick = async (e) => {
+      const b = e.target.closest('[data-id]');
+      if (!b || b.disabled) return;
+      b.disabled = true;
+      list.push({ id: Number(b.dataset.id), name: b.dataset.name });
+      const r = await busy(null, () => api('PUT', '/settings', { providers: strip(list) }));
+      if (r) state.settings = r;
+      else b.disabled = false;
+    };
+    $('#provQ').oninput = (e) => {
+      const q = e.target.value.toLowerCase();
+      $$('#provPick [data-id]').forEach((b) => (b.style.display = b.dataset.name.toLowerCase().includes(q) ? '' : 'none'));
+    };
+    await closed;
+    list = await api('GET', '/providers');
+    draw();
+  };
+  draw();
+};
+
+// ---- Maintenance -----------------------------------------------------------------------------------
+
+PAGES.maintenance = async (main) => {
+  const o = await api('GET', '/overview');
+  main.innerHTML = `${head('Maintenance', 'Actions sans risque pour les données des profils.')}
+    <div class="grid grid-3">
+      <div class="card stack"><h2>Vider le cache</h2><p class="muted">${o.cacheEntries.toLocaleString('fr-FR')} entrées (catalogues, fiches, sources, TMDB, intros). Elles seront rechargées au besoin. La progression et les réglages ne sont pas touchés.</p>
+        <div class="row end"><button class="btn" id="mClear">${icon('trash')}Vider</button></div></div>
+      <div class="card stack"><h2>Recharger les addons</h2><p class="muted">Relit le manifest de chaque addon de chaque profil (nouveaux catalogues, nouvelle version).</p>
+        <div class="row end"><button class="btn" id="mAddons">${icon('refresh')}Recharger</button></div></div>
+      <div class="card stack"><h2>Réindexer TMDB</h2><p class="muted">Recharge les genres et reconstruit la liste des sagas.</p>
+        <div class="row end"><button class="btn" id="mTmdb" ${o.tmdb ? '' : 'disabled'}>${icon('refresh')}Réindexer</button></div></div>
+    </div>
+    ${o.brokenAddons.length ? `<div class="card" style="margin-top:16px"><div class="card-head"><div><h2>Addons injoignables</h2><p>Leur manifest ne répond pas.</p></div></div>
+      ${o.brokenAddons.map((b) => `<div class="recent"><span class="badge bad">${esc(b.profile)}</span><code class="grow" style="overflow:hidden;text-overflow:ellipsis">${esc(b.url.replace(/^(https?:\/\/[^/]+).*/, '$1/…'))}</code></div>`).join('')}</div>` : ''}`;
+  $('#mClear').onclick = async (e) => (await busy(e.currentTarget, () => api('POST', '/maintenance/clear-cache'), 'Cache vidé')) && render();
+  $('#mAddons').onclick = async (e) => {
+    const r = await busy(e.currentTarget, () => api('POST', '/maintenance/refresh-addons'));
+    if (r) {
+      toast(r.broken ? `${r.broken} addon(s) injoignable(s)` : 'Tous les addons ont répondu', !!r.broken);
+      render();
+    }
+  };
+  $('#mTmdb').onclick = (e) => busy(e.currentTarget, () => api('POST', '/maintenance/reindex-tmdb'), 'Réindexation lancée');
+};
+
+// ---- Securite ---------------------------------------------------------------------------------------
+
+PAGES.security = async (main) => {
+  const sessions = await api('GET', '/auth/sessions');
+  main.innerHTML = `${head('Sécurité', "Compte administrateur et sessions ouvertes sur cette interface.")}
+    <div class="grid grid-2">
+      <form class="card stack" id="acc">
+        <h2>Compte administrateur</h2>
+        <div class="field"><label>Nom d'utilisateur</label><input name="username" type="text" autocomplete="username" value="${esc(state.username)}" required></div>
+        <div class="field"><label>Nouveau mot de passe <span class="faint">(laisser vide pour ne pas changer)</span></label><input name="pw" type="password" autocomplete="new-password"></div>
+        <div class="field"><label>Confirmer le nouveau mot de passe</label><input name="pw2" type="password" autocomplete="new-password"></div>
+        <div class="field"><label>Mot de passe actuel</label><input name="current" type="password" autocomplete="current-password" required><span class="help">Obligatoire pour toute modification. Un nouveau mot de passe ferme les autres sessions.</span></div>
+        <div class="row end"><button class="btn primary" type="submit">Enregistrer</button></div>
+      </form>
+      <div class="card">
+        <div class="card-head"><div><h2>Sessions admin</h2><p>Navigateurs connectés à cette interface.</p></div>
+          ${sessions.length > 1 ? '<button class="btn sm danger" id="killOthers">Fermer les autres</button>' : ''}</div>
+        ${sessions.map((s) => `<div class="recent"><div class="grow"><b>${esc((s.userAgent || 'Navigateur').replace(/^Mozilla\/5\.0 \(([^)]*)\).*$/, '$1').slice(0, 70))}</b>
+          <div class="small muted">${esc(s.ip || '?')} · ouverte ${ago(s.created)}</div></div>${s.current ? '<span class="badge ok">Cette session</span>' : ''}</div>`).join('')}
+      </div>
+    </div>`;
+  $('#acc').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    if (f.pw.value !== f.pw2.value) return toast('Les nouveaux mots de passe ne correspondent pas', true);
+    const r = await busy($('button[type=submit]', f), () => api('PUT', '/auth/account', { username: f.username.value.trim(), currentPassword: f.current.value, newPassword: f.pw.value || undefined }), 'Compte mis à jour');
+    if (r) {
+      state.username = r.username;
+      $('.sidebar-foot .who b').textContent = r.username;
+      render();
+    }
+  };
+  if ($('#killOthers')) $('#killOthers').onclick = async (e) => (await busy(e.currentTarget, () => api('DELETE', '/auth/sessions/others'), 'Autres sessions fermées')) && render();
+};
+
+boot();
