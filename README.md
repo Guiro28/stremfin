@@ -139,6 +139,9 @@ jelly.mondomaine.com {
 ## Interface Stremfin (racine du serveur)
 
 Tout se règle depuis l'interface web, rien n'est à modifier à la main sur le serveur.
+L'interface (thème Aurora, sombre ou clair) existe en **français, anglais, espagnol,
+allemand et italien** : la langue suit le navigateur et se change en bas de la barre
+latérale. Les traductions sont dans `public/admin/i18n/` (le texte français sert de clé).
 Une seule page de connexion, à la racine (`https://jelly.mondomaine.com/`) : le compte
 administrateur ouvre l'administration, un compte de profil ouvre son espace. Les apps qui
 affichent le client web (Jellyfin Media Player, app Android pour téléphone) ouvrent aussi

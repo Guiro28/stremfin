@@ -1,11 +1,13 @@
 'use strict';
 // Interface d'administration de Stremfin (application d'une page, sans dependance).
+// Textes : t('texte francais') (voir prefs.js) ; le francais sert de cle de traduction.
 
 // ---- Utilitaires ------------------------------------------------------------------------
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const num = (n) => Number(n || 0).toLocaleString(UI.locale);
 
 const ICONS = {
   dashboard: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
@@ -36,7 +38,9 @@ const ICONS = {
   check: '<path d="M5 12l5 5 9-10"/>',
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
   alert: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
-  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>'
 };
 
 function icon(name, extra = '') {
@@ -46,19 +50,19 @@ function icon(name, extra = '') {
 const LOGO = '<svg viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>';
 
 function ago(ts) {
-  if (!ts) return 'jamais';
+  if (!ts) return t('jamais');
   const s = Math.round((Date.now() - ts) / 1000);
-  if (s < 60) return "à l'instant";
-  if (s < 3600) return `il y a ${Math.floor(s / 60)} min`;
-  if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
-  if (s < 30 * 86400) return `il y a ${Math.floor(s / 86400)} j`;
-  return new Date(ts).toLocaleDateString('fr-FR');
+  if (s < 60) return t("à l'instant");
+  if (s < 3600) return t('il y a {n} min', { n: Math.floor(s / 60) });
+  if (s < 86400) return t('il y a {n} h', { n: Math.floor(s / 3600) });
+  if (s < 30 * 86400) return t('il y a {n} j', { n: Math.floor(s / 86400) });
+  return new Date(ts).toLocaleDateString(UI.locale);
 }
 
 function duration(ms) {
   const h = Math.floor(ms / 3600e3);
-  if (h >= 24) return `${Math.floor(h / 24)} j ${h % 24} h`;
-  return `${h} h ${Math.floor((ms % 3600e3) / 60e3)} min`;
+  if (h >= 24) return t('{d} j {h} h', { d: Math.floor(h / 24), h: h % 24 });
+  return t('{h} h {m} min', { h, m: Math.floor((ms % 3600e3) / 60e3) });
 }
 
 function hue(name) {
@@ -93,12 +97,13 @@ async function api(method, path, body) {
   const r = await fetch('/stremfin/api' + path, init);
   let data = null;
   try { data = await r.json(); } catch {}
+  // Messages du serveur (en francais) traduits ici : ils servent de cle.
   if (r.status === 401 && !path.startsWith('/auth/')) {
     state.authed = false;
     render();
-    throw new Error(data?.error || 'Session expirée');
+    throw new Error(t(data?.error || 'Session expirée'));
   }
-  if (!r.ok) throw new Error(data?.error || `Erreur ${r.status}`);
+  if (!r.ok) throw new Error(data?.error ? t(data.error) : t('Erreur {n}', { n: r.status }));
   return data;
 }
 
@@ -126,7 +131,7 @@ async function busy(btn, fn, okMsg) {
 
 // ---- Fenetres modales -----------------------------------------------------------------------
 
-function modal({ title, lead = '', body = '', okLabel = 'Valider', okClass = 'primary', cancelLabel = 'Annuler', onOk, wide = false }) {
+function modal({ title, lead = '', body = '', okLabel = t('Valider'), okClass = 'primary', cancelLabel = t('Annuler'), onOk, wide = false }) {
   return new Promise((resolve) => {
     const bd = document.createElement('div');
     bd.className = 'backdrop';
@@ -158,7 +163,7 @@ function modal({ title, lead = '', body = '', okLabel = 'Valider', okClass = 'pr
   });
 }
 
-function confirmDialog(title, lead, okLabel = 'Confirmer', danger = false) {
+function confirmDialog(title, lead, okLabel = t('Confirmer'), danger = false) {
   return modal({ title, lead, okLabel, okClass: danger ? 'danger solid' : 'primary' });
 }
 
@@ -208,15 +213,31 @@ function sortable(list, onChange) {
 }
 
 const handleBtn = (disabled = false) =>
-  `<button type="button" class="handle" title="Glisser pour réordonner (ou flèches haut/bas)" aria-label="Déplacer" ${disabled ? 'disabled style="visibility:hidden"' : ''}>${icon('grip')}</button>`;
+  `<button type="button" class="handle" title="${esc(t('Glisser pour réordonner (ou flèches haut/bas)'))}" aria-label="${esc(t('Déplacer'))}" ${disabled ? 'disabled style="visibility:hidden"' : ''}>${icon('grip')}</button>`;
 
 const toggle = (attrs, checked, disabled = false) =>
   `<label class="switch"><input type="checkbox" ${attrs} ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}><span></span></label>`;
+
+/** Bouton clair / sombre (theme garde dans le navigateur). */
+const themeBtn = (id) => {
+  const light = UI.theme() === 'light';
+  return `<button type="button" class="btn ghost icon-only" id="${id}" title="${esc(light ? t('Passer en mode sombre') : t('Passer en mode clair'))}" aria-label="${esc(light ? t('Passer en mode sombre') : t('Passer en mode clair'))}">${icon(light ? 'moon' : 'sun')}</button>`;
+};
+function bindTheme(id) {
+  const b = $('#' + id);
+  if (!b) return;
+  b.onclick = () => {
+    UI.toggleTheme();
+    b.outerHTML = themeBtn(id);
+    bindTheme(id);
+  };
+}
 
 // ---- Etat et navigation ------------------------------------------------------------------------
 
 const state = { authed: false, setup: false, role: null, username: '', profileId: null, info: null, settings: null, profiles: [], profile: null };
 
+// Libelles en francais (cles de traduction), traduits a l'affichage.
 const NAV_ADMIN = [
   { group: null, items: [{ id: 'dashboard', label: 'Tableau de bord', icon: 'dashboard' }] },
   { group: 'Utilisateurs', items: [{ id: 'profiles', label: 'Profils', icon: 'users' }, { id: 'devices', label: 'Appareils', icon: 'devices' }] },
@@ -236,7 +257,7 @@ const NAV_ADMIN = [
 /** Un utilisateur ne voit que les onglets de son propre profil. */
 function navFor() {
   if (state.role === 'admin') return NAV_ADMIN;
-  return [{ group: 'Mon compte', items: PROFILE_TABS.map((t) => ({ id: `me/${t.id}`, label: t.label, icon: t.icon })) }];
+  return [{ group: 'Mon compte', items: PROFILE_TABS.map((x) => ({ id: `me/${x.id}`, label: x.label, icon: x.icon })) }];
 }
 
 function route() {
@@ -255,6 +276,7 @@ function go(hash) {
 window.addEventListener('hashchange', () => render());
 
 async function boot() {
+  await UI.ready;
   try {
     const s = await api('GET', '/auth/status');
     state.setup = s.setup;
@@ -290,22 +312,23 @@ async function render() {
 }
 
 function renderShell() {
-  document.title = state.role === 'admin' ? 'Stremfin · Administration' : 'Stremfin · Mon espace';
+  document.title = state.role === 'admin' ? t('Stremfin · Administration') : t('Stremfin · Mon espace');
   $('#app').innerHTML = `<div class="shell">
     <aside class="sidebar">
-      <div class="brand"><div class="brand-logo">${LOGO}</div><div><div class="brand-name">Stremfin</div><div class="brand-sub">${state.role === 'admin' ? 'Administration' : 'Mon espace'}</div></div></div>
-      ${navFor().map((g) => `${g.group ? `<div class="nav-group">${g.group}</div>` : ''}${g.items
-        .map((i) => `<a class="nav-item" data-nav="${i.id}" href="#/${i.id}">${icon(i.icon)}<span>${i.label}</span></a>`)
+      <div class="brand"><div class="brand-logo">${LOGO}</div><div><div class="brand-name">Stremfin</div><div class="brand-sub">${state.role === 'admin' ? t('Administration') : t('Mon espace')}</div></div></div>
+      ${navFor().map((g) => `${g.group ? `<div class="nav-group">${esc(t(g.group))}</div>` : ''}${g.items
+        .map((i) => `<a class="nav-item" data-nav="${i.id}" href="#/${i.id}">${icon(i.icon)}<span>${esc(t(i.label))}</span></a>`)
         .join('')}`).join('')}
-      ${state.web ? `<a class="nav-item" href="/web/" target="_blank" rel="noopener">${icon('play')}<span>Regarder</span></a>` : ''}
+      ${state.web ? `<a class="nav-item" href="/web/" target="_blank" rel="noopener">${icon('play')}<span>${t('Regarder')}</span></a>` : ''}
+      <div class="sidebar-tools">${UI.langSelect('langSel')}${themeBtn('themeBtn')}</div>
       <div class="sidebar-foot">
         <div class="avatar s" style="background:hsl(${hue(state.username)} 55% 42%)">${esc(state.username.slice(0, 1).toUpperCase())}</div>
-        <div class="who"><b>${esc(state.username)}</b><span class="small muted">${state.role === 'admin' ? 'Administrateur' : 'Utilisateur'}</span></div>
-        <button class="btn ghost icon-only" id="logout" title="Se déconnecter" aria-label="Se déconnecter">${icon('logout')}</button>
+        <div class="who"><b>${esc(state.username)}</b><span class="small muted">${state.role === 'admin' ? t('Administrateur') : t('Utilisateur')}</span></div>
+        <button class="btn ghost icon-only" id="logout" title="${esc(t('Se déconnecter'))}" aria-label="${esc(t('Se déconnecter'))}">${icon('logout')}</button>
       </div>
     </aside>
     <div>
-      <div class="topbar"><button class="btn ghost icon-only" id="menu" aria-label="Menu">${icon('menu')}</button><b>Stremfin</b></div>
+      <div class="topbar"><button class="btn ghost icon-only" id="menu" aria-label="${esc(t('Menu'))}">${icon('menu')}</button><b>Stremfin</b></div>
       <main class="main" id="main"></main>
     </div>
   </div>`;
@@ -315,33 +338,39 @@ function renderShell() {
     render();
   };
   $('#menu').onclick = () => $('.shell').classList.toggle('menu-open');
+  UI.bindLang($('#langSel'));
+  bindTheme('themeBtn');
 }
 
 // ---- Connexion / premier lancement -----------------------------------------------------------------
 
 function renderAuth() {
   const setup = state.setup;
+  document.title = 'Stremfin';
   $('#app').innerHTML = `<div class="auth"><form class="card stack" id="authForm" novalidate>
     <div class="brand"><div class="brand-logo">${LOGO}</div><div class="brand-name">Stremfin</div></div>
-    <h1>${setup ? 'Bienvenue' : 'Connexion'}</h1>
-    <p class="lead">${setup ? 'Crée le compte administrateur. Il protège cette interface.' : 'Administrateur ou utilisateur : connecte-toi avec ton compte Stremfin.'}</p>
-    <div class="field"><label for="u">Nom d'utilisateur</label><input id="u" type="text" autocomplete="username" required></div>
-    <div class="field"><label for="p">Mot de passe</label><input id="p" type="password" autocomplete="${setup ? 'new-password' : 'current-password'}" required>
-      ${setup ? '<span class="help">8 caractères minimum.</span>' : ''}</div>
-    ${setup ? '<div class="field"><label for="p2">Confirmer le mot de passe</label><input id="p2" type="password" autocomplete="new-password" required></div>' : ''}
+    <h1>${setup ? t('Bienvenue') : t('Connexion')}</h1>
+    <p class="lead">${setup ? t('Crée le compte administrateur. Il protège cette interface.') : t('Administrateur ou utilisateur : connecte-toi avec ton compte Stremfin.')}</p>
+    <div class="field"><label for="u">${t("Nom d'utilisateur")}</label><input id="u" type="text" autocomplete="username" required></div>
+    <div class="field"><label for="p">${t('Mot de passe')}</label><input id="p" type="password" autocomplete="${setup ? 'new-password' : 'current-password'}" required>
+      ${setup ? `<span class="help">${t('8 caractères minimum.')}</span>` : ''}</div>
+    ${setup ? `<div class="field"><label for="p2">${t('Confirmer le mot de passe')}</label><input id="p2" type="password" autocomplete="new-password" required></div>` : ''}
     <div class="error" id="authError"></div>
-    <button class="btn primary" type="submit">${setup ? 'Créer le compte' : 'Se connecter'}</button>
-    ${setup ? '' : `<p class="small muted" style="text-align:center">Connecter une app avec Quick Connect : <a href="/pin">page /pin</a></p>
-      ${state.web ? `<a class="btn ghost" href="/web/">${icon('play')}Regarder dans le navigateur</a>` : ''}`}
+    <button class="btn primary" type="submit">${setup ? t('Créer le compte') : t('Se connecter')}</button>
+    ${setup ? '' : `<p class="small muted" style="text-align:center">${t('Connecter une app avec Quick Connect : <a href="/pin">page /pin</a>')}</p>
+      ${state.web ? `<a class="btn ghost" href="/web/">${icon('play')}${t('Regarder dans le navigateur')}</a>` : ''}`}
+    <div class="auth-tools">${UI.langSelect('authLang')}${themeBtn('authTheme')}</div>
   </form></div>`;
   $('#u').focus();
+  UI.bindLang($('#authLang'));
+  bindTheme('authTheme');
   $('#authForm').onsubmit = async (e) => {
     e.preventDefault();
     const err = $('#authError');
     err.textContent = '';
     const username = $('#u').value.trim();
     const password = $('#p').value;
-    if (setup && password !== $('#p2').value) return (err.textContent = 'Les mots de passe ne correspondent pas');
+    if (setup && password !== $('#p2').value) return (err.textContent = t('Les mots de passe ne correspondent pas'));
     const r = await busy($('#authForm button[type=submit]'), async () => {
       try {
         return await api('POST', setup ? '/auth/setup' : '/auth/login', { username, password });
@@ -373,37 +402,37 @@ function serverAddress() {
 // Tableau de bord
 PAGES.dashboard = async (main) => {
   const o = await api('GET', '/overview');
-  main.innerHTML = `${head('Tableau de bord', `${esc(o.serverName)} · version ${esc(o.version)} · en ligne depuis ${duration(o.uptime)}`)}
+  main.innerHTML = `${head(t('Tableau de bord'), t('{name} · version {version} · en ligne depuis {uptime}', { name: esc(o.serverName), version: esc(o.version), uptime: duration(o.uptime) }))}
     <div class="grid grid-4">
-      <div class="stat"><div class="label">${icon('users')} Profils</div><div class="value">${o.profiles}</div></div>
-      <div class="stat"><div class="label">${icon('devices')} Appareils actifs</div><div class="value">${o.activeDevices}</div><div class="hint">sur ${o.devices} connecté${o.devices > 1 ? 's' : ''} · 24 h</div></div>
-      <div class="stat"><div class="label">${icon('layers')} Titres indexés</div><div class="value">${o.indexedItems.toLocaleString('fr-FR')}</div></div>
-      <div class="stat"><div class="label">${icon('refresh')} Entrées en cache</div><div class="value">${o.cacheEntries.toLocaleString('fr-FR')}</div></div>
+      <div class="stat"><div class="label">${icon('users')} ${t('Profils')}</div><div class="value">${o.profiles}</div></div>
+      <div class="stat"><div class="label">${icon('devices')} ${t('Appareils actifs')}</div><div class="value">${o.activeDevices}</div><div class="hint">${t('sur {n} connecté(s) · 24 h', { n: o.devices })}</div></div>
+      <div class="stat"><div class="label">${icon('layers')} ${t('Titres indexés')}</div><div class="value">${num(o.indexedItems)}</div></div>
+      <div class="stat"><div class="label">${icon('refresh')} ${t('Entrées en cache')}</div><div class="value">${num(o.cacheEntries)}</div></div>
     </div>
     <div class="grid grid-2" style="margin-top:16px">
       <div class="card">
-        <div class="card-head"><div><h2>Activité récente</h2><p>Derniers titres lancés, tous profils confondus.</p></div></div>
+        <div class="card-head"><div><h2>${t('Activité récente')}</h2><p>${t('Derniers titres lancés, tous profils confondus.')}</p></div></div>
         ${o.recent.length ? o.recent.map((r) => `<div class="recent">
             ${r.image ? `<img src="${esc(r.image)}" alt="" loading="lazy">` : '<div class="ph"></div>'}
-            <div class="grow"><b>${esc(r.title)}</b><div class="small muted">${esc(r.profile)} · ${ago(r.at)}${r.played ? ' · vu' : ''}</div></div>
-          </div>`).join('') : `<div class="empty">${icon('clock')}<p>Rien de lancé pour l'instant.</p></div>`}
+            <div class="grow"><b>${esc(r.title)}</b><div class="small muted">${esc(r.profile)} · ${ago(r.at)}${r.played ? ` · ${t('vu')}` : ''}</div></div>
+          </div>`).join('') : `<div class="empty">${icon('clock')}<p>${t("Rien de lancé pour l'instant.")}</p></div>`}
       </div>
       <div class="stack">
         <div class="card">
-          <div class="card-head"><div><h2>État</h2></div></div>
-          <div class="setting"><div class="text"><b>TMDB</b><span>Fiches traduites, Mes médias, plateformes, sagas.</span></div>
-            <div class="control">${o.tmdb ? '<span class="badge ok">Actif</span>' : '<a class="btn sm" href="#/settings/metadata">Configurer</a>'}</div></div>
-          <div class="setting"><div class="text"><b>Passer l'intro</b><span>Timestamps de TheIntroDB.</span></div>
-            <div class="control">${o.introSkip ? '<span class="badge ok">Actif</span>' : '<span class="badge">Désactivé</span>'}</div></div>
-          <div class="setting"><div class="text"><b>Addons</b><span>${o.brokenAddons.length ? `${o.brokenAddons.length} addon(s) injoignable(s)` : 'Tous les manifests répondent.'}</span></div>
-            <div class="control">${o.brokenAddons.length ? '<a class="btn sm" href="#/maintenance">Voir</a>' : '<span class="badge ok">OK</span>'}</div></div>
+          <div class="card-head"><div><h2>${t('État')}</h2></div></div>
+          <div class="setting"><div class="text"><b>TMDB</b><span>${t('Fiches traduites, Mes médias, plateformes, sagas.')}</span></div>
+            <div class="control">${o.tmdb ? `<span class="badge ok">${t('Actif')}</span>` : `<a class="btn sm" href="#/settings/metadata">${t('Configurer')}</a>`}</div></div>
+          <div class="setting"><div class="text"><b>${t("Passer l'intro")}</b><span>${t('Timestamps de TheIntroDB.')}</span></div>
+            <div class="control">${o.introSkip ? `<span class="badge ok">${t('Actif')}</span>` : `<span class="badge">${t('Désactivé')}</span>`}</div></div>
+          <div class="setting"><div class="text"><b>${t('Addons')}</b><span>${o.brokenAddons.length ? t('{n} addon(s) injoignable(s)', { n: o.brokenAddons.length }) : t('Tous les manifests répondent.')}</span></div>
+            <div class="control">${o.brokenAddons.length ? `<a class="btn sm" href="#/maintenance">${t('Voir')}</a>` : `<span class="badge ok">${t('OK')}</span>`}</div></div>
         </div>
         <div class="howto">
-          <h3>Connecter une app Jellyfin</h3>
+          <h3>${t('Connecter une app Jellyfin')}</h3>
           <ol>
-            <li>Dans l'app : <b>Ajouter un serveur</b>, adresse <code>${esc(serverAddress())}</code></li>
-            <li>Nom d'utilisateur et mot de passe du profil</li>
-            <li>Ou <b>Quick Connect</b> : code à saisir sur <a href="/pin" target="_blank">${esc(serverAddress())}/pin</a></li>
+            <li>${t("Dans l'app : <b>Ajouter un serveur</b>, adresse {address}", { address: `<code>${esc(serverAddress())}</code>` })}</li>
+            <li>${t("Nom d'utilisateur et mot de passe du profil")}</li>
+            <li>${t('Ou <b>Quick Connect</b> : code à saisir sur {link}', { link: `<a href="/pin" target="_blank">${esc(serverAddress())}/pin</a>` })}</li>
           </ol>
         </div>
       </div>
@@ -414,24 +443,24 @@ PAGES.dashboard = async (main) => {
 PAGES.profiles = async (main, parts) => {
   if (parts[1]) return profilePage(main, parts[1], parts[2] || 'login', false);
   state.profiles = await api('GET', '/profiles');
-  main.innerHTML = `${head('Profils', 'Chaque profil a ses identifiants, ses addons, ses bibliothèques, son accueil et sa progression.', `<button class="btn primary" id="newProfile">${icon('plus')}Nouveau profil</button>`)}
+  main.innerHTML = `${head(t('Profils'), t('Chaque profil a ses identifiants, ses addons, ses bibliothèques, son accueil et sa progression.'), `<button class="btn primary" id="newProfile">${icon('plus')}${t('Nouveau profil')}</button>`)}
     <div class="profile-grid">
       ${state.profiles.map((p) => `<a class="card profile-card ${p.disabled ? 'disabled' : ''}" href="#/profiles/${p.id}">
         <div class="top">${avatar(p)}<div class="grow"><div class="name">${esc(p.name)}</div>
           <div class="row" style="gap:5px;margin-top:4px">
-            ${p.disabled ? '<span class="badge bad">Désactivé</span>' : ''}
-            ${p.hasPassword ? '' : '<span class="badge warn">Sans mot de passe</span>'}
-            ${p.showOnLogin ? '<span class="badge accent">Visible</span>' : ''}
+            ${p.disabled ? `<span class="badge bad">${t('Désactivé')}</span>` : ''}
+            ${p.hasPassword ? '' : `<span class="badge warn">${t('Sans mot de passe')}</span>`}
+            ${p.showOnLogin ? `<span class="badge accent">${t('Visible')}</span>` : ''}
           </div></div></div>
         <div class="stats">
-          <div><b>${p.addonsCount}</b><span>addons</span></div>
-          <div><b>${p.librariesCount}</b><span>biblio.</span></div>
-          <div><b>${p.devicesCount}</b><span>appareils</span></div>
-          <div><b>${p.watchedCount}</b><span>vus</span></div>
+          <div><b>${p.addonsCount}</b><span>${t('addons')}</span></div>
+          <div><b>${p.librariesCount}</b><span>${t('biblio.')}</span></div>
+          <div><b>${p.devicesCount}</b><span>${t('appareils')}</span></div>
+          <div><b>${p.watchedCount}</b><span>${t('vus')}</span></div>
         </div>
-        <div class="small muted">Dernière activité : ${ago(p.lastSeen)}</div>
+        <div class="small muted">${t('Dernière activité : {when}', { when: ago(p.lastSeen) })}</div>
       </a>`).join('')}
-      <button class="card profile-card new" id="newProfile2">${icon('plus')}<span>Ajouter un profil</span></button>
+      <button class="card profile-card new" id="newProfile2">${icon('plus')}<span>${t('Ajouter un profil')}</span></button>
     </div>`;
   $('#newProfile').onclick = newProfileDialog;
   $('#newProfile2').onclick = newProfileDialog;
@@ -440,14 +469,14 @@ PAGES.profiles = async (main, parts) => {
 async function newProfileDialog() {
   const others = state.profiles.length ? state.profiles : await api('GET', '/profiles');
   const p = await modal({
-    title: 'Nouveau profil',
-    lead: "L'utilisateur se connectera aux apps et à son espace avec ce nom et ce mot de passe.",
-    okLabel: 'Créer',
+    title: t('Nouveau profil'),
+    lead: t("L'utilisateur se connectera aux apps et à son espace avec ce nom et ce mot de passe."),
+    okLabel: t('Créer'),
     body: `<div class="stack">
-      <div class="field"><label>Nom d'utilisateur</label><input name="name" type="text" maxlength="40" required></div>
-      <div class="field"><label>Mot de passe</label><input name="password" type="password" autocomplete="new-password" required><span class="help">8 caractères minimum.</span></div>
-      <div class="field"><label>Partir de</label><select name="from"><option value="">Profil par défaut (Mes médias TMDB, plateformes, sagas)</option>
-        ${others.map((o) => `<option value="${o.id}">Copie de ${esc(o.name)} (addons, bibliothèques, accueil, préférences)</option>`).join('')}</select></div>
+      <div class="field"><label>${t("Nom d'utilisateur")}</label><input name="name" type="text" maxlength="40" required></div>
+      <div class="field"><label>${t('Mot de passe')}</label><input name="password" type="password" autocomplete="new-password" required><span class="help">${t('8 caractères minimum.')}</span></div>
+      <div class="field"><label>${t('Partir de')}</label><select name="from"><option value="">${t('Profil par défaut (Mes médias TMDB, plateformes, sagas)')}</option>
+        ${others.map((o) => `<option value="${o.id}">${t('Copie de {name} (addons, bibliothèques, accueil, préférences)', { name: esc(o.name) })}</option>`).join('')}</select></div>
     </div>`,
     onOk: async (f) => {
       const body = { name: f.name.value.trim(), password: f.password.value };
@@ -455,7 +484,7 @@ async function newProfileDialog() {
     }
   });
   if (p) {
-    toast(`Profil « ${p.name} » créé`);
+    toast(t('Profil « {name} » créé', { name: p.name }));
     go(`#/profiles/${p.id}`);
   }
 }
@@ -477,55 +506,55 @@ async function profilePage(main, id, tab, self) {
   p.self = self;
   const base = self ? '#/me/' : `#/profiles/${p.id}/`;
   const counts = { addons: p.addons.length, libraries: p.catalogs.filter((c) => c.enabled && c.browsable).length, devices: p.devices.length };
-  main.innerHTML = `${self ? '' : '<div class="row" style="margin-bottom:14px"><a class="btn ghost sm" href="#/profiles">← Profils</a></div>'}
+  main.innerHTML = `${self ? '' : `<div class="row" style="margin-bottom:14px"><a class="btn ghost sm" href="#/profiles">${t('← Profils')}</a></div>`}
     <div class="profile-hero">
-      <button class="avatar-edit" id="avatarBtn" title="Changer l'avatar" aria-label="Changer l'avatar">${avatar(p, 'l')}<span class="overlay">${icon('camera')}</span></button>
+      <button class="avatar-edit" id="avatarBtn" title="${esc(t("Changer l'avatar"))}" aria-label="${esc(t("Changer l'avatar"))}">${avatar(p, 'l')}<span class="overlay">${icon('camera')}</span></button>
       <input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
       <div class="info"><h1>${esc(p.name)}
-        ${p.disabled ? '<span class="badge bad">Désactivé</span>' : '<span class="badge ok">Actif</span>'}
-        ${p.hasPassword ? '' : '<span class="badge warn">Sans mot de passe</span>'}</h1>
-        <p class="muted" style="margin-top:4px">Créé ${ago(p.createdAt)} · dernière activité ${ago(p.lastSeen)} · ${p.watchedCount} titre(s) en cours ou vus</p></div>
+        ${p.disabled ? `<span class="badge bad">${t('Désactivé')}</span>` : `<span class="badge ok">${t('Actif')}</span>`}
+        ${p.hasPassword ? '' : `<span class="badge warn">${t('Sans mot de passe')}</span>`}</h1>
+        <p class="muted" style="margin-top:4px">${t('Créé {created} · dernière activité {last} · {n} titre(s) en cours ou vus', { created: ago(p.createdAt), last: ago(p.lastSeen), n: p.watchedCount })}</p></div>
       <div class="row">
-        ${p.avatarUrl ? `<button class="btn sm" id="avatarDel">${icon('trash')}Retirer l'avatar</button>` : ''}
-        ${self ? '' : `<button class="btn sm" id="dupProfile">${icon('copy')}Dupliquer</button><button class="btn sm danger" id="delProfile">${icon('trash')}Supprimer</button>`}
+        ${p.avatarUrl ? `<button class="btn sm" id="avatarDel">${icon('trash')}${t("Retirer l'avatar")}</button>` : ''}
+        ${self ? '' : `<button class="btn sm" id="dupProfile">${icon('copy')}${t('Dupliquer')}</button><button class="btn sm danger" id="delProfile">${icon('trash')}${t('Supprimer')}</button>`}
       </div>
     </div>
-    <nav class="tabs">${PROFILE_TABS.map((t) => `<a class="tab ${t.id === tab ? 'active' : ''}" href="${base}${t.id}">${icon(t.icon)}${t.label}${counts[t.id] !== undefined ? `<span class="count">${counts[t.id]}</span>` : ''}</a>`).join('')}</nav>
+    <nav class="tabs">${PROFILE_TABS.map((x) => `<a class="tab ${x.id === tab ? 'active' : ''}" href="${base}${x.id}">${icon(x.icon)}${esc(t(x.label))}${counts[x.id] !== undefined ? `<span class="count">${counts[x.id]}</span>` : ''}</a>`).join('')}</nav>
     <div id="tab"></div>`;
 
   $('#avatarBtn').onclick = () => $('#avatarFile').click();
   $('#avatarFile').onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 3 * 1024 * 1024) return toast('Image trop lourde (3 Mo max.)', true);
-    if (await busy(null, () => api('PUT', `/profiles/${p.id}/avatar`, file), 'Avatar mis à jour')) render();
+    if (file.size > 3 * 1024 * 1024) return toast(t('Image trop lourde (3 Mo max.)'), true);
+    if (await busy(null, () => api('PUT', `/profiles/${p.id}/avatar`, file), t('Avatar mis à jour'))) render();
   };
-  if ($('#avatarDel')) $('#avatarDel').onclick = async () => (await busy(null, () => api('DELETE', `/profiles/${p.id}/avatar`), 'Avatar retiré')) && render();
+  if ($('#avatarDel')) $('#avatarDel').onclick = async () => (await busy(null, () => api('DELETE', `/profiles/${p.id}/avatar`), t('Avatar retiré'))) && render();
   if (!self) {
     $('#dupProfile').onclick = async () => {
       const copy = await modal({
-        title: `Dupliquer « ${p.name} »`,
-        lead: 'Le nouveau profil reprend les addons, les bibliothèques, l\'accueil et les préférences, sans progression.',
-        okLabel: 'Dupliquer',
-        body: `<div class="stack"><div class="field"><label>Nom du nouveau profil</label><input name="name" type="text" maxlength="40" value="${esc(p.name)} (copie)" required></div>
-          <div class="field"><label>Mot de passe</label><input name="password" type="password" autocomplete="new-password" required><span class="help">8 caractères minimum.</span></div></div>`,
+        title: t('Dupliquer « {name} »', { name: p.name }),
+        lead: t("Le nouveau profil reprend les addons, les bibliothèques, l'accueil et les préférences, sans progression."),
+        okLabel: t('Dupliquer'),
+        body: `<div class="stack"><div class="field"><label>${t('Nom du nouveau profil')}</label><input name="name" type="text" maxlength="40" value="${esc(t('{name} (copie)', { name: p.name }))}" required></div>
+          <div class="field"><label>${t('Mot de passe')}</label><input name="password" type="password" autocomplete="new-password" required><span class="help">${t('8 caractères minimum.')}</span></div></div>`,
         onOk: (f) => api('POST', `/profiles/${p.id}/duplicate`, { name: f.name.value, password: f.password.value })
       });
       if (copy) {
-        toast('Profil dupliqué');
+        toast(t('Profil dupliqué'));
         go(`#/profiles/${copy.id}`);
       }
     };
     $('#delProfile').onclick = async () => {
-      const ok = await confirmDialog(`Supprimer « ${p.name} » ?`, 'Ses appareils seront déconnectés et sa progression (reprise, vus, favoris) effacée. Action irréversible.', 'Supprimer', true);
-      if (ok && (await busy(null, () => api('DELETE', `/profiles/${p.id}`), 'Profil supprimé'))) go('#/profiles');
+      const ok = await confirmDialog(t('Supprimer « {name} » ?', { name: p.name }), t('Ses appareils seront déconnectés et sa progression (reprise, vus, favoris) effacée. Action irréversible.'), t('Supprimer'), true);
+      if (ok && (await busy(null, () => api('DELETE', `/profiles/${p.id}`), t('Profil supprimé')))) go('#/profiles');
     };
   }
   const tabs = { login: tabLogin, prefs: tabPrefs, home: tabHome, addons: tabAddons, libraries: tabLibraries, devices: tabDevices };
   (tabs[tab] || tabLogin)($('#tab'), p);
 }
 
-async function patchProfile(p, body, msg = 'Enregistré') {
+async function patchProfile(p, body, msg = t('Enregistré')) {
   const r = await busy(null, () => api('PATCH', `/profiles/${p.id}`, body), msg);
   if (r) {
     r.self = p.self;
@@ -536,15 +565,15 @@ async function patchProfile(p, body, msg = 'Enregistré') {
 
 function passwordDialog(p) {
   return modal({
-    title: p.hasPassword ? 'Changer le mot de passe' : 'Définir un mot de passe',
-    lead: 'Les apps connectées à ce profil devront se reconnecter.',
-    okLabel: 'Enregistrer',
+    title: p.hasPassword ? t('Changer le mot de passe') : t('Définir un mot de passe'),
+    lead: t('Les apps connectées à ce profil devront se reconnecter.'),
+    okLabel: t('Enregistrer'),
     body: `<div class="stack">
-      ${p.self ? '<div class="field"><label>Mot de passe actuel</label><input name="cur" type="password" autocomplete="current-password" required></div>' : ''}
-      <div class="field"><label>Nouveau mot de passe</label><input name="pw" type="password" autocomplete="new-password" required><span class="help">8 caractères minimum.</span></div>
-      <div class="field"><label>Confirmer</label><input name="pw2" type="password" autocomplete="new-password" required></div></div>`,
+      ${p.self ? `<div class="field"><label>${t('Mot de passe actuel')}</label><input name="cur" type="password" autocomplete="current-password" required></div>` : ''}
+      <div class="field"><label>${t('Nouveau mot de passe')}</label><input name="pw" type="password" autocomplete="new-password" required><span class="help">${t('8 caractères minimum.')}</span></div>
+      <div class="field"><label>${t('Confirmer')}</label><input name="pw2" type="password" autocomplete="new-password" required></div></div>`,
     onOk: async (f) => {
-      if (f.pw.value !== f.pw2.value) throw new Error('Les mots de passe ne correspondent pas');
+      if (f.pw.value !== f.pw2.value) throw new Error(t('Les mots de passe ne correspondent pas'));
       return api('PATCH', `/profiles/${p.id}`, { password: f.pw.value, currentPassword: f.cur?.value });
     }
   });
@@ -554,56 +583,57 @@ function tabLogin(el, p) {
   el.innerHTML = `<div class="grid grid-2">
     <div class="stack">
       <div class="card">
-        <div class="card-head"><div><h2>Identifiants</h2><p>Pour les apps Jellyfin et pour ${p.self ? 'cet espace' : "l'espace utilisateur du profil"}.</p></div></div>
+        <div class="card-head"><div><h2>${t('Identifiants')}</h2><p>${p.self ? t('Pour les apps Jellyfin et pour cet espace.') : t("Pour les apps Jellyfin et pour l'espace utilisateur du profil.")}</p></div></div>
         ${p.self
-          ? `<div class="field"><label>Nom d'utilisateur</label><input type="text" value="${esc(p.name)}" disabled><span class="help">Modifiable par l'administrateur.</span></div>`
-          : `<form class="field" id="nameForm"><label>Nom d'utilisateur</label>
-              <div class="row"><input class="grow" name="name" type="text" maxlength="40" value="${esc(p.name)}" required style="width:auto"><button class="btn" type="submit">Renommer</button></div></form>`}
+          ? `<div class="field"><label>${t("Nom d'utilisateur")}</label><input type="text" value="${esc(p.name)}" disabled><span class="help">${t("Modifiable par l'administrateur.")}</span></div>`
+          : `<form class="field" id="nameForm"><label>${t("Nom d'utilisateur")}</label>
+              <div class="row"><input class="grow" name="name" type="text" maxlength="40" value="${esc(p.name)}" required style="width:auto"><button class="btn" type="submit">${t('Renommer')}</button></div></form>`}
         <div class="divider"></div>
-        <div class="row between"><div><b>Mot de passe</b><div class="small ${p.hasPassword ? 'muted' : ''}" style="${p.hasPassword ? '' : 'color:var(--warn)'}">${p.hasPassword ? 'Défini.' : 'Aucun : ce profil ne peut pas se connecter.'}</div></div>
-          <button class="btn sm ${p.hasPassword ? '' : 'primary'}" id="pwSet">${p.hasPassword ? 'Changer' : 'Définir'}</button></div>
+        <div class="row between"><div><b>${t('Mot de passe')}</b><div class="small ${p.hasPassword ? 'muted' : ''}" style="${p.hasPassword ? '' : 'color:var(--warn)'}">${p.hasPassword ? t('Défini.') : t('Aucun : ce profil ne peut pas se connecter.')}</div></div>
+          <button class="btn sm ${p.hasPassword ? '' : 'primary'}" id="pwSet">${p.hasPassword ? t('Changer') : t('Définir')}</button></div>
       </div>
       ${p.self ? '' : `<div class="card">
-        <div class="card-head"><div><h2>Accès</h2></div></div>
-        <div class="setting"><div class="text"><b>Visible à la connexion</b><span>Le profil apparaît sur l'écran « Qui regarde ? » de tous les appareils (sinon, seulement sur ceux déjà connectés).</span></div>
+        <div class="card-head"><div><h2>${t('Accès')}</h2></div></div>
+        <div class="setting"><div class="text"><b>${t('Visible à la connexion')}</b><span>${t("Le profil apparaît sur l'écran « Qui regarde ? » de tous les appareils (sinon, seulement sur ceux déjà connectés).")}</span></div>
           <div class="control">${toggle('id="showOnLogin"', p.showOnLogin)}</div></div>
-        <div class="setting"><div class="text"><b>Profil désactivé</b><span>Plus aucune connexion possible ; les appareils et l'espace utilisateur sont déconnectés.</span></div>
+        <div class="setting"><div class="text"><b>${t('Profil désactivé')}</b><span>${t("Plus aucune connexion possible ; les appareils et l'espace utilisateur sont déconnectés.")}</span></div>
           <div class="control">${toggle('id="disabled"', p.disabled)}</div></div>
       </div>`}
     </div>
     <div class="howto">
-      <h3>Se connecter depuis une app</h3>
-      <ol><li>Adresse du serveur : <code>${esc(serverAddress())}</code></li>
-        <li>Nom <b>${esc(p.name)}</b> + son mot de passe</li>
-        <li>Ou <b>Quick Connect</b> : l'app affiche un code à 6 chiffres, à saisir sur <a href="/pin" target="_blank">${esc(serverAddress())}/pin</a> ou ici :</li></ol>
+      <h3>${t('Se connecter depuis une app')}</h3>
+      <ol><li>${t('Adresse du serveur : {address}', { address: `<code>${esc(serverAddress())}</code>` })}</li>
+        <li>${t('Nom {name} + son mot de passe', { name: `<b>${esc(p.name)}</b>` })}</li>
+        <li>${t("Ou <b>Quick Connect</b> : l'app affiche un code à 6 chiffres, à saisir sur {link} ou ici :", { link: `<a href="/pin" target="_blank">${esc(serverAddress())}/pin</a>` })}</li></ol>
       <form class="row" id="qcForm" style="margin-top:12px"><input class="grow" name="code" type="text" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="000000" style="width:auto;font-family:var(--mono);letter-spacing:.2em">
-        <button class="btn primary" type="submit">Approuver</button></form>
+        <button class="btn primary" type="submit">${t('Approuver')}</button></form>
     </div>
   </div>`;
 
   if ($('#nameForm')) $('#nameForm').onsubmit = async (e) => {
     e.preventDefault();
-    if (await patchProfile(p, { name: e.target.name.value }, 'Profil renommé')) render();
+    if (await patchProfile(p, { name: e.target.name.value }, t('Profil renommé'))) render();
   };
-  $('#pwSet').onclick = async () => (await passwordDialog(p)) && (toast('Mot de passe enregistré'), render());
+  $('#pwSet').onclick = async () => (await passwordDialog(p)) && (toast(t('Mot de passe enregistré')), render());
   if ($('#showOnLogin')) $('#showOnLogin').onchange = async (e) => {
     if (!(await patchProfile(p, { showOnLogin: e.target.checked }))) e.target.checked = !e.target.checked;
   };
   if ($('#disabled')) $('#disabled').onchange = async (e) => {
-    if (e.target.checked && !(await confirmDialog(`Désactiver « ${p.name} » ?`, 'Ses appareils seront déconnectés et il ne pourra plus se connecter.', 'Désactiver', true))) {
+    if (e.target.checked && !(await confirmDialog(t('Désactiver « {name} » ?', { name: p.name }), t('Ses appareils seront déconnectés et il ne pourra plus se connecter.'), t('Désactiver'), true))) {
       e.target.checked = false;
       return;
     }
-    if (await patchProfile(p, { disabled: e.target.checked }, e.target.checked ? 'Profil désactivé' : 'Profil réactivé')) render();
+    if (await patchProfile(p, { disabled: e.target.checked }, e.target.checked ? t('Profil désactivé') : t('Profil réactivé'))) render();
   };
   $('#qcForm').onsubmit = async (e) => {
     e.preventDefault();
     const code = e.target.code.value.trim();
-    if (!/^\d{6}$/.test(code)) return toast('Le code fait 6 chiffres', true);
-    if (await busy($('#qcForm button'), () => api('POST', '/quickconnect', { code, profileId: p.id }), 'Appareil approuvé')) e.target.reset();
+    if (!/^\d{6}$/.test(code)) return toast(t('Le code fait 6 chiffres'), true);
+    if (await busy($('#qcForm button'), () => api('POST', '/quickconnect', { code, profileId: p.id }), t('Appareil approuvé'))) e.target.reset();
   };
 }
 
+// Langues audio (libelles traduits a l'affichage).
 const LANGS = [
   ['fr', 'Français'], ['en', 'Anglais'], ['es', 'Espagnol'], ['de', 'Allemand'], ['it', 'Italien']
 ];
@@ -611,24 +641,24 @@ const LANGS = [
 function tabPrefs(el, p) {
   const tmdbOn = !!state.info?.tmdb;
   el.innerHTML = `<div class="card">
-    <div class="setting"><div class="text"><b>Langues audio prioritaires</b><span>Les sources dans ces langues passent en premier, avant la qualité (dans l'ordre de sélection).</span></div>
-      <div class="control"><div class="chips" id="langs">${LANGS.map(([v, l]) => `<button type="button" class="chip ${p.preferredLanguages.includes(v) ? 'on' : ''}" data-lang="${v}">${l}${p.preferredLanguages.includes(v) ? ` <span class="faint">${p.preferredLanguages.indexOf(v) + 1}</span>` : ''}</button>`).join('')}</div></div></div>
-    <div class="setting"><div class="text"><b>Qualité par défaut</b><span>Lancée sans choix explicite ; à défaut, la plus proche disponible.</span></div>
+    <div class="setting"><div class="text"><b>${t('Langues audio prioritaires')}</b><span>${t("Les sources dans ces langues passent en premier, avant la qualité (dans l'ordre de sélection).")}</span></div>
+      <div class="control"><div class="chips" id="langs">${LANGS.map(([v, l]) => `<button type="button" class="chip ${p.preferredLanguages.includes(v) ? 'on' : ''}" data-lang="${v}">${t(l)}${p.preferredLanguages.includes(v) ? ` <span class="faint">${p.preferredLanguages.indexOf(v) + 1}</span>` : ''}</button>`).join('')}</div></div></div>
+    <div class="setting"><div class="text"><b>${t('Qualité par défaut')}</b><span>${t('Lancée sans choix explicite ; à défaut, la plus proche disponible.')}</span></div>
       <div class="control"><div class="segmented" id="quality">${[['2160', '4K'], ['1080', '1080p'], ['720', '720p']].map(([v, l]) => `<button type="button" data-q="${v}" class="${p.defaultQuality === v ? 'on' : ''}">${l}</button>`).join('')}</div></div></div>
-    <div class="setting"><div class="text"><b>Versions proposées</b><span>Sur la fiche d'un film ou d'un épisode : 3 qualités, ou les 5 meilleures releases de chaque qualité trouvées par les addons (jusqu'à 15).</span></div>
-      <div class="control"><div class="segmented" id="versionMode">${[['quality', '3 qualités'], ['releases', '5 releases par qualité']].map(([v, l]) => `<button type="button" data-v="${v}" class="${p.versionMode === v ? 'on' : ''}">${l}</button>`).join('')}</div></div></div>
-    <div class="setting"><div class="text"><b>Masquer les films déjà vus</b><span>Ils disparaissent des bibliothèques une fois terminés.</span></div>
+    <div class="setting"><div class="text"><b>${t('Versions proposées')}</b><span>${t("Sur la fiche d'un film ou d'un épisode : 3 qualités, ou les 5 meilleures releases de chaque qualité trouvées par les addons (jusqu'à 15).")}</span></div>
+      <div class="control"><div class="segmented" id="versionMode">${[['quality', '3 qualités'], ['releases', '5 releases par qualité']].map(([v, l]) => `<button type="button" data-v="${v}" class="${p.versionMode === v ? 'on' : ''}">${t(l)}</button>`).join('')}</div></div></div>
+    <div class="setting"><div class="text"><b>${t('Masquer les films déjà vus')}</b><span>${t('Ils disparaissent des bibliothèques une fois terminés.')}</span></div>
       <div class="control">${toggle('id="hideWatched"', p.hideWatched)}</div></div>
-    <div class="setting"><div class="text"><b>Seulement ce qui est sorti</b><span>Masque films et séries pas encore disponibles en VOD, DVD ou à la TV.${tmdbOn ? '' : ' Nécessite une clé TMDB.'}</span></div>
+    <div class="setting"><div class="text"><b>${t('Seulement ce qui est sorti')}</b><span>${t('Masque films et séries pas encore disponibles en VOD, DVD ou à la TV.')}${tmdbOn ? '' : ` ${t('Nécessite une clé TMDB.')}`}</span></div>
       <div class="control">${toggle('id="onlyReleased"', p.onlyReleased, !tmdbOn)}</div></div>
   </div>
   <div class="card" style="margin-top:16px">
-    <div class="card-head"><div><h2>CSS du client web</h2><p>Personnalise l'apparence de Jellyfin web pour ce profil : navigateur, Jellyfin Media Player, app Android pour téléphone. Les apps natives (Android TV, Wholphin…) ne l'utilisent pas.</p></div></div>
-    <textarea id="customCss" rows="12" spellcheck="false" placeholder="/* Exemple */&#10;.skinHeader { background: #101820; }" style="width:100%;font-family:var(--mono);font-size:13px;resize:vertical">${esc(p.customCss)}</textarea>
-    <div class="row" style="margin-top:10px;justify-content:space-between"><span class="small faint">S'applique au prochain chargement de la page dans Jellyfin web.</span><button class="btn primary" id="cssSave">Enregistrer le CSS</button></div>
+    <div class="card-head"><div><h2>${t('CSS du client web')}</h2><p>${t("Personnalise l'apparence de Jellyfin web pour ce profil : navigateur, Jellyfin Media Player, app Android pour téléphone. Les apps natives (Android TV, Wholphin…) ne l'utilisent pas.")}</p></div></div>
+    <textarea id="customCss" rows="12" spellcheck="false" placeholder="/* ${esc(t('Exemple'))} */&#10;.skinHeader { background: #101820; }" style="width:100%;font-family:var(--mono);font-size:13px;resize:vertical">${esc(p.customCss)}</textarea>
+    <div class="row" style="margin-top:10px;justify-content:space-between"><span class="small faint">${t("S'applique au prochain chargement de la page dans Jellyfin web.")}</span><button class="btn primary" id="cssSave">${t('Enregistrer le CSS')}</button></div>
   </div>`;
   $('#cssSave').onclick = async (e) => {
-    const r = await busy(e.currentTarget, () => api('PATCH', `/profiles/${p.id}`, { customCss: $('#customCss').value }), 'CSS enregistré');
+    const r = await busy(e.currentTarget, () => api('PATCH', `/profiles/${p.id}`, { customCss: $('#customCss').value }), t('CSS enregistré'));
     if (r) {
       r.self = p.self;
       state.profile = r;
@@ -687,27 +717,27 @@ function tabHome(el, p) {
   const draw = () => {
     el.innerHTML = `<div class="grid grid-2">
       <div class="card">
-        <div class="card-head"><div><h2>Sections de l'accueil</h2><p>Ordre des blocs sur la page d'accueil des apps Jellyfin.</p></div></div>
-        <div class="segmented" id="mode" style="margin-bottom:14px"><button type="button" data-m="app" class="${sections ? '' : 'on'}">Laisser l'app décider</button><button type="button" data-m="custom" class="${sections ? 'on' : ''}">Personnaliser</button></div>
+        <div class="card-head"><div><h2>${t("Sections de l'accueil")}</h2><p>${t("Ordre des blocs sur la page d'accueil des apps Jellyfin.")}</p></div></div>
+        <div class="segmented" id="mode" style="margin-bottom:14px"><button type="button" data-m="app" class="${sections ? '' : 'on'}">${t("Laisser l'app décider")}</button><button type="button" data-m="custom" class="${sections ? 'on' : ''}">${t('Personnaliser')}</button></div>
         ${sections ? `<div class="list" id="secList">${sections.map((s, i) => `<div class="item" data-key="${i}">${handleBtn(sections.length < 2)}
-            <div class="body"><select data-sec="${i}">${SECTIONS.map(([v, l]) => `<option value="${v}" ${v === s ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-            <div class="actions"><button class="btn ghost icon-only" data-rmsec="${i}" title="Retirer">${icon('trash')}</button></div></div>`).join('')}</div>
-          <div class="row" style="margin-top:10px">${sections.length < 10 ? `<button class="btn sm" id="addSec">${icon('plus')}Ajouter une section</button>` : ''}<button class="btn sm ghost" id="preset">Disposition recommandée</button></div>`
-        : `<p class="muted">Chaque app garde sa propre disposition (réglable dans l'app : Paramètres → Accueil).</p>`}
-        <p class="small faint" style="margin-top:12px">Les apps appliquent la disposition au prochain chargement de l'accueil. Si l'utilisateur la change dans l'app, elle est reprise ici.</p>
+            <div class="body"><select data-sec="${i}">${SECTIONS.map(([v, l]) => `<option value="${v}" ${v === s ? 'selected' : ''}>${esc(t(l))}</option>`).join('')}</select></div>
+            <div class="actions"><button class="btn ghost icon-only" data-rmsec="${i}" title="${esc(t('Retirer'))}">${icon('trash')}</button></div></div>`).join('')}</div>
+          <div class="row" style="margin-top:10px">${sections.length < 10 ? `<button class="btn sm" id="addSec">${icon('plus')}${t('Ajouter une section')}</button>` : ''}<button class="btn sm ghost" id="preset">${t('Disposition recommandée')}</button></div>`
+        : `<p class="muted">${t("Chaque app garde sa propre disposition (réglable dans l'app : Paramètres → Accueil).")}</p>`}
+        <p class="small faint" style="margin-top:12px">${t("Les apps appliquent la disposition au prochain chargement de l'accueil. Si l'utilisateur la change dans l'app, elle est reprise ici.")}</p>
       </div>
       <div class="card">
-        <div class="card-head"><div><h2>Mes médias et rangées</h2><p>Tuiles de « Mes médias » et rangées de l'accueil, dans cet ordre (Jellyfin utilise le même ordre pour les deux).</p></div></div>
+        <div class="card-head"><div><h2>${t('Mes médias et rangées')}</h2><p>${t("Tuiles de « Mes médias » et rangées de l'accueil, dans cet ordre (Jellyfin utilise le même ordre pour les deux).")}</p></div></div>
         ${p.libraries.length ? `<div class="list" id="libOrder">${p.libraries.map((l) => `<div class="item" data-key="${esc(l.key)}">${handleBtn(p.libraries.length < 2)}
-            <div style="width:96px;height:54px;border-radius:6px;overflow:hidden;flex:none;background:var(--bg);display:grid;place-items:center">${l.preview ? `<img src="${esc(l.preview)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover">` : icon('layers')}</div>
-            <div class="body"><div class="title">${esc(l.name)}</div><div class="meta"><span class="badge">${TYPE_LABEL[l.type] || l.type}</span>${l.image ? '<span class="badge accent">image perso</span>' : ''}</div></div>
-            <div class="actions"><button class="btn ghost icon-only" data-img="${esc(l.key)}" title="Changer l'image de la tuile" aria-label="Changer l'image">${icon('camera')}</button>
-              <label class="row small muted" style="gap:6px" title="Rangée « ajouts récents » sur l'accueil">Rangée ${toggle(`data-latest="${esc(l.key)}" aria-label="Rangée sur l'accueil"`, !excluded.has(l.key))}</label></div></div>`).join('')}</div>`
-          : `<div class="empty">${icon('layers')}<p>Aucune bibliothèque active.</p></div>`}
+            <div style="width:96px;height:54px;border-radius:6px;overflow:hidden;flex:none;background:var(--input);display:grid;place-items:center">${l.preview ? `<img src="${esc(l.preview)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover">` : icon('layers')}</div>
+            <div class="body"><div class="title">${esc(l.name)}</div><div class="meta"><span class="badge">${esc(typeLabel(l.type))}</span>${l.image ? `<span class="badge accent">${t('image perso')}</span>` : ''}</div></div>
+            <div class="actions"><button class="btn ghost icon-only" data-img="${esc(l.key)}" title="${esc(t("Changer l'image de la tuile"))}" aria-label="${esc(t("Changer l'image"))}">${icon('camera')}</button>
+              <label class="row small muted" style="gap:6px" title="${esc(t("Rangée « ajouts récents » sur l'accueil"))}">${t('Rangée')} ${toggle(`data-latest="${esc(l.key)}" aria-label="${esc(t("Rangée sur l'accueil"))}"`, !excluded.has(l.key))}</label></div></div>`).join('')}</div>`
+          : `<div class="empty">${icon('layers')}<p>${t('Aucune bibliothèque active.')}</p></div>`}
         <input type="file" id="libImgFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
       </div>
     </div>
-    <div class="savebar ${dirty() ? '' : 'hidden'}" id="homeSave"><span>Sections non enregistrées</span><div class="row"><button class="btn ghost" id="homeCancel">Annuler</button><button class="btn primary" id="homeDo">Enregistrer</button></div></div>`;
+    <div class="savebar ${dirty() ? '' : 'hidden'}" id="homeSave"><span>${t('Sections non enregistrées')}</span><div class="row"><button class="btn ghost" id="homeCancel">${t('Annuler')}</button><button class="btn primary" id="homeDo">${t('Enregistrer')}</button></div></div>`;
 
     // ---- Sections ----
     $('#mode').onclick = (e) => {
@@ -749,7 +779,7 @@ function tabHome(el, p) {
       draw();
     };
     $('#homeDo').onclick = async (e) => {
-      const r = await busy(e.currentTarget, () => api('PATCH', `/profiles/${p.id}`, { homeSections: sections }), 'Accueil enregistré');
+      const r = await busy(e.currentTarget, () => api('PATCH', `/profiles/${p.id}`, { homeSections: sections }), t('Accueil enregistré'));
       if (r) {
         r.self = p.self;
         state.profile = r;
@@ -760,13 +790,13 @@ function tabHome(el, p) {
     // ---- Mes medias et rangees (enregistre aussitot) ----
     const libs = $('#libOrder');
     if (!libs) return;
-    sortable(libs, async (keys) => apply(await busy(null, () => api('PUT', `/profiles/${p.id}/libraries/order`, { keys }), 'Ordre enregistré')));
+    sortable(libs, async (keys) => apply(await busy(null, () => api('PUT', `/profiles/${p.id}/libraries/order`, { keys }), t('Ordre enregistré'))));
     libs.addEventListener('change', async (e) => {
       const key = e.target.dataset.latest;
       if (!key) return;
       if (e.target.checked) excluded.delete(key);
       else excluded.add(key);
-      const r = await busy(null, () => api('PATCH', `/profiles/${p.id}`, { latestExcludes: [...excluded] }), e.target.checked ? 'Rangée affichée' : 'Rangée masquée');
+      const r = await busy(null, () => api('PATCH', `/profiles/${p.id}`, { latestExcludes: [...excluded] }), e.target.checked ? t('Rangée affichée') : t('Rangée masquée'));
       if (r) apply(r);
       else draw();
     });
@@ -780,17 +810,17 @@ function tabHome(el, p) {
   const imageDialog = async (lib) => {
     const enc = encodeURIComponent(lib.key);
     const done = modal({
-      title: `Image de « ${lib.name} »`,
-      lead: 'Format conseillé : paysage 16:9 (par exemple 1280 × 720). PNG, JPEG, WebP ou GIF, 3 Mo max.',
-      okLabel: 'Enregistrer l\'adresse',
+      title: t('Image de « {name} »', { name: lib.name }),
+      lead: t('Format conseillé : paysage 16:9 (par exemple 1280 × 720). PNG, JPEG, WebP ou GIF, 3 Mo max.'),
+      okLabel: t("Enregistrer l'adresse"),
       body: `<div class="stack">
-        ${lib.preview ? `<img src="${esc(lib.preview)}" alt="" style="width:100%;aspect-ratio:16/9;border-radius:10px;object-fit:cover;background:var(--bg)">` : ''}
-        <div class="row"><button type="button" class="btn" id="imgUpload">${icon('camera')}Envoyer une image</button>
-          ${lib.image ? '<button type="button" class="btn ghost" id="imgAuto">Revenir à l\'image automatique</button>' : ''}</div>
-        <div class="field"><label>Ou adresse d'une image</label><input name="url" type="url" placeholder="https://…/image.jpg" value="${esc(lib.image && /^https?:/.test(lib.image) ? lib.image : '')}"></div>
+        ${lib.preview ? `<img src="${esc(lib.preview)}" alt="" style="width:100%;aspect-ratio:16/9;border-radius:10px;object-fit:cover;background:var(--input)">` : ''}
+        <div class="row"><button type="button" class="btn" id="imgUpload">${icon('camera')}${t('Envoyer une image')}</button>
+          ${lib.image ? `<button type="button" class="btn ghost" id="imgAuto">${t("Revenir à l'image automatique")}</button>` : ''}</div>
+        <div class="field"><label>${t("Ou adresse d'une image")}</label><input name="url" type="url" placeholder="https://…/image.jpg" value="${esc(lib.image && /^https?:/.test(lib.image) ? lib.image : '')}"></div>
       </div>`,
       onOk: async (f) => {
-        if (!f.url.value.trim()) throw new Error('Indique une adresse, ou envoie une image');
+        if (!f.url.value.trim()) throw new Error(t('Indique une adresse, ou envoie une image'));
         return api('PUT', `/profiles/${p.id}/library-image?key=${enc}`, { url: f.url.value.trim() });
       }
     });
@@ -800,15 +830,15 @@ function tabHome(el, p) {
       const file = ev.target.files[0];
       ev.target.value = '';
       if (!file) return;
-      if (file.size > 3 * 1024 * 1024) return toast('Image trop lourde (3 Mo max.)', true);
-      const r = await busy($('#imgUpload'), () => api('PUT', `/profiles/${p.id}/library-image?key=${enc}`, file), 'Image enregistrée');
+      if (file.size > 3 * 1024 * 1024) return toast(t('Image trop lourde (3 Mo max.)'), true);
+      const r = await busy($('#imgUpload'), () => api('PUT', `/profiles/${p.id}/library-image?key=${enc}`, file), t('Image enregistrée'));
       if (r) {
         close();
         apply(r);
       }
     };
     if ($('#imgAuto')) $('#imgAuto').onclick = async () => {
-      const r = await busy($('#imgAuto'), () => api('DELETE', `/profiles/${p.id}/library-image?key=${enc}`), 'Image automatique');
+      const r = await busy($('#imgAuto'), () => api('DELETE', `/profiles/${p.id}/library-image?key=${enc}`), t('Image automatique'));
       if (r) {
         close();
         apply(r);
@@ -816,7 +846,7 @@ function tabHome(el, p) {
     };
     const r = await done;
     if (r && r !== true) {
-      toast('Image enregistrée');
+      toast(t('Image enregistrée'));
       apply(r);
     }
   };
@@ -826,23 +856,23 @@ function tabHome(el, p) {
 
 function tabAddons(el, p) {
   el.innerHTML = `<div class="card">
-    <div class="card-head"><div><h2>Addons Stremio</h2><p>L'ordre compte : pour une fiche, le premier addon capable de la fournir est utilisé (après TMDB).</p></div>
-      <div class="row">${p.self ? '' : `<button class="btn sm" id="copyAddons">${icon('copy')}Copier depuis…</button>`}<button class="btn sm" id="refreshAddons">${icon('refresh')}Recharger</button></div></div>
-    <form class="row" id="addAddon" style="margin-bottom:16px"><input class="grow" name="url" type="url" placeholder="https://…/manifest.json ou stremio://…" style="width:auto" required>
-      <button class="btn primary" type="submit">${icon('plus')}Ajouter</button></form>
+    <div class="card-head"><div><h2>${t('Addons Stremio')}</h2><p>${t("L'ordre compte : pour une fiche, le premier addon capable de la fournir est utilisé (après TMDB).")}</p></div>
+      <div class="row">${p.self ? '' : `<button class="btn sm" id="copyAddons">${icon('copy')}${t('Copier depuis…')}</button>`}<button class="btn sm" id="refreshAddons">${icon('refresh')}${t('Recharger')}</button></div></div>
+    <form class="row" id="addAddon" style="margin-bottom:16px"><input class="grow" name="url" type="url" placeholder="${esc(t('https://…/manifest.json ou stremio://…'))}" style="width:auto" required>
+      <button class="btn primary" type="submit">${icon('plus')}${t('Ajouter')}</button></form>
     ${p.addons.length ? `<div class="list" id="addonList">${p.addons.map((a) => `<div class="item ${a.enabled ? '' : 'off'}" data-key="${esc(a.url)}">
         ${handleBtn(p.addons.length < 2)}
         <div class="logo">${a.logo ? `<img src="${esc(a.logo)}" alt="" loading="lazy" onerror="this.remove()">` : icon('puzzle')}</div>
-        <div class="body"><div class="title">${esc(a.name)} ${a.version ? `<span class="faint small">v${esc(a.version)}</span>` : ''} ${a.ok ? '' : '<span class="badge bad">Injoignable</span>'}</div>
+        <div class="body"><div class="title">${esc(a.name)} ${a.version ? `<span class="faint small">v${esc(a.version)}</span>` : ''} ${a.ok ? '' : `<span class="badge bad">${t('Injoignable')}</span>`}</div>
           <div class="meta">${a.resources.map((r) => `<span class="badge">${esc(r)}</span>`).join('')}${a.description ? `<span class="small">${esc(a.description.slice(0, 120))}</span>` : ''}</div></div>
         <div class="actions">
-          ${a.catalogCount ? `<button class="btn sm ${a.catalogsHidden ? '' : 'ghost'}" data-cats="${a.index}" title="${a.catalogsHidden ? 'Ses catalogues ne sont pas proposés comme bibliothèques' : 'Ses catalogues sont proposés dans Bibliothèques'}">${icon('layers')}${a.catalogsHidden ? 'Catalogues masqués' : `${a.catalogCount} catalogue${a.catalogCount > 1 ? 's' : ''}`}</button>` : ''}
-          ${a.configureUrl ? `<a class="btn ghost icon-only" href="${esc(a.configureUrl)}" target="_blank" rel="noopener noreferrer" title="Configurer l'addon">${icon('settings')}</a>` : ''}
-          ${toggle(`data-enable="${a.index}" aria-label="Activer"`, a.enabled)}
-          <button class="btn ghost icon-only" data-del="${a.index}" title="Retirer">${icon('trash')}</button>
+          ${a.catalogCount ? `<button class="btn sm ${a.catalogsHidden ? '' : 'ghost'}" data-cats="${a.index}" title="${esc(a.catalogsHidden ? t('Ses catalogues ne sont pas proposés comme bibliothèques') : t('Ses catalogues sont proposés dans Bibliothèques'))}">${icon('layers')}${a.catalogsHidden ? t('Catalogues masqués') : t('{n} catalogue(s)', { n: a.catalogCount })}</button>` : ''}
+          ${a.configureUrl ? `<a class="btn ghost icon-only" href="${esc(a.configureUrl)}" target="_blank" rel="noopener noreferrer" title="${esc(t("Configurer l'addon"))}">${icon('settings')}</a>` : ''}
+          ${toggle(`data-enable="${a.index}" aria-label="${esc(t('Activer'))}"`, a.enabled)}
+          <button class="btn ghost icon-only" data-del="${a.index}" title="${esc(t('Retirer'))}">${icon('trash')}</button>
         </div></div>`).join('')}</div>
-      <p class="small faint" style="margin-top:10px">« Catalogues » : cliquer pour garder l'addon seulement pour ses sources et ses fiches, sans proposer ses catalogues.</p>`
-      : `<div class="empty">${icon('puzzle')}<p>Aucun addon. Ajoute au moins un addon de sources pour pouvoir lire.</p></div>`}
+      <p class="small faint" style="margin-top:10px">${t("« Catalogues » : cliquer pour garder l'addon seulement pour ses sources et ses fiches, sans proposer ses catalogues.")}</p>`
+      : `<div class="empty">${icon('puzzle')}<p>${t('Aucun addon. Ajoute au moins un addon de sources pour pouvoir lire.')}</p></div>`}
   </div>`;
 
   const refresh = (r) => {
@@ -853,32 +883,32 @@ function tabAddons(el, p) {
   };
   $('#addAddon').onsubmit = async (e) => {
     e.preventDefault();
-    refresh(await busy($('#addAddon button'), () => api('POST', `/profiles/${p.id}/addons`, { url: e.target.url.value }), 'Addon ajouté'));
+    refresh(await busy($('#addAddon button'), () => api('POST', `/profiles/${p.id}/addons`, { url: e.target.url.value }), t('Addon ajouté')));
   };
-  $('#refreshAddons').onclick = async (e) => refresh(await busy(e.currentTarget, () => api('POST', `/profiles/${p.id}/addons/refresh`), 'Manifests rechargés'));
+  $('#refreshAddons').onclick = async (e) => refresh(await busy(e.currentTarget, () => api('POST', `/profiles/${p.id}/addons/refresh`), t('Manifests rechargés')));
   if ($('#copyAddons')) $('#copyAddons').onclick = async () => {
     const others = (await api('GET', '/profiles')).filter((o) => o.id !== p.id);
-    if (!others.length) return toast("Il n'y a pas d'autre profil", true);
+    if (!others.length) return toast(t("Il n'y a pas d'autre profil"), true);
     const r = await modal({
-      title: 'Copier des addons',
-      okLabel: 'Copier',
-      body: `<div class="stack"><div class="field"><label>Depuis le profil</label><select name="from">${others.map((o) => `<option value="${o.id}">${esc(o.name)} (${o.addonsCount} addons)</option>`).join('')}</select></div>
-        <div class="field"><label>Mode</label><select name="mode"><option value="merge">Ajouter ceux qui manquent</option><option value="replace">Remplacer tous les addons de ce profil</option></select></div></div>`,
+      title: t('Copier des addons'),
+      okLabel: t('Copier'),
+      body: `<div class="stack"><div class="field"><label>${t('Depuis le profil')}</label><select name="from">${others.map((o) => `<option value="${o.id}">${t('{name} ({n} addons)', { name: esc(o.name), n: o.addonsCount })}</option>`).join('')}</select></div>
+        <div class="field"><label>${t('Mode')}</label><select name="mode"><option value="merge">${t('Ajouter ceux qui manquent')}</option><option value="replace">${t('Remplacer tous les addons de ce profil')}</option></select></div></div>`,
       onOk: (f) => api('POST', `/profiles/${p.id}/addons/copy`, { from: f.from.value, mode: f.mode.value })
     });
     if (r) {
-      toast('Addons copiés');
+      toast(t('Addons copiés'));
       refresh(r);
     }
   };
   const list = $('#addonList');
   if (!list) return;
   const addonUrl = (idx) => `/profiles/${p.id}/addons/${idx}?url=${encodeURIComponent(p.addons[Number(idx)].url)}`;
-  sortable(list, async (urls) => refresh(await busy(null, () => api('PUT', `/profiles/${p.id}/addons/order`, { urls }), 'Ordre enregistré')));
+  sortable(list, async (urls) => refresh(await busy(null, () => api('PUT', `/profiles/${p.id}/addons/order`, { urls }), t('Ordre enregistré'))));
   list.addEventListener('change', async (e) => {
     const idx = e.target.dataset.enable;
     if (idx === undefined) return;
-    const r = await busy(null, () => api('PATCH', addonUrl(idx), { enabled: e.target.checked }), e.target.checked ? 'Addon activé' : 'Addon désactivé');
+    const r = await busy(null, () => api('PATCH', addonUrl(idx), { enabled: e.target.checked }), e.target.checked ? t('Addon activé') : t('Addon désactivé'));
     if (r) refresh(r);
     else e.target.checked = !e.target.checked;
   });
@@ -886,60 +916,62 @@ function tabAddons(el, p) {
     const cats = e.target.closest('[data-cats]');
     if (cats) {
       const a = p.addons[Number(cats.dataset.cats)];
-      refresh(await busy(cats, () => api('PATCH', addonUrl(cats.dataset.cats), { catalogsHidden: !a.catalogsHidden }), a.catalogsHidden ? 'Catalogues proposés' : 'Catalogues masqués'));
+      refresh(await busy(cats, () => api('PATCH', addonUrl(cats.dataset.cats), { catalogsHidden: !a.catalogsHidden }), a.catalogsHidden ? t('Catalogues proposés') : t('Catalogues masqués')));
       return;
     }
     const del = e.target.closest('[data-del]');
     if (!del) return;
     const a = p.addons[Number(del.dataset.del)];
-    if (await confirmDialog(`Retirer « ${a.name} » ?`, 'Ses catalogues disparaîtront des bibliothèques de ce profil.', 'Retirer', true)) {
-      refresh(await busy(null, () => api('DELETE', addonUrl(del.dataset.del)), 'Addon retiré'));
+    if (await confirmDialog(t('Retirer « {name} » ?', { name: a.name }), t('Ses catalogues disparaîtront des bibliothèques de ce profil.'), t('Retirer'), true)) {
+      refresh(await busy(null, () => api('DELETE', addonUrl(del.dataset.del)), t('Addon retiré')));
     }
   });
 }
 
 const TYPE_LABEL = { movie: 'Films', series: 'Séries', collection: 'Sagas', platforms: 'Plateformes' };
+const typeLabel = (type) => (TYPE_LABEL[type] ? t(TYPE_LABEL[type]) : type);
 
 function tabLibraries(el, p) {
   // Copie de travail : rien n'est envoye avant "Enregistrer".
   let rows = p.catalogs.map((c) => ({ ...c }));
   const original = JSON.stringify(rows.map((r) => [r.key, r.enabled, r.name]));
   let filter = { q: '', status: 'all', source: '' };
-  const sources = [...new Set(rows.map((r) => (r.builtin ? 'TMDB intégré' : r.addonName)))];
+  const sourceOf = (r) => (r.builtin ? t('TMDB intégré') : r.addonName);
+  const sources = [...new Set(rows.map(sourceOf))];
 
   const dirty = () => JSON.stringify(rows.map((r) => [r.key, r.enabled, r.name])) !== original;
   const visible = (r) =>
     (filter.status === 'all' || (filter.status === 'on' ? r.enabled : !r.enabled)) &&
-    (!filter.source || (r.builtin ? 'TMDB intégré' : r.addonName) === filter.source) &&
+    (!filter.source || sourceOf(r) === filter.source) &&
     (!filter.q || `${r.name || r.defaultName} ${r.addonName}`.toLowerCase().includes(filter.q.toLowerCase()));
   const filtered = () => filter.q || filter.status !== 'all' || filter.source;
 
   el.innerHTML = `<div class="card">
-    <div class="card-head"><div><h2>Bibliothèques</h2><p>Catalogues affichés comme bibliothèques dans les apps, dans cet ordre. Les catalogues « recherche » servent seulement à la recherche.</p></div></div>
+    <div class="card-head"><div><h2>${t('Bibliothèques')}</h2><p>${t('Catalogues affichés comme bibliothèques dans les apps, dans cet ordre. Les catalogues « recherche » servent seulement à la recherche.')}</p></div></div>
     <div class="toolbar">
-      <input type="search" id="libSearch" placeholder="Rechercher…">
-      <div class="segmented" id="libStatus"><button type="button" data-s="all" class="on">Toutes</button><button type="button" data-s="on">Actives</button><button type="button" data-s="off">Inactives</button></div>
-      <select id="libSource" style="width:auto"><option value="">Toutes les sources</option>${sources.map((s) => `<option>${esc(s)}</option>`).join('')}</select>
+      <input type="search" id="libSearch" placeholder="${esc(t('Rechercher…'))}">
+      <div class="segmented" id="libStatus"><button type="button" data-s="all" class="on">${t('Toutes')}</button><button type="button" data-s="on">${t('Actives')}</button><button type="button" data-s="off">${t('Inactives')}</button></div>
+      <select id="libSource" style="width:auto"><option value="">${t('Toutes les sources')}</option>${sources.map((s) => `<option>${esc(s)}</option>`).join('')}</select>
       <span class="grow"></span>
-      <button class="btn sm" id="libAllOn">Tout activer</button><button class="btn sm" id="libAllOff">Tout désactiver</button>
+      <button class="btn sm" id="libAllOn">${t('Tout activer')}</button><button class="btn sm" id="libAllOff">${t('Tout désactiver')}</button>
     </div>
     <p class="small faint" id="libHint" style="margin:-4px 0 10px"></p>
     <div class="list" id="libList"></div>
     <div id="libEmpty"></div>
   </div>
-  <div class="savebar hidden" id="libSave"><span>Modifications non enregistrées</span><div class="row"><button class="btn ghost" id="libCancel">Annuler</button><button class="btn primary" id="libDo">Enregistrer</button></div></div>`;
+  <div class="savebar hidden" id="libSave"><span>${t('Modifications non enregistrées')}</span><div class="row"><button class="btn ghost" id="libCancel">${t('Annuler')}</button><button class="btn primary" id="libDo">${t('Enregistrer')}</button></div></div>`;
 
   const draw = () => {
     const list = $('#libList');
     const shown = rows.filter(visible);
     list.innerHTML = shown.map((r) => `<div class="item ${r.enabled ? '' : 'off'}" data-key="${esc(r.key)}">
         ${handleBtn(filtered())}
-        ${toggle(`data-on="${esc(r.key)}" aria-label="Activer"`, r.enabled)}
-        <div class="body"><input class="inline-name" data-name="${esc(r.key)}" value="${esc(r.name)}" placeholder="${esc(r.defaultName)}" maxlength="60" aria-label="Nom affiché">
-          <div class="meta"><span class="badge ${r.builtin ? 'accent' : ''}">${esc(r.builtin ? 'TMDB intégré' : r.addonName)}</span><span class="badge">${TYPE_LABEL[r.type] || r.type}</span>${r.browsable ? '' : '<span class="badge warn">Recherche</span>'}</div></div>
+        ${toggle(`data-on="${esc(r.key)}" aria-label="${esc(t('Activer'))}"`, r.enabled)}
+        <div class="body"><input class="inline-name" data-name="${esc(r.key)}" value="${esc(r.name)}" placeholder="${esc(r.defaultName)}" maxlength="60" aria-label="${esc(t('Nom affiché'))}">
+          <div class="meta"><span class="badge ${r.builtin ? 'accent' : ''}">${esc(sourceOf(r))}</span><span class="badge">${esc(typeLabel(r.type))}</span>${r.browsable ? '' : `<span class="badge warn">${t('Recherche')}</span>`}</div></div>
       </div>`).join('');
-    $('#libEmpty').innerHTML = shown.length ? '' : `<div class="empty">${icon('layers')}<p>Aucun catalogue ne correspond.</p></div>`;
-    $('#libHint').textContent = filtered() ? 'Retire les filtres pour réordonner par glisser-déposer.' : 'Glisse les poignées pour changer l\'ordre. Clique sur un nom pour le renommer.';
+    $('#libEmpty').innerHTML = shown.length ? '' : `<div class="empty">${icon('layers')}<p>${t('Aucun catalogue ne correspond.')}</p></div>`;
+    $('#libHint').textContent = filtered() ? t('Retire les filtres pour réordonner par glisser-déposer.') : t("Glisse les poignées pour changer l'ordre. Clique sur un nom pour le renommer.");
     $('#libSave').classList.toggle('hidden', !dirty());
   };
   draw();
@@ -990,7 +1022,7 @@ function tabLibraries(el, p) {
       catalogs[r.key] = { enabled: r.enabled };
       if (r.name.trim()) catalogs[r.key].name = r.name.trim();
     }
-    const res = await busy(e.currentTarget, () => api('PATCH', `/profiles/${p.id}`, { catalogs, catalogOrder: rows.map((r) => r.key) }), 'Bibliothèques enregistrées');
+    const res = await busy(e.currentTarget, () => api('PATCH', `/profiles/${p.id}`, { catalogs, catalogOrder: rows.map((r) => r.key) }), t('Bibliothèques enregistrées'));
     if (res) {
       res.self = p.self;
       state.profile = res;
@@ -1004,12 +1036,12 @@ function tabLibraries(el, p) {
 
 function deviceRows(devices, withProfile) {
   return `<div class="table-wrap"><table class="table"><thead><tr>
-      <th>Appareil</th><th>Application</th>${withProfile ? '<th>Profil</th>' : ''}<th>Dernière activité</th><th></th></tr></thead><tbody>
-      ${devices.map((d) => `<tr><td><b>${esc(d.device || 'Inconnu')}</b><div class="small faint">connecté ${ago(d.created)}</div></td>
+      <th>${t('Appareil')}</th><th>${t('Application')}</th>${withProfile ? `<th>${t('Profil')}</th>` : ''}<th>${t('Dernière activité')}</th><th></th></tr></thead><tbody>
+      ${devices.map((d) => `<tr><td><b>${esc(d.device || t('Inconnu'))}</b><div class="small faint">${t('connecté {when}', { when: ago(d.created) })}</div></td>
         <td>${esc(d.client || '?')} <span class="faint small">${esc(d.version || '')}</span></td>
         ${withProfile ? `<td><a href="#/profiles/${d.profileId}">${esc(d.profileName)}</a></td>` : ''}
         <td>${ago(d.lastSeen)}</td>
-        <td class="actions"><button class="btn sm danger" data-revoke="${d.id}">Déconnecter</button></td></tr>`).join('')}
+        <td class="actions"><button class="btn sm danger" data-revoke="${d.id}">${t('Déconnecter')}</button></td></tr>`).join('')}
     </tbody></table></div>`;
 }
 
@@ -1017,20 +1049,20 @@ function bindRevoke(root, after) {
   root.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-revoke]');
     if (!b) return;
-    if (await busy(b, () => api('DELETE', `/devices/${b.dataset.revoke}`), 'Appareil déconnecté')) after();
+    if (await busy(b, () => api('DELETE', `/devices/${b.dataset.revoke}`), t('Appareil déconnecté'))) after();
   });
 }
 
 function tabDevices(el, p) {
   el.innerHTML = `<div class="card">
-    <div class="card-head"><div><h2>Appareils connectés</h2><p>Applications ayant une session ouverte sur ce profil.</p></div>
-      ${p.devices.length ? '<button class="btn sm danger" id="revokeAll">Tout déconnecter</button>' : ''}</div>
-    ${p.devices.length ? deviceRows(p.devices, false) : `<div class="empty">${icon('devices')}<p>Aucun appareil connecté.</p></div>`}
+    <div class="card-head"><div><h2>${t('Appareils connectés')}</h2><p>${t('Applications ayant une session ouverte sur ce profil.')}</p></div>
+      ${p.devices.length ? `<button class="btn sm danger" id="revokeAll">${t('Tout déconnecter')}</button>` : ''}</div>
+    ${p.devices.length ? deviceRows(p.devices, false) : `<div class="empty">${icon('devices')}<p>${t('Aucun appareil connecté.')}</p></div>`}
   </div>`;
   bindRevoke(el, () => render());
   if ($('#revokeAll')) $('#revokeAll').onclick = async () => {
-    if (await confirmDialog('Déconnecter tous les appareils ?', 'Il faudra se reconnecter sur chacun.', 'Déconnecter', true)) {
-      if (await busy(null, () => api('DELETE', `/profiles/${p.id}/devices`), 'Appareils déconnectés')) render();
+    if (await confirmDialog(t('Déconnecter tous les appareils ?'), t('Il faudra se reconnecter sur chacun.'), t('Déconnecter'), true)) {
+      if (await busy(null, () => api('DELETE', `/profiles/${p.id}/devices`), t('Appareils déconnectés'))) render();
     }
   };
 }
@@ -1038,8 +1070,8 @@ function tabDevices(el, p) {
 // Tous les appareils
 PAGES.devices = async (main) => {
   const devices = await api('GET', '/devices');
-  main.innerHTML = `${head('Appareils', 'Toutes les applications connectées, tous profils confondus.')}
-    <div class="card">${devices.length ? deviceRows(devices, true) : `<div class="empty">${icon('devices')}<p>Aucun appareil connecté.</p></div>`}</div>`;
+  main.innerHTML = `${head(t('Appareils'), t('Toutes les applications connectées, tous profils confondus.'))}
+    <div class="card">${devices.length ? deviceRows(devices, true) : `<div class="empty">${icon('devices')}<p>${t('Aucun appareil connecté.')}</p></div>`}</div>`;
   bindRevoke(main, () => render());
 };
 
@@ -1047,24 +1079,24 @@ PAGES.devices = async (main) => {
 
 /** Enregistre une partie des reglages et met a jour l'etat local. */
 async function saveSettings(btn, patch) {
-  const s = await busy(btn, () => api('PUT', '/settings', patch), 'Réglages enregistrés');
+  const s = await busy(btn, () => api('PUT', '/settings', patch), t('Réglages enregistrés'));
   if (s) state.settings = s;
   return s;
 }
 
 PAGES['settings/server'] = async (main) => {
   const s = state.settings;
-  main.innerHTML = `${head('Serveur', 'Identité du serveur et adresse donnée aux apps.')}
+  main.innerHTML = `${head(t('Serveur'), t('Identité du serveur et adresse donnée aux apps.'))}
     <form class="card" id="f">
-      <div class="setting"><div class="text"><b>Nom du serveur</b><span>Affiché dans les apps et la découverte réseau.</span></div>
+      <div class="setting"><div class="text"><b>${t('Nom du serveur')}</b><span>${t('Affiché dans les apps et la découverte réseau.')}</span></div>
         <div class="control wide"><input name="serverName" type="text" maxlength="60" value="${esc(s.serverName)}" required></div></div>
-      <div class="setting"><div class="text"><b>URL publique</b><span>Adresse HTTPS si le serveur est derrière un reverse-proxy. Vide : déduite de chaque requête.</span></div>
+      <div class="setting"><div class="text"><b>${t('URL publique')}</b><span>${t('Adresse HTTPS si le serveur est derrière un reverse-proxy. Vide : déduite de chaque requête.')}</span></div>
         <div class="control wide"><input name="publicUrl" type="url" placeholder="https://jelly.mondomaine.com" value="${esc(s.publicUrl)}"></div></div>
-      <div class="setting"><div class="text"><b>Langue des libellés</b><span>Noms générés par le serveur (Saison, Films, Séries…).</span></div>
-        <div class="control"><select name="language"><option value="fr" ${s.language === 'fr' ? 'selected' : ''}>Français</option><option value="en" ${s.language === 'en' ? 'selected' : ''}>English</option></select></div></div>
-      <div class="setting"><div class="text"><b>Tri des bibliothèques dans les apps Emby</b><span>Les apps Emby demandent toujours un tri par nom. <b>Ordre du catalogue</b> : populaires, tendances… comme prévu par le catalogue, et ouverture plus rapide (déjà prêt en cache). Les autres tris choisis dans l'app (date, note) restent respectés.</span></div>
-        <div class="control"><div class="segmented" id="embySort"><button type="button" data-v="catalog" class="${s.embySort !== 'name' ? 'on' : ''}">Ordre du catalogue</button><button type="button" data-v="name" class="${s.embySort === 'name' ? 'on' : ''}">Par nom</button></div></div></div>
-      <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">Enregistrer</button></div>
+      <div class="setting"><div class="text"><b>${t('Langue des libellés')}</b><span>${t('Noms générés par le serveur pour les apps (Saison, Films, Séries…).')}</span></div>
+        <div class="control"><select name="language">${UI.languages.map((l) => `<option value="${l.code}" ${s.language === l.code ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></div></div>
+      <div class="setting"><div class="text"><b>${t('Tri des bibliothèques dans les apps Emby')}</b><span>${t("Les apps Emby demandent toujours un tri par nom. <b>Ordre du catalogue</b> : populaires, tendances… comme prévu par le catalogue, et ouverture plus rapide (déjà prêt en cache). Les autres tris choisis dans l'app (date, note) restent respectés.")}</span></div>
+        <div class="control"><div class="segmented" id="embySort"><button type="button" data-v="catalog" class="${s.embySort !== 'name' ? 'on' : ''}">${t('Ordre du catalogue')}</button><button type="button" data-v="name" class="${s.embySort === 'name' ? 'on' : ''}">${t('Par nom')}</button></div></div></div>
+      <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
     </form>`;
   let embySort = s.embySort === 'name' ? 'name' : 'catalog';
   $('#embySort').onclick = (e) => {
@@ -1082,19 +1114,19 @@ PAGES['settings/server'] = async (main) => {
 
 PAGES['settings/playback'] = async (main) => {
   const s = state.settings;
-  main.innerHTML = `${head('Lecture et réseau', 'Comment les vidéos et les addons sont joints.')}
+  main.innerHTML = `${head(t('Lecture et réseau'), t('Comment les vidéos et les addons sont joints.'))}
     <form class="card" id="f">
-      <div class="setting"><div class="text"><b>Lecture des vidéos</b><span><b>Via le serveur</b> : la vidéo passe par ce serveur (IP du serveur ou WARP). <b>Directe</b> : l'app lit la source elle-même.</span></div>
-        <div class="control"><div class="segmented" id="mode"><button type="button" data-v="proxy" class="${s.streamMode === 'proxy' ? 'on' : ''}">Via le serveur</button><button type="button" data-v="redirect" class="${s.streamMode === 'redirect' ? 'on' : ''}">Directe</button></div></div></div>
-      <div class="setting"><div class="text"><b>Sortie réseau</b><span>Pour joindre les addons et les vidéos (ex. Cloudflare WARP en SOCKS5).</span></div>
-        <div class="control"><select name="upMode"><option value="direct">Directe</option><option value="socks">SOCKS5</option><option value="http">Proxy HTTP</option></select></div></div>
-      <div class="setting" id="upUrlRow"><div class="text"><b>Adresse du proxy de sortie</b><span>Ex. <code>socks5://127.0.0.1:40000</code> ou <code>http://user:pass@hote:port</code>.</span></div>
+      <div class="setting"><div class="text"><b>${t('Lecture des vidéos')}</b><span>${t("<b>Via le serveur</b> : la vidéo passe par ce serveur (IP du serveur ou WARP). <b>Directe</b> : l'app lit la source elle-même.")}</span></div>
+        <div class="control"><div class="segmented" id="mode"><button type="button" data-v="proxy" class="${s.streamMode === 'proxy' ? 'on' : ''}">${t('Via le serveur')}</button><button type="button" data-v="redirect" class="${s.streamMode === 'redirect' ? 'on' : ''}">${t('Directe')}</button></div></div></div>
+      <div class="setting"><div class="text"><b>${t('Sortie réseau')}</b><span>${t('Pour joindre les addons et les vidéos (ex. Cloudflare WARP en SOCKS5).')}</span></div>
+        <div class="control"><select name="upMode"><option value="direct">${t('Directe')}</option><option value="socks">SOCKS5</option><option value="http">${t('Proxy HTTP')}</option></select></div></div>
+      <div class="setting" id="upUrlRow"><div class="text"><b>${t('Adresse du proxy de sortie')}</b><span>${t('Ex. {a} ou {b}.', { a: '<code>socks5://127.0.0.1:40000</code>', b: '<code>http://user:pass@hote:port</code>' })}</span></div>
         <div class="control wide"><input name="upUrl" type="text" value="${esc(s.upstream.url)}" placeholder="socks5://127.0.0.1:40000"></div></div>
-      <div class="setting"><div class="text"><b>Serveur de streaming Stremio</b><span>Pour lire les sources torrent sans débrideur. Vide : torrents ignorés.</span></div>
+      <div class="setting"><div class="text"><b>${t('Serveur de streaming Stremio')}</b><span>${t('Pour lire les sources torrent sans débrideur. Vide : torrents ignorés.')}</span></div>
         <div class="control wide"><input name="torrentServer" type="url" value="${esc(s.torrentServer)}" placeholder="http://stremio-server:11470"></div></div>
-      <div class="setting"><div class="text"><b>Attente max des addons de sources</b><span>Au-delà, un addon trop lent est ignoré pour cette recherche.</span></div>
-        <div class="control"><div class="row"><input name="timeout" type="number" min="3" max="60" step="1" value="${Math.round(s.streamTimeout / 1000)}" style="width:90px"><span class="muted">secondes</span></div></div></div>
-      <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">Enregistrer</button></div>
+      <div class="setting"><div class="text"><b>${t('Attente max des addons de sources')}</b><span>${t('Au-delà, un addon trop lent est ignoré pour cette recherche.')}</span></div>
+        <div class="control"><div class="row"><input name="timeout" type="number" min="3" max="60" step="1" value="${Math.round(s.streamTimeout / 1000)}" style="width:90px"><span class="muted">${t('secondes')}</span></div></div></div>
+      <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
     </form>`;
   const f = $('#f');
   let mode = s.streamMode;
@@ -1110,13 +1142,13 @@ PAGES['settings/playback'] = async (main) => {
   };
   f.onsubmit = (e) => {
     e.preventDefault();
-    const t = Number(f.timeout.value);
-    if (!(t >= 3 && t <= 60)) return toast("L'attente doit être entre 3 et 60 secondes", true);
+    const secs = Number(f.timeout.value);
+    if (!(secs >= 3 && secs <= 60)) return toast(t("L'attente doit être entre 3 et 60 secondes"), true);
     saveSettings($('button[type=submit]', f), {
       streamMode: mode,
       upstream: { mode: f.upMode.value, url: f.upMode.value === 'direct' ? '' : f.upUrl.value },
       torrentServer: f.torrentServer.value,
-      streamTimeout: t * 1000
+      streamTimeout: secs * 1000
     });
   };
 };
@@ -1124,17 +1156,17 @@ PAGES['settings/playback'] = async (main) => {
 PAGES['settings/metadata'] = async (main) => {
   const s = state.settings;
   const LANG_OPTS = [['fr-FR', 'Français (France)'], ['fr-CA', 'Français (Canada)'], ['en-US', 'English (US)'], ['es-ES', 'Español'], ['de-DE', 'Deutsch'], ['it-IT', 'Italiano']];
-  main.innerHTML = `${head('Métadonnées', 'Fiches, langue, épisodes et saut d\'intro.')}
+  main.innerHTML = `${head(t('Métadonnées'), t("Fiches, langue, épisodes et saut d'intro."))}
     <form class="card" id="f">
-      <div class="setting"><div class="text"><b>Clé API TMDB</b><span>Fiches traduites pour tous les titres, tendances, plateformes, sagas, « Similaires ». Clé v3 gratuite sur <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">themoviedb.org</a>. Vérifiée avant l'enregistrement.</span></div>
-        <div class="control wide"><input name="key" type="text" autocomplete="off" spellcheck="false" value="${esc(s.tmdbApiKey)}" placeholder="Clé v3 (32 caractères)"></div></div>
-      <div class="setting"><div class="text"><b>Langue des fiches</b><span>Titres, résumés, genres. Le pays sert aussi aux plateformes et aux classifications.</span></div>
+      <div class="setting"><div class="text"><b>${t('Clé API TMDB')}</b><span>${t('Fiches traduites pour tous les titres, tendances, plateformes, sagas, « Similaires ». Clé v3 gratuite sur {link}. Vérifiée avant l\'enregistrement.', { link: '<a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">themoviedb.org</a>' })}</span></div>
+        <div class="control wide"><input name="key" type="text" autocomplete="off" spellcheck="false" value="${esc(s.tmdbApiKey)}" placeholder="${esc(t('Clé v3 (32 caractères)'))}"></div></div>
+      <div class="setting"><div class="text"><b>${t('Langue des fiches')}</b><span>${t('Titres, résumés, genres. Le pays sert aussi aux plateformes et aux classifications.')}</span></div>
         <div class="control"><select name="lang">${LANG_OPTS.map(([v, l]) => `<option value="${v}" ${s.metadataLanguage === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
-      <div class="setting"><div class="text"><b>Masquer les épisodes pas encore sortis</b><span>Les épisodes annoncés mais pas encore diffusés n'apparaissent pas.</span></div>
+      <div class="setting"><div class="text"><b>${t('Masquer les épisodes pas encore sortis')}</b><span>${t("Les épisodes annoncés mais pas encore diffusés n'apparaissent pas.")}</span></div>
         <div class="control">${toggle('name="hideUnreleased"', s.hideUnreleased)}</div></div>
-      <div class="setting"><div class="text"><b>Passer l'intro et le générique</b><span>Boutons dans les apps Jellyfin, d'après la base communautaire TheIntroDB.</span></div>
+      <div class="setting"><div class="text"><b>${t("Passer l'intro et le générique")}</b><span>${t("Boutons dans les apps Jellyfin, d'après la base communautaire TheIntroDB.")}</span></div>
         <div class="control">${toggle('name="introSkip"', s.introSkip)}</div></div>
-      <div class="row end" style="margin-top:8px">${s.tmdbApiKey ? '<button class="btn danger" type="button" id="keyDel">Retirer la clé</button>' : ''}<button class="btn primary" type="submit">Enregistrer</button></div>
+      <div class="row end" style="margin-top:8px">${s.tmdbApiKey ? `<button class="btn danger" type="button" id="keyDel">${t('Retirer la clé')}</button>` : ''}<button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
     </form>`;
   const f = $('#f');
   f.onsubmit = (e) => {
@@ -1147,7 +1179,7 @@ PAGES['settings/metadata'] = async (main) => {
     }).then((r) => r && render());
   };
   if ($('#keyDel')) $('#keyDel').onclick = async () => {
-    if (await confirmDialog('Retirer la clé TMDB ?', 'Les fiches reviendront aux addons (souvent en anglais) et les catalogues TMDB intégrés disparaîtront.', 'Retirer', true)) {
+    if (await confirmDialog(t('Retirer la clé TMDB ?'), t('Les fiches reviendront aux addons (souvent en anglais) et les catalogues TMDB intégrés disparaîtront.'), t('Retirer'), true)) {
       if (await saveSettings(null, { tmdbApiKey: '' })) render();
     }
   };
@@ -1157,16 +1189,16 @@ PAGES['settings/web'] = async (main) => {
   const s = state.settings;
   let theme = s.webTheme === 'none' ? 'none' : 'abyss';
   let source = s.webSpotlightSource === 'resume' ? 'resume' : 'trending';
-  main.innerHTML = `${head('Client web', 'Apparence de Jellyfin web servi par Stremfin (navigateur, Jellyfin Media Player, app Android pour téléphone).')}
+  main.innerHTML = `${head(t('Client web'), t('Apparence de Jellyfin web servi par Stremfin (navigateur, Jellyfin Media Player, app Android pour téléphone).'))}
     <form class="card" id="f">
-      <div class="setting"><div class="text"><b>Thème</b><span><b>Abyss</b> : thème sombre minimaliste, surfaces en verre dépoli, police Google Sans (<a href="https://github.com/AumGupta/abyss-jellyfin" target="_blank" rel="noopener noreferrer">AumGupta/abyss-jellyfin</a>, licence MIT). Polices et fichiers servis par Stremfin, sans appel externe.</span></div>
-        <div class="control"><div class="segmented" id="theme"><button type="button" data-v="abyss" class="${theme === 'abyss' ? 'on' : ''}">Abyss</button><button type="button" data-v="none" class="${theme === 'none' ? 'on' : ''}">Jellyfin d'origine</button></div></div></div>
-      <div class="setting"><div class="text"><b>Bannière Spotlight</b><span>Grande bannière en haut de l'accueil, qui défile toute seule. Avec le thème Abyss seulement.</span></div>
+      <div class="setting"><div class="text"><b>${t('Thème')}</b><span>${t('<b>Abyss</b> : thème sombre minimaliste, surfaces en verre dépoli, police Google Sans ({link}, licence MIT). Polices et fichiers servis par Stremfin, sans appel externe.', { link: '<a href="https://github.com/AumGupta/abyss-jellyfin" target="_blank" rel="noopener noreferrer">AumGupta/abyss-jellyfin</a>' })}</span></div>
+        <div class="control"><div class="segmented" id="theme"><button type="button" data-v="abyss" class="${theme === 'abyss' ? 'on' : ''}">Abyss</button><button type="button" data-v="none" class="${theme === 'none' ? 'on' : ''}">${t("Jellyfin d'origine")}</button></div></div></div>
+      <div class="setting"><div class="text"><b>${t('Bannière Spotlight')}</b><span>${t("Grande bannière en haut de l'accueil, qui défile toute seule. Avec le thème Abyss seulement.")}</span></div>
         <div class="control">${toggle('name="spotlight"', s.webSpotlight !== false)}</div></div>
-      <div class="setting"><div class="text"><b>Contenu de Spotlight</b><span><b>Films tendance</b> : tendances du jour sur TMDB, même hors de tes bibliothèques, avec année et note. <b>Mes reprises</b> : reprises en cours, épisodes à suivre, puis derniers ajouts.${state.info?.tmdb ? '' : ' Les films tendance nécessitent une clé TMDB.'}</span></div>
-        <div class="control"><div class="segmented" id="source"><button type="button" data-v="trending" class="${source === 'trending' ? 'on' : ''}">Films tendance</button><button type="button" data-v="resume" class="${source === 'resume' ? 'on' : ''}">Mes reprises</button></div></div></div>
-      <p class="small faint">Chaque profil peut ajouter son propre CSS (onglet Préférences du profil) : il s'applique après le thème. Les changements s'appliquent au prochain chargement de Jellyfin web.</p>
-      <div class="row end" style="margin-top:8px">${state.web ? '<a class="btn ghost" href="/web/" target="_blank" rel="noopener">' + icon('play') + 'Ouvrir Jellyfin web</a>' : ''}<button class="btn primary" type="submit">Enregistrer</button></div>
+      <div class="setting"><div class="text"><b>${t('Contenu de Spotlight')}</b><span>${t('<b>Films tendance</b> : tendances du jour sur TMDB, même hors de tes bibliothèques, avec année et note. <b>Mes reprises</b> : reprises en cours, épisodes à suivre, puis derniers ajouts.')}${state.info?.tmdb ? '' : ` ${t('Les films tendance nécessitent une clé TMDB.')}`}</span></div>
+        <div class="control"><div class="segmented" id="source"><button type="button" data-v="trending" class="${source === 'trending' ? 'on' : ''}">${t('Films tendance')}</button><button type="button" data-v="resume" class="${source === 'resume' ? 'on' : ''}">${t('Mes reprises')}</button></div></div></div>
+      <p class="small faint">${t("Chaque profil peut ajouter son propre CSS (onglet Préférences du profil) : il s'applique après le thème. Les changements s'appliquent au prochain chargement de Jellyfin web.")}</p>
+      <div class="row end" style="margin-top:8px">${state.web ? `<a class="btn ghost" href="/web/" target="_blank" rel="noopener">${icon('play')}${t('Ouvrir Jellyfin web')}</a>` : ''}<button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
     </form>`;
   const f = $('#f');
   $('#theme').onclick = (e) => {
@@ -1192,7 +1224,7 @@ PAGES['settings/platforms'] = async (main) => {
   let list = await api('GET', '/providers');
   const strip = (arr) => arr.map(({ id, name, color, card }) => ({ id, name, ...(color ? { color } : {}), ...(card ? { card } : {}) }));
 
-  const persist = async (msg = 'Plateformes enregistrées') => {
+  const persist = async (msg = t('Plateformes enregistrées')) => {
     const r = await busy(null, () => api('PUT', '/settings', { providers: strip(list) }), msg);
     if (r) {
       state.settings = r;
@@ -1202,26 +1234,26 @@ PAGES['settings/platforms'] = async (main) => {
   };
 
   const draw = () => {
-    main.innerHTML = `${head('Plateformes', 'Bibliothèque « Plateformes » : une carte large par service, puis ses rayons (populaires, nouveautés, mieux notés).', s.tmdbApiKey ? `<button class="btn primary" id="addProv">${icon('plus')}Ajouter</button>` : '')}
-      ${s.tmdbApiKey ? '' : `<div class="card" style="margin-bottom:16px"><p>Les plateformes nécessitent une <a href="#/settings/metadata">clé TMDB</a>.</p></div>`}
+    main.innerHTML = `${head(t('Plateformes'), t('Bibliothèque « Plateformes » : une carte large par service, puis ses rayons (populaires, nouveautés, mieux notés).'), s.tmdbApiKey ? `<button class="btn primary" id="addProv">${icon('plus')}${t('Ajouter')}</button>` : '')}
+      ${s.tmdbApiKey ? '' : `<div class="card" style="margin-bottom:16px"><p>${t('Les plateformes nécessitent une {link}.', { link: `<a href="#/settings/metadata">${t('clé TMDB')}</a>` })}</p></div>`}
       <div class="card">${list.length ? `<div class="list" id="provList">${list.map((p) => `<div class="item" data-key="${p.id}">${handleBtn(list.length < 2)}
           <div class="logo">${p.logo ? `<img src="${esc(p.logo)}" alt="">` : icon('tv')}</div>
-          <img src="${esc(p.cardUrl)}" alt="Carte ${esc(p.name)}" loading="lazy" style="width:128px;height:72px;border-radius:8px;object-fit:cover;flex:none;background:var(--bg)">
+          <img src="${esc(p.cardUrl)}" alt="${esc(t('Carte {name}', { name: p.name }))}" loading="lazy" style="width:128px;height:72px;border-radius:8px;object-fit:cover;flex:none;background:var(--input)">
           <div class="body"><div class="title">${esc(p.name)}</div>
-            <div class="meta"><span>Fournisseur TMDB n° ${p.id}</span>${p.color ? `<span class="badge">fond ${esc(p.color)}</span>` : ''}${p.card ? '<span class="badge accent">image perso</span>' : ''}</div></div>
-          <div class="actions"><button class="btn ghost sm" data-edit="${p.id}">${icon('settings')}Carte</button><button class="btn ghost icon-only" data-rm="${p.id}" title="Retirer">${icon('trash')}</button></div></div>`).join('')}</div>`
-        : `<div class="empty">${icon('tv')}<p>Aucune plateforme.</p></div>`}</div>`;
+            <div class="meta"><span>${t('Fournisseur TMDB n° {id}', { id: p.id })}</span>${p.color ? `<span class="badge">${t('fond {color}', { color: esc(p.color) })}</span>` : ''}${p.card ? `<span class="badge accent">${t('image perso')}</span>` : ''}</div></div>
+          <div class="actions"><button class="btn ghost sm" data-edit="${p.id}">${icon('settings')}${t('Carte')}</button><button class="btn ghost icon-only" data-rm="${p.id}" title="${esc(t('Retirer'))}">${icon('trash')}</button></div></div>`).join('')}</div>`
+        : `<div class="empty">${icon('tv')}<p>${t('Aucune plateforme.')}</p></div>`}</div>`;
     const el = $('#provList');
     if (el) {
       sortable(el, async (keys) => {
         list.sort((a, b) => keys.indexOf(String(a.id)) - keys.indexOf(String(b.id)));
-        await persist('Ordre enregistré');
+        await persist(t('Ordre enregistré'));
       });
       el.addEventListener('click', async (e) => {
         const rm = e.target.closest('[data-rm]');
         if (rm) {
           list = list.filter((p) => String(p.id) !== rm.dataset.rm);
-          return persist('Plateforme retirée');
+          return persist(t('Plateforme retirée'));
         }
         const ed = e.target.closest('[data-edit]');
         if (ed) editCard(list.find((p) => String(p.id) === ed.dataset.edit));
@@ -1233,19 +1265,19 @@ PAGES['settings/platforms'] = async (main) => {
   /** Couleur de fond et image personnalisee de la carte d'une plateforme. */
   const editCard = async (p) => {
     const done = modal({
-      title: `Carte « ${p.name} »`,
-      lead: 'Par défaut : le logo officiel centré, sur la couleur de ses bords.',
-      okLabel: 'Enregistrer',
+      title: t('Carte « {name} »', { name: p.name }),
+      lead: t('Par défaut : le logo officiel centré, sur la couleur de ses bords.'),
+      okLabel: t('Enregistrer'),
       body: `<div class="stack">
-        <img src="${esc(p.cardUrl)}" alt="" style="width:100%;aspect-ratio:16/9;border-radius:10px;object-fit:cover;background:var(--bg)">
-        <div class="field"><label>Nom affiché</label><input name="name" type="text" maxlength="40" value="${esc(p.name)}" required></div>
-        <div class="field"><label>Couleur de fond (facultatif)</label><div class="row"><input name="colorPick" type="color" value="${esc(p.color || '#000000')}" style="width:48px;height:38px;padding:2px">
-          <input name="color" type="text" placeholder="automatique" value="${esc(p.color || '')}" style="width:140px"><button type="button" class="btn sm ghost" id="autoColor">Automatique</button></div></div>
-        <div class="field"><label>Image de carte personnalisée (facultatif)</label><input name="card" type="url" placeholder="https://…/carte.png (16:9)" value="${esc(p.card)}"><span class="help">Remplace la carte générée.</span></div>
+        <img src="${esc(p.cardUrl)}" alt="" style="width:100%;aspect-ratio:16/9;border-radius:10px;object-fit:cover;background:var(--input)">
+        <div class="field"><label>${t('Nom affiché')}</label><input name="name" type="text" maxlength="40" value="${esc(p.name)}" required></div>
+        <div class="field"><label>${t('Couleur de fond (facultatif)')}</label><div class="row"><input name="colorPick" type="color" value="${esc(p.color || '#000000')}" style="width:48px;height:38px;padding:2px">
+          <input name="color" type="text" placeholder="${esc(t('automatique'))}" value="${esc(p.color || '')}" style="width:140px"><button type="button" class="btn sm ghost" id="autoColor">${t('Automatique')}</button></div></div>
+        <div class="field"><label>${t('Image de carte personnalisée (facultatif)')}</label><input name="card" type="url" placeholder="https://…/carte.png (16:9)" value="${esc(p.card)}"><span class="help">${t('Remplace la carte générée.')}</span></div>
       </div>`,
       onOk: async (f) => {
         const color = f.color.value.trim();
-        if (color && !/^#[0-9a-f]{6}$/i.test(color)) throw new Error('Couleur invalide (format #rrggbb)');
+        if (color && !/^#[0-9a-f]{6}$/i.test(color)) throw new Error(t('Couleur invalide (format #rrggbb)'));
         Object.assign(p, { name: f.name.value.trim() || p.name, color, card: f.card.value.trim() });
         return true;
       }
@@ -1254,19 +1286,19 @@ PAGES['settings/platforms'] = async (main) => {
     const form = $('.modal');
     form.colorPick.oninput = () => (form.color.value = form.colorPick.value);
     $('#autoColor').onclick = () => (form.color.value = '');
-    if (await done) await persist('Carte enregistrée');
+    if (await done) await persist(t('Carte enregistrée'));
   };
   const addDialog = async () => {
     const avail = await busy(null, () => api('GET', '/providers/available'));
     if (!avail) return;
     const chosen = new Set(list.map((p) => p.id));
     const closed = modal({
-      title: 'Ajouter des plateformes',
-      lead: 'Services de streaming connus de TMDB pour ton pays. Clique pour ajouter.',
-      okLabel: 'Terminé',
+      title: t('Ajouter des plateformes'),
+      lead: t('Services de streaming connus de TMDB pour ton pays. Clique pour ajouter.'),
+      okLabel: t('Terminé'),
       cancelLabel: '',
       wide: true,
-      body: `<input type="search" id="provQ" placeholder="Rechercher…" style="margin-bottom:12px"><div class="provider-pick" id="provPick">${avail.map((p) => `<button type="button" data-id="${p.id}" data-name="${esc(p.name)}" ${chosen.has(p.id) ? 'disabled' : ''}>${p.logo ? `<img src="${esc(p.logo)}" alt="">` : ''}<span>${esc(p.name)}</span></button>`).join('')}</div>`,
+      body: `<input type="search" id="provQ" placeholder="${esc(t('Rechercher…'))}" style="margin-bottom:12px"><div class="provider-pick" id="provPick">${avail.map((p) => `<button type="button" data-id="${p.id}" data-name="${esc(p.name)}" ${chosen.has(p.id) ? 'disabled' : ''}>${p.logo ? `<img src="${esc(p.logo)}" alt="">` : ''}<span>${esc(p.name)}</span></button>`).join('')}</div>`,
       onOk: () => true
     });
     $('#provPick').onclick = async (e) => {
@@ -1293,61 +1325,61 @@ PAGES['settings/platforms'] = async (main) => {
 
 PAGES.maintenance = async (main) => {
   const o = await api('GET', '/overview');
-  main.innerHTML = `${head('Maintenance', 'Actions sans risque pour les données des profils.')}
+  main.innerHTML = `${head(t('Maintenance'), t('Actions sans risque pour les données des profils.'))}
     <div class="grid grid-3">
-      <div class="card stack"><h2>Vider le cache</h2><p class="muted">${o.cacheEntries.toLocaleString('fr-FR')} entrées (catalogues, fiches, sources, TMDB, intros). Elles seront rechargées au besoin. La progression et les réglages ne sont pas touchés.</p>
-        <div class="row end"><button class="btn" id="mClear">${icon('trash')}Vider</button></div></div>
-      <div class="card stack"><h2>Recharger les addons</h2><p class="muted">Relit le manifest de chaque addon de chaque profil (nouveaux catalogues, nouvelle version).</p>
-        <div class="row end"><button class="btn" id="mAddons">${icon('refresh')}Recharger</button></div></div>
-      <div class="card stack"><h2>Réindexer TMDB</h2><p class="muted">Recharge les genres et reconstruit la liste des sagas.</p>
-        <div class="row end"><button class="btn" id="mTmdb" ${o.tmdb ? '' : 'disabled'}>${icon('refresh')}Réindexer</button></div></div>
+      <div class="card stack"><h2>${t('Vider le cache')}</h2><p class="muted">${t('{n} entrées (catalogues, fiches, sources, TMDB, intros). Elles seront rechargées au besoin. La progression et les réglages ne sont pas touchés.', { n: num(o.cacheEntries) })}</p>
+        <div class="row end"><button class="btn" id="mClear">${icon('trash')}${t('Vider')}</button></div></div>
+      <div class="card stack"><h2>${t('Recharger les addons')}</h2><p class="muted">${t('Relit le manifest de chaque addon de chaque profil (nouveaux catalogues, nouvelle version).')}</p>
+        <div class="row end"><button class="btn" id="mAddons">${icon('refresh')}${t('Recharger')}</button></div></div>
+      <div class="card stack"><h2>${t('Réindexer TMDB')}</h2><p class="muted">${t('Recharge les genres et reconstruit la liste des sagas.')}</p>
+        <div class="row end"><button class="btn" id="mTmdb" ${o.tmdb ? '' : 'disabled'}>${icon('refresh')}${t('Réindexer')}</button></div></div>
     </div>
-    ${o.brokenAddons.length ? `<div class="card" style="margin-top:16px"><div class="card-head"><div><h2>Addons injoignables</h2><p>Leur manifest ne répond pas.</p></div></div>
+    ${o.brokenAddons.length ? `<div class="card" style="margin-top:16px"><div class="card-head"><div><h2>${t('Addons injoignables')}</h2><p>${t('Leur manifest ne répond pas.')}</p></div></div>
       ${o.brokenAddons.map((b) => `<div class="recent"><span class="badge bad">${esc(b.profile)}</span><code class="grow" style="overflow:hidden;text-overflow:ellipsis">${esc(b.url.replace(/^(https?:\/\/[^/]+).*/, '$1/…'))}</code></div>`).join('')}</div>` : ''}`;
-  $('#mClear').onclick = async (e) => (await busy(e.currentTarget, () => api('POST', '/maintenance/clear-cache'), 'Cache vidé')) && render();
+  $('#mClear').onclick = async (e) => (await busy(e.currentTarget, () => api('POST', '/maintenance/clear-cache'), t('Cache vidé'))) && render();
   $('#mAddons').onclick = async (e) => {
     const r = await busy(e.currentTarget, () => api('POST', '/maintenance/refresh-addons'));
     if (r) {
-      toast(r.broken ? `${r.broken} addon(s) injoignable(s)` : 'Tous les addons ont répondu', !!r.broken);
+      toast(r.broken ? t('{n} addon(s) injoignable(s)', { n: r.broken }) : t('Tous les addons ont répondu'), !!r.broken);
       render();
     }
   };
-  $('#mTmdb').onclick = (e) => busy(e.currentTarget, () => api('POST', '/maintenance/reindex-tmdb'), 'Réindexation lancée');
+  $('#mTmdb').onclick = (e) => busy(e.currentTarget, () => api('POST', '/maintenance/reindex-tmdb'), t('Réindexation lancée'));
 };
 
 // ---- Securite ---------------------------------------------------------------------------------------
 
 PAGES.security = async (main) => {
   const sessions = await api('GET', '/auth/sessions');
-  main.innerHTML = `${head('Sécurité', "Compte administrateur et sessions ouvertes sur cette interface.")}
+  main.innerHTML = `${head(t('Sécurité'), t('Compte administrateur et sessions ouvertes sur cette interface.'))}
     <div class="grid grid-2">
       <form class="card stack" id="acc">
-        <h2>Compte administrateur</h2>
-        <div class="field"><label>Nom d'utilisateur</label><input name="username" type="text" autocomplete="username" value="${esc(state.username)}" required></div>
-        <div class="field"><label>Nouveau mot de passe <span class="faint">(laisser vide pour ne pas changer)</span></label><input name="pw" type="password" autocomplete="new-password"></div>
-        <div class="field"><label>Confirmer le nouveau mot de passe</label><input name="pw2" type="password" autocomplete="new-password"></div>
-        <div class="field"><label>Mot de passe actuel</label><input name="current" type="password" autocomplete="current-password" required><span class="help">Obligatoire pour toute modification. Un nouveau mot de passe ferme les autres sessions.</span></div>
-        <div class="row end"><button class="btn primary" type="submit">Enregistrer</button></div>
+        <h2>${t('Compte administrateur')}</h2>
+        <div class="field"><label>${t("Nom d'utilisateur")}</label><input name="username" type="text" autocomplete="username" value="${esc(state.username)}" required></div>
+        <div class="field"><label>${t('Nouveau mot de passe')} <span class="faint">${t('(laisser vide pour ne pas changer)')}</span></label><input name="pw" type="password" autocomplete="new-password"></div>
+        <div class="field"><label>${t('Confirmer le nouveau mot de passe')}</label><input name="pw2" type="password" autocomplete="new-password"></div>
+        <div class="field"><label>${t('Mot de passe actuel')}</label><input name="current" type="password" autocomplete="current-password" required><span class="help">${t('Obligatoire pour toute modification. Un nouveau mot de passe ferme les autres sessions.')}</span></div>
+        <div class="row end"><button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
       </form>
       <div class="card">
-        <div class="card-head"><div><h2>Sessions admin</h2><p>Navigateurs connectés à cette interface.</p></div>
-          ${sessions.length > 1 ? '<button class="btn sm danger" id="killOthers">Fermer les autres</button>' : ''}</div>
-        ${sessions.map((s) => `<div class="recent"><div class="grow"><b>${esc((s.userAgent || 'Navigateur').replace(/^Mozilla\/5\.0 \(([^)]*)\).*$/, '$1').slice(0, 70))}</b>
-          <div class="small muted">${esc(s.ip || '?')} · ouverte ${ago(s.created)}</div></div>${s.current ? '<span class="badge ok">Cette session</span>' : ''}</div>`).join('')}
+        <div class="card-head"><div><h2>${t('Sessions admin')}</h2><p>${t('Navigateurs connectés à cette interface.')}</p></div>
+          ${sessions.length > 1 ? `<button class="btn sm danger" id="killOthers">${t('Fermer les autres')}</button>` : ''}</div>
+        ${sessions.map((s) => `<div class="recent"><div class="grow"><b>${esc((s.userAgent || t('Navigateur')).replace(/^Mozilla\/5\.0 \(([^)]*)\).*$/, '$1').slice(0, 70))}</b>
+          <div class="small muted">${esc(s.ip || '?')} · ${t('ouverte {when}', { when: ago(s.created) })}</div></div>${s.current ? `<span class="badge ok">${t('Cette session')}</span>` : ''}</div>`).join('')}
       </div>
     </div>`;
   $('#acc').onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target;
-    if (f.pw.value !== f.pw2.value) return toast('Les nouveaux mots de passe ne correspondent pas', true);
-    const r = await busy($('button[type=submit]', f), () => api('PUT', '/auth/account', { username: f.username.value.trim(), currentPassword: f.current.value, newPassword: f.pw.value || undefined }), 'Compte mis à jour');
+    if (f.pw.value !== f.pw2.value) return toast(t('Les nouveaux mots de passe ne correspondent pas'), true);
+    const r = await busy($('button[type=submit]', f), () => api('PUT', '/auth/account', { username: f.username.value.trim(), currentPassword: f.current.value, newPassword: f.pw.value || undefined }), t('Compte mis à jour'));
     if (r) {
       state.username = r.username;
       $('.sidebar-foot .who b').textContent = r.username;
       render();
     }
   };
-  if ($('#killOthers')) $('#killOthers').onclick = async (e) => (await busy(e.currentTarget, () => api('DELETE', '/auth/sessions/others'), 'Autres sessions fermées')) && render();
+  if ($('#killOthers')) $('#killOthers').onclick = async (e) => (await busy(e.currentTarget, () => api('DELETE', '/auth/sessions/others'), t('Autres sessions fermées'))) && render();
 };
 
 boot();

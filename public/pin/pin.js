@@ -1,5 +1,6 @@
 'use strict';
 // Page /pin : connecter une app Jellyfin avec Quick Connect (code a 6 chiffres affiche par l'app).
+// Textes : t('texte francais') (voir /stremfin/ui/prefs.js).
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -14,7 +15,8 @@ async function api(method, path, body) {
   });
   let data = null;
   try { data = await r.json(); } catch {}
-  if (!r.ok) throw new Error(data?.error || `Erreur ${r.status}`);
+  // Messages du serveur (en francais) traduits ici : ils servent de cle.
+  if (!r.ok) throw new Error(data?.error ? t(data.error) : t('Erreur {n}', { n: r.status }));
   return data;
 }
 
@@ -24,7 +26,22 @@ function setBusy(btn, on) {
   btn.innerHTML = on ? '<span class="spinner"></span>' + esc(btn.dataset.label) : esc(btn.dataset.label);
 }
 
+/** Langue et theme, sous la carte. */
+function tools() {
+  const light = UI.theme() === 'light';
+  const label = light ? t('Passer en mode sombre') : t('Passer en mode clair');
+  $('#tools').innerHTML = `${UI.langSelect('lang')}<button type="button" class="btn ghost sm" id="theme" title="${esc(label)}" aria-label="${esc(label)}">${light ? '☾' : '☀'}</button>`;
+  UI.bindLang($('#lang'));
+  $('#theme').onclick = () => {
+    UI.toggleTheme();
+    tools();
+  };
+}
+
 async function start() {
+  await UI.ready;
+  document.title = t('Stremfin · Connecter un appareil');
+  tools();
   let s;
   try {
     s = await api('GET', '/auth/status');
@@ -38,12 +55,12 @@ async function start() {
 
 function loginView() {
   $('#view').innerHTML = `<form class="stack" id="f" novalidate>
-    <h1>Connecter un appareil</h1>
-    <p class="lead">Identifie-toi avec ton compte Stremfin, puis saisis le code affiché par l'app.</p>
-    <div class="field"><label for="u">Nom d'utilisateur</label><input id="u" type="text" autocomplete="username" required></div>
-    <div class="field"><label for="p">Mot de passe</label><input id="p" type="password" autocomplete="current-password" required></div>
+    <h1>${t('Connecter un appareil')}</h1>
+    <p class="lead">${t("Identifie-toi avec ton compte Stremfin, puis saisis le code affiché par l'app.")}</p>
+    <div class="field"><label for="u">${t("Nom d'utilisateur")}</label><input id="u" type="text" autocomplete="username" required></div>
+    <div class="field"><label for="p">${t('Mot de passe')}</label><input id="p" type="password" autocomplete="current-password" required></div>
     <div class="error" id="err"></div>
-    <button class="btn primary" type="submit">Continuer</button>
+    <button class="btn primary" type="submit">${t('Continuer')}</button>
   </form>`;
   $('#u').focus();
   $('#f').onsubmit = async (e) => {
@@ -67,13 +84,13 @@ async function codeView(s) {
     try { profiles = await api('GET', '/profiles'); } catch {}
   }
   $('#view').innerHTML = `<form class="stack" id="f" novalidate>
-    <h1>Connecter un appareil</h1>
-    <p class="lead">Dans l'app Jellyfin, choisis <b>Quick Connect</b> et saisis ici le code à 6 chiffres affiché.</p>
-    <div class="who"><span class="small muted">Connecté : <b style="color:var(--text)">${esc(s.username)}</b></span><button type="button" class="btn ghost sm" id="out">Changer</button></div>
-    ${s.role === 'admin' ? `<div class="field"><label for="prof">Pour le profil</label><select id="prof">${profiles.filter((p) => !p.disabled).map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>` : ''}
-    <div class="field"><label for="code">Code Quick Connect</label><input id="code" class="pin-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" value="${esc(prefill)}"></div>
+    <h1>${t('Connecter un appareil')}</h1>
+    <p class="lead">${t("Dans l'app Jellyfin, choisis <b>Quick Connect</b> et saisis ici le code à 6 chiffres affiché.")}</p>
+    <div class="who"><span class="small muted">${t('Connecté : {name}', { name: `<b style="color:var(--text)">${esc(s.username)}</b>` })}</span><button type="button" class="btn ghost sm" id="out">${t('Changer')}</button></div>
+    ${s.role === 'admin' ? `<div class="field"><label for="prof">${t('Pour le profil')}</label><select id="prof">${profiles.filter((p) => !p.disabled).map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>` : ''}
+    <div class="field"><label for="code">${t('Code Quick Connect')}</label><input id="code" class="pin-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" value="${esc(prefill)}"></div>
     <div class="error" id="err"></div>
-    <button class="btn primary" type="submit">Autoriser l'appareil</button>
+    <button class="btn primary" type="submit">${t("Autoriser l'appareil")}</button>
   </form>`;
   $('#code').focus();
   $('#code').oninput = (e) => (e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6));
@@ -84,15 +101,15 @@ async function codeView(s) {
   $('#f').onsubmit = async (e) => {
     e.preventDefault();
     const code = $('#code').value;
-    if (!/^\d{6}$/.test(code)) return ($('#err').textContent = 'Le code fait 6 chiffres');
+    if (!/^\d{6}$/.test(code)) return ($('#err').textContent = t('Le code fait 6 chiffres'));
     const btn = $('#f button[type=submit]');
     setBusy(btn, true);
     $('#err').textContent = '';
     try {
       await api('POST', '/quickconnect', { code, profileId: $('#prof')?.value });
       $('#view').innerHTML = `<div class="done stack"><div class="check"><svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg></div>
-        <h1>Appareil autorisé</h1><p class="lead">L'app se connecte d'elle-même dans quelques secondes.</p>
-        <button class="btn" id="again">Autoriser un autre appareil</button></div>`;
+        <h1>${t('Appareil autorisé')}</h1><p class="lead">${t("L'app se connecte d'elle-même dans quelques secondes.")}</p>
+        <button class="btn" id="again">${t('Autoriser un autre appareil')}</button></div>`;
       $('#again').onclick = () => codeView(s);
     } catch (ex) {
       $('#err').textContent = ex.message;

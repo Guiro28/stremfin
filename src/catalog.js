@@ -8,7 +8,10 @@ const PAGER_TTL = 3600e3;
 
 const TYPE_LABEL = {
   fr: { movie: 'Films', series: 'Séries' },
-  en: { movie: 'Movies', series: 'Shows' }
+  en: { movie: 'Movies', series: 'Shows' },
+  es: { movie: 'Películas', series: 'Series' },
+  de: { movie: 'Filme', series: 'Serien' },
+  it: { movie: 'Film', series: 'Serie' }
 };
 
 function label(type) {

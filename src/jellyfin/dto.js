@@ -11,7 +11,10 @@ const VERSION = '10.11.11';
 
 const L = {
   fr: { season: (n) => `Saison ${n}`, specials: 'Spéciaux', episode: (n) => `Épisode ${n}` },
-  en: { season: (n) => `Season ${n}`, specials: 'Specials', episode: (n) => `Episode ${n}` }
+  en: { season: (n) => `Season ${n}`, specials: 'Specials', episode: (n) => `Episode ${n}` },
+  es: { season: (n) => `Temporada ${n}`, specials: 'Especiales', episode: (n) => `Episodio ${n}` },
+  de: { season: (n) => `Staffel ${n}`, specials: 'Specials', episode: (n) => `Folge ${n}` },
+  it: { season: (n) => `Stagione ${n}`, specials: 'Speciali', episode: (n) => `Episodio ${n}` }
 };
 function t() {
   return L[config.get().settings.language] || L.en;

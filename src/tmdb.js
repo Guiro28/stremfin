@@ -27,6 +27,21 @@ const LABELS = {
     trending: 'Trending', popular: 'Popular', toprated: 'Top rated', nowMovie: 'In theaters',
     nowSeries: 'On the air', sagas: 'Collections', search: 'Search', movie: 'Movies', series: 'Shows',
     platforms: 'Platforms'
+  },
+  es: {
+    trending: 'Tendencias', popular: 'Populares', toprated: 'Mejor valoradas', nowMovie: 'En cines',
+    nowSeries: 'En emisión', sagas: 'Sagas', search: 'Búsqueda', movie: 'Películas', series: 'Series',
+    platforms: 'Plataformas'
+  },
+  de: {
+    trending: 'Trends', popular: 'Beliebt', toprated: 'Am besten bewertet', nowMovie: 'Im Kino',
+    nowSeries: 'Läuft gerade', sagas: 'Filmreihen', search: 'Suche', movie: 'Filme', series: 'Serien',
+    platforms: 'Plattformen'
+  },
+  it: {
+    trending: 'Tendenze', popular: 'Popolari', toprated: 'I più votati', nowMovie: 'Al cinema',
+    nowSeries: 'In onda', sagas: 'Saghe', search: 'Ricerca', movie: 'Film', series: 'Serie',
+    platforms: 'Piattaforme'
   }
 };
 
@@ -341,27 +356,27 @@ async function collection(id) {
 
 // Bibliotheques "Mes medias" : grandes categories, triables (nom, date, note) depuis les apps.
 const CATEGORIES = [
-  { id: 'tmdb-cat-movies', type: 'movie', fr: 'Films', en: 'Movies', params: { without_genres: '16,99' } },
-  { id: 'tmdb-cat-series', type: 'series', fr: 'Séries TV', en: 'TV shows', params: { without_genres: '16,99,10762,10763,10764,10767' } },
-  { id: 'tmdb-cat-anim-movies', type: 'movie', fr: "Films d'animation", en: 'Animated movies', params: { with_genres: '16' } },
-  { id: 'tmdb-cat-anim-series', type: 'series', fr: "Séries d'animation", en: 'Animated series', params: { with_genres: '16' } },
-  { id: 'tmdb-cat-anime', type: 'series', fr: 'Animés', en: 'Anime', params: { with_genres: '16', with_original_language: 'ja' }, defaultEnabled: false },
-  { id: 'tmdb-cat-docs', type: 'movie', fr: 'Documentaires', en: 'Documentaries', params: { with_genres: '99' }, defaultEnabled: false },
-  { id: 'tmdb-cat-docuseries', type: 'series', fr: 'Séries documentaires', en: 'Docuseries', params: { with_genres: '99' }, defaultEnabled: false },
-  { id: 'tmdb-cat-kids', type: 'series', fr: 'Jeunesse', en: 'Kids', params: { with_genres: '10762' }, defaultEnabled: false }
+  { id: 'tmdb-cat-movies', type: 'movie', fr: 'Films', en: 'Movies', es: 'Películas', de: 'Filme', it: 'Film', params: { without_genres: '16,99' } },
+  { id: 'tmdb-cat-series', type: 'series', fr: 'Séries TV', en: 'TV shows', es: 'Series de TV', de: 'TV-Serien', it: 'Serie TV', params: { without_genres: '16,99,10762,10763,10764,10767' } },
+  { id: 'tmdb-cat-anim-movies', type: 'movie', fr: "Films d'animation", en: 'Animated movies', es: 'Películas de animación', de: 'Animationsfilme', it: 'Film d\'animazione', params: { with_genres: '16' } },
+  { id: 'tmdb-cat-anim-series', type: 'series', fr: "Séries d'animation", en: 'Animated series', es: 'Series de animación', de: 'Animationsserien', it: 'Serie d\'animazione', params: { with_genres: '16' } },
+  { id: 'tmdb-cat-anime', type: 'series', fr: 'Animés', en: 'Anime', es: 'Anime', de: 'Anime', it: 'Anime', params: { with_genres: '16', with_original_language: 'ja' }, defaultEnabled: false },
+  { id: 'tmdb-cat-docs', type: 'movie', fr: 'Documentaires', en: 'Documentaries', es: 'Documentales', de: 'Dokumentarfilme', it: 'Documentari', params: { with_genres: '99' }, defaultEnabled: false },
+  { id: 'tmdb-cat-docuseries', type: 'series', fr: 'Séries documentaires', en: 'Docuseries', es: 'Series documentales', de: 'Dokuserien', it: 'Docuserie', params: { with_genres: '99' }, defaultEnabled: false },
+  { id: 'tmdb-cat-kids', type: 'series', fr: 'Jeunesse', en: 'Kids', es: 'Infantil', de: 'Kinder', it: 'Bambini', params: { with_genres: '10762' }, defaultEnabled: false }
 ];
 
 // Rayons de chaque plateforme (dossiers sous la carte de la plateforme).
 const PLATFORM_LISTS = [
-  { id: 'movies-popular', type: 'movie', fr: 'Films populaires', en: 'Popular movies', sort: 'popularity' },
-  { id: 'series-popular', type: 'series', fr: 'Séries populaires', en: 'Popular shows', sort: 'popularity' },
-  { id: 'movies-new', type: 'movie', fr: 'Nouveaux films', en: 'New movies', sort: 'recent' },
-  { id: 'series-new', type: 'series', fr: 'Nouvelles séries', en: 'New shows', sort: 'recent' },
-  { id: 'movies-top', type: 'movie', fr: 'Films les mieux notés', en: 'Top rated movies', sort: 'rating' },
-  { id: 'series-top', type: 'series', fr: 'Séries les mieux notées', en: 'Top rated shows', sort: 'rating' }
+  { id: 'movies-popular', type: 'movie', fr: 'Films populaires', en: 'Popular movies', es: 'Películas populares', de: 'Beliebte Filme', it: 'Film popolari', sort: 'popularity' },
+  { id: 'series-popular', type: 'series', fr: 'Séries populaires', en: 'Popular shows', es: 'Series populares', de: 'Beliebte Serien', it: 'Serie popolari', sort: 'popularity' },
+  { id: 'movies-new', type: 'movie', fr: 'Nouveaux films', en: 'New movies', es: 'Películas nuevas', de: 'Neue Filme', it: 'Nuovi film', sort: 'recent' },
+  { id: 'series-new', type: 'series', fr: 'Nouvelles séries', en: 'New shows', es: 'Series nuevas', de: 'Neue Serien', it: 'Nuove serie', sort: 'recent' },
+  { id: 'movies-top', type: 'movie', fr: 'Films les mieux notés', en: 'Top rated movies', es: 'Películas mejor valoradas', de: 'Bestbewertete Filme', it: 'Film più votati', sort: 'rating' },
+  { id: 'series-top', type: 'series', fr: 'Séries les mieux notées', en: 'Top rated shows', es: 'Series mejor valoradas', de: 'Bestbewertete Serien', it: 'Serie più votate', sort: 'rating' }
 ];
 
-const tr = (x) => (iso() === 'fr' ? x.fr : x.en);
+const tr = (x) => x[iso()] || x.en;
 
 /**
  * Tri demande par l'app -> parametres /discover. Les tris par nom ou par date ne gardent que des

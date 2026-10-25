@@ -196,6 +196,7 @@ function updateSettings(patch) {
   if (!['abyss', 'none'].includes(s.webTheme)) s.webTheme = 'abyss';
   if (!['trending', 'resume'].includes(s.webSpotlightSource)) s.webSpotlightSource = 'trending';
   if (!['catalog', 'name'].includes(s.embySort)) s.embySort = 'catalog';
+  if (!['fr', 'en', 'es', 'de', 'it'].includes(s.language)) s.language = 'fr';
   s.torrentServer = s.torrentServer.replace(/\/+$/, '');
   if (!['proxy', 'redirect'].includes(s.streamMode)) s.streamMode = 'proxy';
   save();

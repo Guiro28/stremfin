@@ -5,13 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Stremfin · Connecter un appareil</title>
+<script src="/stremfin/ui/prefs.js"></script>
 <link rel="stylesheet" href="/stremfin/ui/style.css">
 <style>
   .pin-input { font-family: var(--mono); font-size: 34px; letter-spacing: .35em; text-align: center; padding: 14px 10px 14px 22px; }
   .done { text-align: center; }
   .done .check { width: 56px; height: 56px; border-radius: 50%; background: var(--ok-soft); color: var(--ok); display: grid; place-items: center; margin: 0 auto 12px; }
   .done .check svg { width: 28px; height: 28px; stroke: currentColor; fill: none; stroke-width: 2.4; }
-  .who { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 12px; }
+  .who { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--input); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 12px; }
 </style>
 </head>
 <body>
@@ -19,6 +20,7 @@
   <div class="card stack" id="box">
     <div class="brand"><div class="brand-logo"><svg viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg></div><div class="brand-name">Stremfin</div></div>
     <div id="view"></div>
+    <div class="auth-tools" id="tools"></div>
   </div>
 </div>
 <div class="toasts" id="toasts"></div>
