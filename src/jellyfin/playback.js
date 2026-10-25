@@ -188,7 +188,7 @@ async function sourcesFor(profile, uuid) {
   };
   const list = [];
   const seen = new Set();
-  raw.forEach(({ addon, stream }, order) => {
+  raw.forEach(({ addon, addonLogo, stream }, order) => {
     const p = playable(stream);
     if (!p || seen.has(p.url)) return;
     seen.add(p.url);
@@ -200,6 +200,9 @@ async function sourcesFor(profile, uuid) {
       url: p.url,
       headers: p.headers,
       name: displayName(addon, stream),
+      // Addon d'origine (panneau "Lecture en cours").
+      addon,
+      addonLogo,
       container: containerOf(stream, p.url),
       size: sizeOf(stream),
       release: releaseName(stream),
@@ -589,6 +592,9 @@ async function pipe(req, res, src) {
   }
   origin.on('error', () => res.destroy());
   req.on('close', () => origin.destroy());
+  // Debit et volume transferes, pour le panneau "Lecture en cours" des statistiques.
+  const stats = require('../stats');
+  origin.on('data', (chunk) => stats.addBytes(src.uuid, req.profile?.id, chunk.length));
   origin.pipe(res);
 }
 
@@ -626,8 +632,8 @@ function current(profile, uuid) {
   return st.udGet.get(profile.id, uuid) || { position: 0, played: 0, favorite: 0, likes: null, play_count: 0, last_played: null };
 }
 
-/** Rapport de lecture (debut / progression / arret) envoye par l'app. */
-function report(profile, body, stage) {
+/** Rapport de lecture (debut / progression / arret) envoye par l'app (req : appareil, pour les statistiques). */
+function report(profile, body, stage, req) {
   const { entry } = unwrap(body?.ItemId);
   if (!entry || !['movie', 'episode'].includes(entry.kind)) return;
   const row = { ...current(profile, entry.uuid) };
@@ -648,6 +654,18 @@ function report(profile, body, stage) {
     row.played = 0;
   }
   saveUd(profile, entry.uuid, row);
+  // Statistiques : lecture en cours et temps regarde, avec la release lue et l'appareil.
+  const src = body.MediaSourceId ? cache.peek('src|' + ids.norm(body.MediaSourceId))?.v : null;
+  const tok = req?.tok || {};
+  require('../stats').onReport(profile, entry, stage, {
+    position,
+    ticks,
+    paused: body.IsPaused === true,
+    client: tok.client || req?.authInfo?.client,
+    device: tok.device || req?.authInfo?.device,
+    deviceId: tok.device_id || req?.authInfo?.deviceid,
+    source: src ? { release: src.release || src.name, quality: QUALITY_NAME[src.bucket], size: src.size, addonName: src.addon || null, addonLogo: src.addonLogo || null } : null
+  });
   // Trakt (lecture en direct) et Simkl (vu), si le profil les a associes.
   require('../tracking').onReport(profile, entry, stage, { position, ticks, paused: body.IsPaused === true, watched: !wasPlayed && !!row.played });
 }

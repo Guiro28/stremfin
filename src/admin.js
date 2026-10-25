@@ -18,6 +18,7 @@ const backup = require('./backup');
 const nuvio = require('./nuvio');
 const collections = require('./collections');
 const tracking = require('./tracking');
+const stats = require('./stats');
 const { verifyPassword } = require('./security');
 
 const router = express.Router();
@@ -206,6 +207,27 @@ router.get('/api/overview', adminOnly, (req, res) => {
     brokenAddons,
     recent: recent.slice(0, 12)
   });
+});
+
+// ---- Statistiques de visionnage ------------------------------------------------------------
+// Admin : profils choisis (?profiles=id,id ; "__none__" = aucun) ; utilisateur : le sien.
+
+// Lecture en cours (panneau de la page Statistiques, rafraichi toutes les 3 s).
+router.get('/api/stats/now-playing', (req, res) => {
+  res.json({ items: stats.nowPlaying(req.role === 'admin' ? null : [req.sessionProfileId]) });
+});
+
+router.get('/api/stats', (req, res) => {
+  const days = Number(req.query.days);
+  if (!Number.isInteger(days) || days < 0 || days > 3650) return fail(res, 400, 'Période invalide');
+  let refs = null;
+  if (req.role !== 'admin') refs = [req.sessionProfileId];
+  else if (req.query.profiles === '__none__') refs = [];
+  else if (req.query.profiles) refs = String(req.query.profiles).split(',').filter(Boolean);
+  const r = stats.summary({ days, refs });
+  // Un utilisateur ne voit pas la liste des autres profils.
+  if (req.role !== 'admin') r.availableProfiles = r.availableProfiles.filter((p) => p.ref === req.sessionProfileId);
+  res.json(r);
 });
 
 // ---- Reglages du serveur ---------------------------------------------------------------

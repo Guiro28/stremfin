@@ -544,30 +544,30 @@ router.all('/Items/:id/PlaybackInfo', async (req, res) => {
 });
 
 router.post('/Sessions/Playing', (req, res) => {
-  playback.report(req.profile, req.body, 'start');
+  playback.report(req.profile, req.body, 'start', req);
   res.status(204).end();
 });
 router.post('/Sessions/Playing/Progress', (req, res) => {
-  playback.report(req.profile, req.body, 'progress');
+  playback.report(req.profile, req.body, 'progress', req);
   res.status(204).end();
 });
 router.post('/Sessions/Playing/Stopped', (req, res) => {
-  playback.report(req.profile, req.body, 'stopped');
+  playback.report(req.profile, req.body, 'stopped', req);
   res.status(204).end();
 });
 router.post('/Sessions/Playing/Ping', (req, res) => res.status(204).end());
 
 // Anciennes routes de progression (encore utilisees par certaines apps).
 router.post(['/Users/:u/PlayingItems/:id', '/PlayingItems/:id'], (req, res) => {
-  playback.report(req.profile, { ItemId: req.params.id, PositionTicks: lq(req).positionticks }, 'start');
+  playback.report(req.profile, { ItemId: req.params.id, PositionTicks: lq(req).positionticks }, 'start', req);
   res.status(204).end();
 });
 router.post(['/Users/:u/PlayingItems/:id/Progress', '/PlayingItems/:id/Progress'], (req, res) => {
-  playback.report(req.profile, { ItemId: req.params.id, PositionTicks: lq(req).positionticks }, 'progress');
+  playback.report(req.profile, { ItemId: req.params.id, PositionTicks: lq(req).positionticks }, 'progress', req);
   res.status(204).end();
 });
 router.delete(['/Users/:u/PlayingItems/:id', '/PlayingItems/:id'], (req, res) => {
-  playback.report(req.profile, { ItemId: req.params.id, PositionTicks: lq(req).positionticks }, 'stopped');
+  playback.report(req.profile, { ItemId: req.params.id, PositionTicks: lq(req).positionticks }, 'stopped', req);
   res.status(204).end();
 });
 

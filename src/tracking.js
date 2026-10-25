@@ -338,6 +338,8 @@ async function apply(profile, events, source) {
       // Historique (statistiques) : une ligne par visionnage, sans doublon.
       const label = x.kind === 'movie' ? x.title : `${x.title || ''} S${String(ev.season).padStart(2, '0')}E${String(ev.episode).padStart(2, '0')}`;
       const ms = (ev.minutes || 0) * 60e3;
+      // Deja la (lecture faite ici puis envoyee a Trakt, ou vue via Nuvio et Trakt) : pas de doublon.
+      if (st.playNear.get(profile.id, uuids[0], uuids[1] || uuids[0], ev.at - 4 * 3600e3, ev.at + 4 * 3600e3)) continue;
       st.playImport.run(profile.id, uuids[0], x.kind, label || null, x.kind === 'movie' ? null : x.title || null, ev.at, ev.at, ms, ms, source);
     }
   }

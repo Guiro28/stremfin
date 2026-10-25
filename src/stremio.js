@@ -141,7 +141,7 @@ async function streams(profile, type, ids) {
           // On ne met pas en cache une reponse vide : l'addon peut avoir eu un raté.
           return list.length ? { streams: list } : null;
         });
-        return (r?.streams || []).map((stream) => ({ addon: a.manifest.name, stream }));
+        return (r?.streams || []).map((stream) => ({ addon: a.manifest.name, addonLogo: a.manifest.logo || null, stream }));
       } catch (e) {
         log(`[addon] streams KO ${a.manifest.name} ${type}/${id}: ${e.message}`);
         return [];

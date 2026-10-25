@@ -44,7 +44,8 @@ const ICONS = {
   archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
   download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
   upload: '<path d="M12 20V9M7 14l5-5 5 5M5 4h14"/>',
-  restore: '<path d="M4 12a8 8 0 1 0 2.3-5.7"/><path d="M4 4v5h5"/>'
+  restore: '<path d="M4 12a8 8 0 1 0 2.3-5.7"/><path d="M4 4v5h5"/>',
+  chart: '<path d="M4 20V11M10 20V5M16 20v-8M21 20H3"/>'
 };
 
 /** Taille lisible : "12,3 Mo". */
@@ -253,7 +254,7 @@ const state = { authed: false, setup: false, role: null, username: '', profileId
 
 // Libelles en francais (cles de traduction), traduits a l'affichage.
 const NAV_ADMIN = [
-  { group: null, items: [{ id: 'dashboard', label: 'Tableau de bord', icon: 'dashboard' }] },
+  { group: null, items: [{ id: 'dashboard', label: 'Tableau de bord', icon: 'dashboard' }, { id: 'stats', label: 'Statistiques', icon: 'chart' }] },
   { group: 'Utilisateurs', items: [{ id: 'profiles', label: 'Profils', icon: 'users' }, { id: 'devices', label: 'Appareils', icon: 'devices' }] },
   { group: 'Bibliothèque', items: [{ id: 'collections', label: 'Collections', icon: 'layers' }] },
   {
@@ -272,12 +273,12 @@ const NAV_ADMIN = [
 /** Un utilisateur ne voit que les onglets de son propre profil. */
 function navFor() {
   if (state.role === 'admin') return NAV_ADMIN;
-  return [{ group: 'Mon compte', items: PROFILE_TABS.map((x) => ({ id: `me/${x.id}`, label: x.label, icon: x.icon })) }];
+  return [{ group: 'Mon compte', items: [...PROFILE_TABS.map((x) => ({ id: `me/${x.id}`, label: x.label, icon: x.icon })), { id: 'stats', label: 'Statistiques', icon: 'chart' }] }];
 }
 
 function route() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
-  if (state.role !== 'admin') return { page: 'me', parts: ['me', parts[0] === 'me' ? parts[1] || 'login' : 'login'] };
+  if (state.role !== 'admin') return parts[0] === 'stats' ? { page: 'stats', parts } : { page: 'me', parts: ['me', parts[0] === 'me' ? parts[1] || 'login' : 'login'] };
   if (!parts.length) return { page: 'dashboard', parts: [] };
   if (parts[0] === 'settings') return { page: `settings/${parts[1] || 'server'}`, parts };
   return { page: parts[0], parts };

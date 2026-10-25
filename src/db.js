@@ -84,6 +84,13 @@ db.exec(`
   );
 `);
 
+// Migration : addon d'origine des lectures (classement "Addons les plus actifs").
+{
+  const cols = db.prepare('PRAGMA table_info(plays)').all().map((c) => c.name);
+  if (!cols.includes('addon')) db.exec('ALTER TABLE plays ADD COLUMN addon TEXT');
+  if (!cols.includes('addon_logo')) db.exec('ALTER TABLE plays ADD COLUMN addon_logo TEXT');
+}
+
 // Migration : role (admin | user) et profil des sessions de l'interface web.
 {
   const cols = db.prepare('PRAGMA table_info(admin_sessions)').all().map((c) => c.name);
@@ -117,6 +124,8 @@ const st = {
   playImport: db.prepare(`INSERT OR IGNORE INTO plays (profile, uuid, kind, title, series, started, ended, watched, duration, source)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
   playDelProfile: db.prepare('DELETE FROM plays WHERE profile = ?'),
+  // Meme titre (une de ses deux versions) deja dans l'historique a quelques heures pres.
+  playNear: db.prepare('SELECT 1 FROM plays WHERE profile = ? AND uuid IN (?, ?) AND started BETWEEN ? AND ? LIMIT 1'),
   udCount: db.prepare('SELECT COUNT(*) AS n FROM userdata WHERE profile = ? AND (played = 1 OR position > 0)'),
   cacheCount: db.prepare('SELECT COUNT(*) AS n FROM cache'),
   idsCount: db.prepare('SELECT COUNT(*) AS n FROM ids'),

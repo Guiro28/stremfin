@@ -241,6 +241,23 @@ Un titre vu ailleurs n'écrase jamais une lecture plus récente ici. Un même ti
 en version IMDb (addons) et TMDB (catalogues TMDB) : les deux sont marqués, et il n'apparaît
 qu'une fois dans « Reprendre » et « À suivre ». Les jetons restent dans `data/config.json`.
 
+## Statistiques
+
+Page **Statistiques** (reprise de celle de Nuvio Manager), pour l'administrateur (tous les
+profils, ou ceux choisis) et pour chaque utilisateur (son profil) :
+
+- **En ce moment** : lectures en cours (profil, titre, app et appareil, release, progression).
+- Chiffres de la période (30 / 90 jours, 1 an, tout, ou un nombre de jours) : lectures,
+  titres uniques, temps suivi.
+- **Activité quotidienne** (films / séries) : un clic sur un jour ouvre ce qui a été regardé,
+  par profil.
+- Classements : séries et films les plus regardés et les plus populaires, apps et services,
+  profils les plus actifs ; fiches détaillées (TMDB) et derniers visionnages.
+
+Sources : les lectures faites dans les apps (début, fin, temps réellement regardé, release,
+app et appareil) et les historiques importés (Trakt, Simkl, Nuvio). Une même lecture envoyée
+à Trakt puis réimportée n'est comptée qu'une fois.
+
 ## Se connecter depuis une app Jellyfin
 
 1. Adresse du serveur (affichée dans l'admin).
