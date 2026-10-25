@@ -213,6 +213,9 @@ chargement de la page ou au retour sur l'onglet. Les apps natives n'utilisent pa
   - chaque collection devient une **bibliothèque** (image de fond de la collection ;
     une collection épinglée passe en tête tant que le profil ne l'a pas placée) ;
   - ses dossiers deviennent des **sous-dossiers** (couverture, fond et logo de la collection) ;
+  - GIF animé d'un dossier (`focusGifUrl`, sauf `focusGifEnabled: false`) : en fond dans toutes les
+    apps, et en icône dans les apps Jellyfin ; les apps Emby, qui n'affichent pas les GIF, gardent
+    la couverture (`coverImageUrl`) en icône. Une image choisie qui est un GIF suit la même règle ;
   - dans un dossier, **un sous-dossier par source** (« Disney+ · Films », « Disney+ · Séries »…) ;
     un dossier qui n'a qu'une source montre directement ses titres. Sources prises en charge :
     catalogues d'addons (même absents du profil),

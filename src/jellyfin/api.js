@@ -10,6 +10,7 @@ const { st } = require('../db');
 const auth = require('./auth');
 const dto = require('./dto');
 const library = require('./library');
+const clientContext = require('./clientContext');
 const playback = require('./playback');
 const avatars = require('../avatars');
 const tmdb = require('../tmdb');
@@ -242,7 +243,7 @@ router.post('/Users/AuthenticateWithQuickConnect', (req, res) => {
 
 // Images : publiques chez Jellyfin (les apps ne passent pas toujours le jeton).
 router.get(['/Items/:id/Images/:type', '/Items/:id/Images/:type/:index', '/Items/:id/Images/:type/:index/*rest'], async (req, res) => {
-  const url = await library.imageUrl(req.params.id, req.params.type, int(req.params.index, 0));
+  const url = await library.imageUrl(req.params.id, req.params.type, int(req.params.index, 0), lq(req).tag);
   if (!url) return res.status(404).end();
   res.setHeader('Cache-Control', 'public, max-age=86400');
   res.redirect(302, url);
@@ -269,6 +270,8 @@ router.get(['/Videos/:id/:msid/Subtitles/:index/:start/Stream.:ext', '/Videos/:i
 // ---- A partir d'ici : authentification obligatoire ----------------------------
 
 router.use(auth.required);
+// App Emby ou Jellyfin : connue pendant la construction des fiches (images des dossiers).
+router.use((req, res, next) => clientContext.run({ emby: isEmby(req) }, next));
 
 // Bandeau Spotlight du theme Abyss (client web) : films tendance TMDB, meme hors bibliotheques.
 // Chaque film devient un element Stremfin : sa fiche s'ouvre et se lit via les addons.

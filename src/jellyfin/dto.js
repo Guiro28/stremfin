@@ -2,6 +2,7 @@
 // Les SDK officiels (Kotlin, Swift) refusent un objet si un champ obligatoire manque :
 // on renseigne donc toujours les champs non-nullables du schema OpenAPI.
 const crypto = require('crypto');
+const clientContext = require('./clientContext');
 const config = require('../config');
 const ids = require('../ids');
 const avatars = require('../avatars');
@@ -83,6 +84,8 @@ function preview(m) {
     folderId: m.folderId,
     srcIndex: m.srcIndex,
     shape: m.shape,
+    // GIF anime d'un dossier de collection : icone dans les apps Jellyfin (Emby : image fixe).
+    gif: m.gif,
     // Fiche deja traduite (TMDB) : les apercus des catalogues ne doivent plus l'ecraser.
     fr: m.fr ? true : undefined
   };
@@ -310,9 +313,12 @@ function folderItem(uuid, m, udRow, childCount) {
   d.MediaType = 'Unknown';
   d.SortName = m.name;
   d.ChildCount = childCount;
-  if (m.poster) {
-    d.ImageTags.Primary = tag(m.poster);
-    d.ImageTags.Thumb = tag(m.poster);
+  // Icone : le GIF anime pour les apps Jellyfin, l'image fixe pour Emby (qui ne lit pas les GIF).
+  // L'etiquette indique laquelle servir (les apps redemandent l'image sans dire qui elles sont).
+  const icon = m.gif && !clientContext.isEmbyClient() ? m.gif : m.poster;
+  if (icon) {
+    d.ImageTags.Primary = tag(icon);
+    d.ImageTags.Thumb = tag(icon);
   }
   if (m.background) d.BackdropImageTags = [tag(m.background)];
   if (m.logo) d.ImageTags.Logo = tag(m.logo);

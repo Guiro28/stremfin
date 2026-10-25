@@ -423,7 +423,7 @@ async function nextUp(profile, { limit = 20, seriesId } = {}) {
 
 // ---- Images -----------------------------------------------------------------
 
-async function imageUrl(id, type, index = 0) {
+async function imageUrl(id, type, index = 0, imageTag = '') {
   const e = ids.get(id);
   if (!e) return null;
   const t = String(type).toLowerCase();
@@ -438,8 +438,13 @@ async function imageUrl(id, type, index = 0) {
     case 'movie':
     case 'series':
     case 'collection':
-    case 'colfolder':
     case 'colcat':
+      return pick(d);
+    case 'colfolder':
+      // Icone demandee avec l'etiquette du GIF (apps Jellyfin) : le GIF, sinon l'image fixe.
+      if (d.gif && (t === 'primary' || t === 'thumb') && imageTag && imageTag === dto.tag(d.gif)) return d.gif;
+      // Vignette = icone (le fond peut etre le GIF, que les apps Emby n'affichent pas).
+      if (t === 'thumb') return d.poster || d.background;
       return pick(d);
     case 'season': {
       const s = ids.get(d.seriesUuid);

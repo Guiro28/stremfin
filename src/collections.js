@@ -270,6 +270,15 @@ function start() {
 
 // ---- Sources ----------------------------------------------------------------------------------
 
+/** Image GIF (d'apres son adresse) : animee, mais ignoree par les apps Emby. */
+function isGif(u) {
+  try {
+    return /\.gif$/i.test(new URL(u).pathname);
+  } catch {
+    return false;
+  }
+}
+
 function safeUrl(u) {
   return /^https?:\/\/\S+$/i.test(String(u || '')) ? String(u) : null;
 }
@@ -410,20 +419,35 @@ function folderView(colId, folderId) {
 async function folderMetas(c) {
   const { slice } = require('./catalog');
   const shape = shapeOf(c);
-  // Couverture (vignette), fond (page du dossier) et logo fournis par la collection.
-  const folders = (c.data.folders || []).map((f) => ({ id: fid(f), title: String(f.title || ''), cover: safeUrl(f.coverImageUrl), hero: safeUrl(f.heroBackdropUrl), logo: safeUrl(f.titleLogoUrl), shape: String(f.tileShape || shape).toUpperCase() }));
+  // Couverture (vignette), fond (page du dossier), GIF anime et logo fournis par la collection.
+  const folders = (c.data.folders || []).map((f) => ({
+    id: fid(f),
+    title: String(f.title || ''),
+    cover: safeUrl(f.coverImageUrl),
+    hero: safeUrl(f.heroBackdropUrl),
+    gif: f.focusGifEnabled === false ? null : safeUrl(f.focusGifUrl),
+    logo: safeUrl(f.titleLogoUrl),
+    shape: String(f.tileShape || shape).toUpperCase()
+  }));
   return Promise.all(
     folders.map(async (f) => {
-      const own = customImage(c, f.id);
+      let own = customImage(c, f.id);
+      // Image choisie dans l'interface qui est un GIF : traitee comme le GIF du dossier.
+      let gif = f.gif;
+      if (own && isGif(own)) {
+        gif = own;
+        own = null;
+      }
       let poster = own || f.cover;
-      let background = own || f.hero || f.cover;
+      // Fond : le GIF anime (les apps Emby l'affichent derriere), sinon l'image de fond.
+      let background = own || gif || f.hero || f.cover;
       if (!poster) {
         // Sans image de couverture : celle du premier titre du dossier.
         const first = await Promise.race([slice(folderView(c.id, f.id), 0, 1).then((r) => r.metas[0]), new Promise((r) => setTimeout(r, 5000))]).catch(() => null);
         poster = f.shape === 'LANDSCAPE' ? f.hero || first?.background || first?.poster : first?.poster;
-        background = f.hero || first?.background || first?.poster;
+        background = gif || f.hero || first?.background || first?.poster;
       }
-      return { id: `colf:${c.id}:${f.id}`, type: 'colfolder', name: f.title, poster, background, logo: f.logo, colId: c.id, folderId: f.id, shape: f.shape, fr: true };
+      return { id: `colf:${c.id}:${f.id}`, type: 'colfolder', name: f.title, poster, background, gif: gif || undefined, logo: f.logo, colId: c.id, folderId: f.id, shape: f.shape, fr: true };
     })
   );
 }

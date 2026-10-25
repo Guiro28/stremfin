@@ -3,6 +3,13 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
+## 0.2.1 — 2026-10-26
+
+### Changements
+- **Collections** : le GIF animé d'un dossier (`focusGifUrl`) sert de fond dans toutes les apps et
+  d'icône dans les apps Jellyfin. Les apps Emby, qui n'affichent pas les GIF, gardent la
+  couverture (`coverImageUrl`) en icône. Une image choisie qui est un GIF suit la même règle.
+
 ## 0.2.0 — 2026-10-25
 
 ### Ajouts
