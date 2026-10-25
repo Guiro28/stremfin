@@ -51,6 +51,29 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS userdata_last ON userdata (profile, last_played);
 
+  -- Historique des lectures : locales (apps) ou importees (trakt, simkl, nuvio).
+  -- Une ligne par visionnage ; durees en ms.
+  CREATE TABLE IF NOT EXISTS plays (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile  TEXT NOT NULL,
+    uuid     TEXT NOT NULL,
+    kind     TEXT,
+    title    TEXT,
+    series   TEXT,
+    started  INTEGER NOT NULL,
+    ended    INTEGER,
+    watched  INTEGER NOT NULL DEFAULT 0,
+    position INTEGER NOT NULL DEFAULT 0,
+    duration INTEGER NOT NULL DEFAULT 0,
+    release  TEXT,
+    bitrate  INTEGER,
+    client   TEXT,
+    device   TEXT,
+    source   TEXT NOT NULL DEFAULT 'local'
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS plays_unique ON plays (profile, uuid, source, started);
+  CREATE INDEX IF NOT EXISTS plays_profile ON plays (profile, started);
+
   -- Sessions de l'interface d'administration (seul le hache du jeton est stocke).
   CREATE TABLE IF NOT EXISTS admin_sessions (
     token_hash TEXT PRIMARY KEY,
@@ -91,6 +114,9 @@ const st = {
   udRecent: db.prepare('SELECT * FROM userdata WHERE profile = ? AND last_played IS NOT NULL ORDER BY last_played DESC LIMIT ?'),
   udPlayed: db.prepare('SELECT uuid FROM userdata WHERE profile = ? AND played = 1'),
   udDelProfile: db.prepare('DELETE FROM userdata WHERE profile = ?'),
+  playImport: db.prepare(`INSERT OR IGNORE INTO plays (profile, uuid, kind, title, series, started, ended, watched, duration, source)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+  playDelProfile: db.prepare('DELETE FROM plays WHERE profile = ?'),
   udCount: db.prepare('SELECT COUNT(*) AS n FROM userdata WHERE profile = ? AND (played = 1 OR position > 0)'),
   cacheCount: db.prepare('SELECT COUNT(*) AS n FROM cache'),
   idsCount: db.prepare('SELECT COUNT(*) AS n FROM ids'),

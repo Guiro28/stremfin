@@ -262,6 +262,7 @@ const NAV_ADMIN = [
       { id: 'settings/server', label: 'Serveur', icon: 'server' },
       { id: 'settings/playback', label: 'Lecture et réseau', icon: 'play' },
       { id: 'settings/metadata', label: 'Métadonnées', icon: 'film' },
+      { id: 'settings/tracking', label: 'Suivi', icon: 'refresh' },
       { id: 'settings/web', label: 'Client web', icon: 'globe' }
     ]
   },
@@ -510,6 +511,7 @@ const PROFILE_TABS = [
   { id: 'home', label: 'Accueil', icon: 'dashboard' },
   { id: 'addons', label: 'Addons', icon: 'puzzle' },
   { id: 'libraries', label: 'Bibliothèques', icon: 'layers' },
+  { id: 'tracking', label: 'Suivi', icon: 'refresh' },
   { id: 'devices', label: 'Appareils', icon: 'devices' }
 ];
 
@@ -564,7 +566,7 @@ async function profilePage(main, id, tab, self) {
       if (ok && (await busy(null, () => api('DELETE', `/profiles/${p.id}`), t('Profil supprimé')))) go('#/profiles');
     };
   }
-  const tabs = { login: tabLogin, prefs: tabPrefs, home: tabHome, addons: tabAddons, libraries: tabLibraries, devices: tabDevices };
+  const tabs = { login: tabLogin, prefs: tabPrefs, home: tabHome, addons: tabAddons, libraries: tabLibraries, tracking: tabTracking, devices: tabDevices };
   (tabs[tab] || tabLogin)($('#tab'), p);
 }
 
@@ -1067,6 +1069,134 @@ function bindRevoke(root, after) {
   });
 }
 
+// ---- Suivi (Trakt, Simkl, historique Nuvio) ----------------------------------------------------
+
+const TRACKERS = { trakt: 'Trakt', simkl: 'Simkl' };
+
+function tabTracking(el, p) {
+  const tr = p.tracking;
+  const admin = state.role === 'admin';
+  const last = (x) => {
+    if (x.lastError) return `<p class="small" style="color:var(--bad);margin-top:10px">${esc(x.lastError)}</p>`;
+    if (!x.lastSync) return '';
+    const r = x.lastResult || {};
+    return `<p class="small faint" style="margin-top:10px">${t('Dernier import {ago} : {w} vu(s), {p} reprise(s).', { ago: ago(x.lastSync), w: r.watched || 0, p: r.progress || 0 })}</p>`;
+  };
+  const toggles = (service, x, exp = true) => `
+    <div class="setting"><div class="text"><b>${t('Importer')}</b><span>${t('Les titres vus là-bas sont marqués vus ici (toutes les 6 h).')}</span></div><div class="control">${toggle(`data-opt="${service}.import"`, x.import)}</div></div>
+    ${exp ? `<div class="setting"><div class="text"><b>${t('Envoyer')}</b><span>${service === 'trakt' ? t('Lectures en cours, titres vus et « pas vus » envoyés à Trakt.') : t('Titres vus et « pas vus » envoyés à Simkl.')}</span></div><div class="control">${toggle(`data-opt="${service}.export"`, x.export)}</div></div>` : ''}`;
+  const tracker = (service) => {
+    const x = tr[service];
+    const name = TRACKERS[service];
+    return `<div class="card">
+      <div class="card-head"><div><h2>${name}</h2><p>${x.linked ? t('Associé : {user}.', { user: esc(x.user || '—') }) : t('Pas associé.')}</p></div>
+        <div class="row">${x.linked ? `<button class="btn danger sm" data-unlink="${service}">${t('Dissocier')}</button>` : `<button class="btn primary sm" data-pair="${service}" ${x.ready ? '' : 'disabled'}>${icon('link')}${t('Associer')}</button>`}</div></div>
+      ${x.ready ? '' : `<p class="small faint">${admin ? t("Renseigne d'abord l'application {name} dans Réglages → Suivi.", { name }) : t("L'administrateur doit d'abord configurer {name}.", { name })}</p>`}
+      ${x.linked ? toggles(service, x) : ''}${last(x)}</div>`;
+  };
+  const n = tr.nuvio;
+  // Nuvio : compte propre au profil (lecture seule), puis profil Nuvio dont on recupere l'historique.
+  const nuvioCard = `<div class="card">
+      <div class="card-head"><div><h2>Nuvio</h2><p>${n.linked ? t('Associé : {user}.', { user: esc(n.user || '—') }) : t('Pas associé.')}</p></div>
+        <div class="row">${n.linked ? `<button class="btn danger sm" id="nuvioUnlink">${t('Dissocier')}</button>` : `<button class="btn primary sm" id="nuvioLink">${icon('link')}${t('Associer')}</button>`}</div></div>
+      <p class="small faint">${t('Historique (vus et reprises) d\'un profil de ton compte Nuvio, en lecture seule : rien n\'est jamais modifié chez Nuvio.')}</p>
+      ${n.linked
+        ? `<div class="setting"><div class="text"><b>${t('Profil Nuvio')}</b><span>${t("Profil dont l'historique est récupéré.")}</span></div><div class="control"><select id="nuvioProfile" style="width:auto"><option value="">${t('Aucun')}</option></select></div></div>
+          ${n.profile != null ? toggles('nuvio', n, false) : ''}${last(n)}`
+        : ''}</div>`;
+  const any = tr.trakt.linked || tr.simkl.linked || (n.linked && n.profile != null);
+  el.innerHTML = `<div class="card" style="margin-bottom:16px"><div class="setting" style="border:0;padding:0"><div class="text"><b>${t('Suivi de visionnage')}</b><span>${t("Associe Trakt ou Simkl pour que ce profil retrouve ce que tu as vu ailleurs, et y envoie ce que tu regardes ici. Un titre vu là-bas n'écrase jamais une lecture plus récente ici.")}</span></div>
+      <div class="control"><button class="btn" id="trackImport" ${any ? '' : 'disabled'}>${icon('refresh')}${t('Importer maintenant')}</button></div></div></div>
+    <div class="grid grid-3">${tracker('trakt')}${tracker('simkl')}${nuvioCard}</div>`;
+
+  const apply = (r) => {
+    Object.assign(p, r);
+    tabTracking(el, p);
+  };
+  // Propriete (et non addEventListener) : un seul gestionnaire meme apres un nouveau rendu.
+  el.onchange = async (e) => {
+    const opt = e.target.dataset.opt;
+    if (!opt) return;
+    const [service, key] = opt.split('.');
+    const r = await busy(null, () => api('PATCH', `/profiles/${p.id}/tracking`, { [service]: { [key]: e.target.checked } }), t('Enregistré'));
+    if (r) apply(r);
+    else e.target.checked = !e.target.checked;
+  };
+  el.querySelectorAll('[data-pair]').forEach((b) => (b.onclick = () => pairTracker(p, b.dataset.pair)));
+  el.querySelectorAll('[data-unlink]').forEach((b) => (b.onclick = async () => {
+    const name = TRACKERS[b.dataset.unlink];
+    if (!(await confirmDialog(t('Dissocier {name} ?', { name }), t("Ce qui a déjà été importé reste. Plus rien n'est envoyé à {name}.", { name }), t('Dissocier'), true))) return;
+    const r = await busy(null, () => api('DELETE', `/profiles/${p.id}/tracking/${b.dataset.unlink}`), t('Compte dissocié'));
+    if (r) apply(r);
+  }));
+  $('#trackImport').onclick = async (e) => {
+    const r = await busy(e.currentTarget, () => api('POST', `/profiles/${p.id}/tracking/import`));
+    if (!r) return;
+    const parts = Object.entries(r.results).map(([k, v]) => (v.error ? `${k} : ${v.error}` : t('{name} : {w} vu(s), {p} reprise(s)', { name: TRACKERS[k] || 'Nuvio', w: v.watched, p: v.progress })));
+    toast(parts.join(' · ') || t('Rien à importer'), Object.values(r.results).some((v) => v.error));
+    apply(r.profile);
+  };
+  if ($('#nuvioLink')) $('#nuvioLink').onclick = () => pairNuvio(`/profiles/${p.id}/tracking/nuvio/pair`);
+  if ($('#nuvioUnlink')) $('#nuvioUnlink').onclick = async () => {
+    if (!(await confirmDialog(t('Dissocier {name} ?', { name: 'Nuvio' }), t('Ce qui a déjà été importé reste. Rien ne sera plus récupéré de ce compte Nuvio.'), t('Dissocier'), true))) return;
+    const r = await busy(null, () => api('DELETE', `/profiles/${p.id}/tracking/nuvio`), t('Compte dissocié'));
+    if (r) apply(r);
+  };
+  const sel = $('#nuvioProfile');
+  if (sel) {
+    api('GET', `/profiles/${p.id}/tracking/nuvio/profiles`)
+      .then((list) => {
+        if (!sel.isConnected) return;
+        sel.innerHTML += list.map((x) => `<option value="${x.index}" ${x.index === n.profile ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+      })
+      .catch((err) => toast(err.message, true));
+    sel.onchange = async () => {
+      const r = await busy(null, () => api('PATCH', `/profiles/${p.id}/tracking`, { nuvio: { profile: sel.value === '' ? null : Number(sel.value) } }), t('Enregistré'));
+      if (r) apply(r);
+    };
+  }
+}
+
+/** Association Trakt / Simkl : code a saisir sur leur site ; la fenetre se ferme toute seule. */
+async function pairTracker(p, service) {
+  const name = TRACKERS[service];
+  const pair = await busy(null, () => api('POST', `/profiles/${p.id}/tracking/${service}/pair`));
+  if (!pair) return;
+  let connected = false;
+  const check = async () => {
+    const r = await api('POST', `/profiles/${p.id}/tracking/pair/${encodeURIComponent(pair.id)}`);
+    if (r.status === 'connected') connected = true;
+    return connected;
+  };
+  const closed = modal({
+    title: t('Associer {name}', { name }),
+    lead: t('Ouvre la page {name}, connecte-toi et saisis ce code. Cette fenêtre se ferme toute seule.', { name }),
+    okLabel: t("J'ai saisi le code"),
+    body: `<div class="stack" style="text-align:center;align-items:center">
+      <div class="pair-code big">${esc(pair.userCode)}</div>
+      <a class="btn primary" href="${esc(pair.url)}" target="_blank" rel="noopener noreferrer">${icon('link')}${t('Ouvrir {name}', { name })}</a>
+      <p class="small faint">${t('En attente de ta validation…')}</p></div>`,
+    onOk: async () => {
+      if (await check()) return true;
+      throw new Error(t('Code pas encore validé'));
+    }
+  });
+  const timer = setInterval(async () => {
+    try {
+      if (await check()) $('.modal [data-close]')?.click();
+    } catch (e) {
+      clearInterval(timer);
+      toast(e.message, true);
+    }
+  }, 5000);
+  await closed;
+  clearInterval(timer);
+  if (connected) {
+    toast(t('{name} associé', { name }));
+    render();
+  }
+}
+
 function tabDevices(el, p) {
   el.innerHTML = `<div class="card">
     <div class="card-head"><div><h2>${t('Appareils connectés')}</h2><p>${t('Applications ayant une session ouverte sur ce profil.')}</p></div>
@@ -1176,8 +1306,6 @@ PAGES['settings/metadata'] = async (main) => {
         <div class="control wide"><input name="key" type="text" autocomplete="off" spellcheck="false" value="${esc(s.tmdbApiKey)}" placeholder="${esc(t('Clé v3 (32 caractères)'))}"></div></div>
       <div class="setting"><div class="text"><b>${t('Langue des fiches')}</b><span>${t('Titres, résumés, genres. Le pays sert aussi aux dates de sortie et aux classifications.')}</span></div>
         <div class="control"><select name="lang">${LANG_OPTS.map(([v, l]) => `<option value="${v}" ${s.metadataLanguage === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
-      <div class="setting"><div class="text"><b>${t("Identifiant d'app Trakt")}</b><span>${t('Pour les listes Trakt des collections : « Client ID » d\'une app créée sur {link}.', { link: '<a href="https://trakt.tv/oauth/applications" target="_blank" rel="noopener noreferrer">trakt.tv</a>' })}</span></div>
-        <div class="control wide"><input name="trakt" type="text" autocomplete="off" spellcheck="false" value="${esc(s.traktClientId || '')}" placeholder="${esc(t('Facultatif'))}"></div></div>
       <div class="setting"><div class="text"><b>${t('Masquer les épisodes pas encore sortis')}</b><span>${t("Les épisodes annoncés mais pas encore diffusés n'apparaissent pas.")}</span></div>
         <div class="control">${toggle('name="hideUnreleased"', s.hideUnreleased)}</div></div>
       <div class="setting"><div class="text"><b>${t("Passer l'intro et le générique")}</b><span>${t("Boutons dans les apps Jellyfin, d'après la base communautaire TheIntroDB.")}</span></div>
@@ -1190,7 +1318,6 @@ PAGES['settings/metadata'] = async (main) => {
     saveSettings($('button[type=submit]', f), {
       tmdbApiKey: f.key.value.trim(),
       metadataLanguage: f.lang.value,
-      traktClientId: f.trakt.value.trim(),
       hideUnreleased: f.hideUnreleased.checked,
       introSkip: f.introSkip.checked
     }).then((r) => r && render());
@@ -1199,6 +1326,26 @@ PAGES['settings/metadata'] = async (main) => {
     if (await confirmDialog(t('Retirer la clé TMDB ?'), t('Les fiches reviendront aux addons (souvent en anglais) et les catalogues TMDB intégrés disparaîtront.'), t('Retirer'), true)) {
       if (await saveSettings(null, { tmdbApiKey: '' })) render();
     }
+  };
+};
+
+PAGES['settings/tracking'] = async (main) => {
+  const s = state.settings;
+  const link = (url, label) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  main.innerHTML = `${head(t('Suivi'), t("Applications Trakt et Simkl du serveur : elles servent à associer les profils (onglet Suivi de chaque profil) et à lire les listes Trakt des collections."))}
+    <form class="card" id="f">
+      <div class="setting"><div class="text"><b>${t('Trakt : Client ID')}</b><span>${t("Crée une application sur {link}, avec l'adresse de redirection {uri}, puis copie son Client ID et son Client Secret.", { link: link('https://trakt.tv/oauth/applications/new', 'trakt.tv'), uri: '<code>urn:ietf:wg:oauth:2.0:oob</code>' })}</span></div>
+        <div class="control wide"><input name="traktId" type="text" autocomplete="off" spellcheck="false" value="${esc(s.traktClientId || '')}"></div></div>
+      <div class="setting"><div class="text"><b>${t('Trakt : Client Secret')}</b><span>${t('Gardé sur le serveur, jamais réaffiché en entier.')}</span></div>
+        <div class="control wide"><input name="traktSecret" type="text" autocomplete="off" spellcheck="false" value="${esc(s.traktClientSecret || '')}"></div></div>
+      <div class="setting"><div class="text"><b>${t('Simkl : Client ID')}</b><span>${t("Crée une application sur {link}, avec l'adresse de redirection {uri}, puis copie son Client ID.", { link: link('https://simkl.com/settings/developer/new/', 'simkl.com'), uri: '<code>urn:ietf:wg:oauth:2.0:oob</code>' })}</span></div>
+        <div class="control wide"><input name="simklId" type="text" autocomplete="off" spellcheck="false" value="${esc(s.simklClientId || '')}"></div></div>
+      <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
+    </form>`;
+  const f = $('#f');
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    saveSettings($('button[type=submit]', f), { traktClientId: f.traktId.value.trim(), traktClientSecret: f.traktSecret.value.trim(), simklClientId: f.simklId.value.trim() });
   };
 };
 
@@ -1242,20 +1389,22 @@ const SHAPE_LABEL = { POSTER: 'Affiche', LANDSCAPE: 'Paysage', SQUARE: 'Carré' 
 const SOURCE_LABEL = { addon: 'Addon', tmdb: 'TMDB', trakt: 'Trakt' };
 
 PAGES.collections = async (main) => {
-  const [link, list, profiles] = await Promise.all([api('GET', '/nuvio'), api('GET', '/collections'), api('GET', '/profiles')]);
+  const [list, profiles] = await Promise.all([api('GET', '/collections'), api('GET', '/profiles')]);
+  // Origine d'une collection : adresse du .json (relue), fichier, ou ancien import Nuvio.
+  const origin = (o) => (o.kind === 'url' ? t('Adresse : {host}', { host: esc(o.host) }) : o.kind === 'file' ? t('Fichier .json') : t('Importée de Nuvio'));
   const chips = (on, attrs = '') =>
     profiles.map((p) => `<button type="button" class="chip ${on(p) ? 'on' : ''}" data-p="${esc(p.id)}" aria-pressed="${on(p)}" ${attrs}>${esc(p.name)}</button>`).join('');
   // Dossier : image modifiable ; sous-dossiers (un par source) seulement s'il a plusieurs sources.
   const folderBlock = (c, f) => `<div class="col-folder"><div class="row"><b>${esc(f.title)}</b><span class="badge">${t(SHAPE_LABEL[f.shape] || f.shape)}</span>${f.image ? `<span class="badge accent">${t('image perso')}</span>` : ''}<span class="grow"></span><button type="button" class="btn ghost icon-only sm" data-img="${esc(f.id)}" data-col="${esc(c.id)}" title="${esc(t('Changer l\'image'))}" aria-label="${esc(t('Changer l\'image'))}">${icon('camera')}</button></div>
     ${f.subfolders ? '' : `<p class="small faint">${t('Une seule source : ses titres sont directement dans le dossier.')}</p>`}
-    <ul>${f.sources.map((src) => `<li>${f.subfolders ? `<button type="button" class="btn ghost icon-only sm" data-img="${esc(`${f.id}:${src.index}`)}" data-col="${esc(c.id)}" title="${esc(t('Changer l\'image'))}" aria-label="${esc(t('Changer l\'image'))}">${icon('camera')}</button>` : ''}<span class="badge ${src.broken || src.needsKey ? 'warn' : ''}">${esc(SOURCE_LABEL[src.provider] || src.provider)}</span><span>${esc(src.label)}</span>${src.type ? `<span class="small faint">${esc(typeLabel(src.type))}</span>` : ''}${src.needsKey ? `<span class="small faint">${t("identifiant d'app Trakt manquant (Métadonnées)")}</span>` : ''}${src.broken ? `<span class="small faint">${t('addon introuvable')}</span>` : ''}${src.image ? `<span class="badge accent">${t('image perso')}</span>` : ''}</li>`).join('') || `<li class="faint">${t('Aucune source')}</li>`}</ul></div>`;
+    <ul>${f.sources.map((src) => `<li>${f.subfolders ? `<button type="button" class="btn ghost icon-only sm" data-img="${esc(`${f.id}:${src.index}`)}" data-col="${esc(c.id)}" title="${esc(t('Changer l\'image'))}" aria-label="${esc(t('Changer l\'image'))}">${icon('camera')}</button>` : ''}<span class="badge ${src.broken || src.needsKey ? 'warn' : ''}">${esc(SOURCE_LABEL[src.provider] || src.provider)}</span><span>${esc(src.label)}</span>${src.type ? `<span class="small faint">${esc(typeLabel(src.type))}</span>` : ''}${src.needsKey ? `<span class="small faint">${t("application Trakt à configurer (Réglages → Suivi)")}</span>` : ''}${src.broken ? `<span class="small faint">${t('addon introuvable')}</span>` : ''}${src.image ? `<span class="badge accent">${t('image perso')}</span>` : ''}</li>`).join('') || `<li class="faint">${t('Aucune source')}</li>`}</ul></div>`;
   const item = (c) => {
     const sources = c.folders.reduce((n, f) => n + f.sources.length, 0);
     return `<div class="item col-item" data-id="${esc(c.id)}">
       <div class="col-thumb">${c.backdrop ? `<img src="${esc(c.backdrop)}" alt="" loading="lazy">` : icon('layers')}</div>
       <div class="body">
-        <div class="title">${esc(c.title)}${c.pinned ? `<span class="badge accent">${t('Épinglée')}</span>` : ''}${c.missing ? `<span class="badge warn">${t('Disparue chez Nuvio')}</span>` : ''}</div>
-        <div class="meta"><span>${t('Profil Nuvio : {name}', { name: esc(c.nuvioProfile) })}</span><span>·</span><span>${t('{n} dossier(s)', { n: c.folders.length })}</span><span>·</span><span>${t('{n} source(s)', { n: sources })}</span><span>·</span><span>${t('mise à jour {ago}', { ago: ago(c.updatedAt) })}</span></div>
+        <div class="title">${esc(c.title)}${c.pinned ? `<span class="badge accent">${t('Épinglée')}</span>` : ''}${c.missing ? `<span class="badge warn">${t('Absente du .json')}</span>` : ''}</div>
+        <div class="meta"><span>${origin(c.origin)}</span><span>·</span><span>${t('{n} dossier(s)', { n: c.folders.length })}</span><span>·</span><span>${t('{n} source(s)', { n: sources })}</span><span>·</span><span>${t('mise à jour {ago}', { ago: ago(c.updatedAt) })}</span></div>
         <div class="row col-for"><span class="small faint">${t('Visible pour :')}</span><div class="chips" data-for="${esc(c.id)}">${chips((p) => c.profiles.includes(p.id))}</div></div>
         <details class="col-detail"><summary>${t('Dossiers et sources')}</summary>${c.folders.map((f) => folderBlock(c, f)).join('')}</details>
       </div>
@@ -1265,28 +1414,19 @@ PAGES.collections = async (main) => {
 
   main.innerHTML = `${head(
     t('Collections'),
-    t('Collections Nuvio : chacune devient une bibliothèque dans les apps, et ses dossiers des sous-dossiers. Ajoute-les une fois ici, puis choisis les profils qui les voient.'),
-    link.linked ? `<button class="btn" id="cRefresh">${icon('refresh')}${t('Mettre à jour')}</button><button class="btn primary" id="cAdd">${icon('plus')}${t('Ajouter des collections')}</button>` : ''
+    t('Collections au format Nuvio / Xperience (fichier .json) : chacune devient une bibliothèque dans les apps, et ses dossiers des sous-dossiers. Ajoute-les une fois ici, puis choisis les profils qui les voient.'),
+    `${list.some((c) => c.origin.kind === 'url') ? `<button class="btn" id="cRefresh">${icon('refresh')}${t('Mettre à jour')}</button>` : ''}<button class="btn primary" id="cAdd">${icon('plus')}${t('Ajouter des collections')}</button>`
   )}
-    <div class="card" style="margin-bottom:16px"><div class="setting col-account">
-      <div class="text"><b>${t('Compte Nuvio')}</b><span>${link.linked ? t('Associé : {email}.', { email: esc(link.email || '—') }) : t('Associe ton compte Nuvio pour importer tes collections.')} ${t('Lecture seule : Stremfin ne modifie jamais rien chez Nuvio.')}</span></div>
-      <div class="control">${link.linked ? `<button class="btn danger" id="nUnlink">${t('Dissocier')}</button>` : `<button class="btn primary" id="nLink">${icon('link')}${t('Associer')}</button>`}</div>
-    </div></div>
     <div class="card">
-      <div class="card-head"><div><h2>${t('Bibliothèque de collections')}</h2><p>${t("Mises à jour depuis Nuvio toutes les 6 h. L'ordre, le nom et l'activation se règlent ensuite dans l'onglet Bibliothèques de chaque profil.")}</p></div></div>
-      ${list.length ? `<div class="list" id="colList">${list.map(item).join('')}</div>` : `<div class="empty">${icon('layers')}<p>${link.linked ? t('Aucune collection pour l\'instant : ajoute-en depuis ton compte Nuvio.') : t('Associe un compte Nuvio pour ajouter des collections.')}</p></div>`}
+      <div class="card-head"><div><h2>${t('Bibliothèque de collections')}</h2><p>${t("Celles ajoutées par une adresse sont relues toutes les 6 h ; pour un fichier, renvoie-le pour les mettre à jour. L'ordre, le nom et l'activation se règlent ensuite dans l'onglet Bibliothèques de chaque profil.")}</p></div></div>
+      ${list.length ? `<div class="list" id="colList">${list.map(item).join('')}</div>` : `<div class="empty">${icon('layers')}<p>${t("Aucune collection pour l'instant : ajoute un fichier .json de collections.")}</p></div>`}
     </div>`;
 
-  $('#nLink') && ($('#nLink').onclick = pairNuvio);
-  $('#nUnlink') && ($('#nUnlink').onclick = async () => {
-    if (await confirmDialog(t('Dissocier le compte Nuvio ?'), t('Les collections déjà ajoutées restent, mais ne sont plus mises à jour.'), t('Dissocier'), true)) {
-      if (await busy(null, () => api('DELETE', '/nuvio'), t('Compte dissocié'))) render();
-    }
-  });
   $('#cRefresh') && ($('#cRefresh').onclick = async (e) => {
     const r = await busy(e.currentTarget, () => api('POST', '/collections/refresh'));
     if (!r) return;
-    toast(r.missing ? t('{n} collection(s) disparue(s) chez Nuvio', { n: r.missing }) : t('Collections à jour'), !!r.missing);
+    if (r.errors?.length) toast(r.errors.join(' · '), true);
+    else toast(r.missing ? t('{n} collection(s) absente(s) du .json', { n: r.missing }) : t('Collections à jour'), !!r.missing);
     render();
   });
   $('#cAdd') && ($('#cAdd').onclick = () => addCollections(profiles));
@@ -1366,12 +1506,13 @@ async function collectionImage(c, target) {
   }
 }
 
-async function pairNuvio() {
-  const p = await busy(null, () => api('POST', '/nuvio/pair'));
+/** Appairage d'un compte Nuvio par code (base : route de l'appairage, ex. compte d'un profil). */
+async function pairNuvio(base) {
+  const p = await busy(null, () => api('POST', base));
   if (!p) return;
   let connected = false;
   const check = async () => {
-    const r = await api('POST', `/nuvio/pair/${encodeURIComponent(p.id)}`);
+    const r = await api('POST', `${base}/${encodeURIComponent(p.id)}`);
     if (r.status === 'connected') connected = true;
     return connected;
   };
@@ -1404,26 +1545,34 @@ async function pairNuvio() {
   }
 }
 
-/** Ajout de collections d'un profil Nuvio a la bibliotheque, avec les profils qui les voient. */
+/** Ajout de collections : un .json (fichier ou adresse) et les addons qu'il cite, puis les profils. */
 async function addCollections(profiles) {
-  const nprofiles = await busy(null, () => api('GET', '/nuvio/profiles'));
-  if (!nprofiles) return;
-  if (!nprofiles.length) return toast(t('Aucun profil sur ce compte Nuvio'), true);
+  let mode = 'file';
+  let json = null; // contenu du fichier choisi
+  const input = (form) => (mode === 'url' ? { jsonUrl: form.jsonUrl.value.trim(), addonUrls: form.addons.value } : { json, addonUrls: form.addons.value });
   const done = modal({
     title: t('Ajouter des collections'),
-    lead: t('Choisis un profil Nuvio, puis les collections à ajouter. Une collection déjà ajoutée est simplement mise à jour.'),
+    lead: t("Un fichier .json de collections et l'adresse des addons qu'il utilise. Une collection déjà ajoutée est simplement mise à jour."),
     okLabel: t('Ajouter'),
     wide: true,
     body: `<div class="stack">
-      <div class="field"><label>${t('Profil Nuvio')}</label><select name="np">${nprofiles.map((p) => `<option value="${p.index}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>${t('Adresses des addons')}</label><textarea name="addons" rows="2" spellcheck="false" placeholder="https://…/manifest.json"></textarea>
+        <span class="help">${t('Une par ligne. Les addons déjà connus (collections déjà ajoutées, addons des profils) sont retrouvés tout seuls.')}</span></div>
+      <div class="field"><label>${t('Fichier .json')}</label>
+        <div class="segmented" id="jsonMode"><button type="button" data-m="file" class="on">${t('Fichier')}</button><button type="button" data-m="url">${t('Adresse')}</button></div>
+        <div class="row" id="jsonFileBox" style="margin-top:8px"><button type="button" class="btn" id="jsonPick">${icon('upload')}${t('Choisir un fichier')}</button><span class="small faint" id="jsonName">${t('Aucun fichier')}</span>
+          <input type="file" id="jsonFile" accept=".json,application/json" hidden></div>
+        <div id="jsonUrlBox" style="margin-top:8px" hidden><input name="jsonUrl" type="url" placeholder="https://…/collections.json"><span class="help">${t('Relue toutes les 6 h : les collections suivent les changements du fichier.')}</span></div></div>
+      <div class="row"><button type="button" class="btn" id="jsonRead">${icon('eye')}${t('Lire les collections')}</button></div>
+      <div id="colWarn"></div>
       <div class="list col-pick" id="colPick"></div>
       <div class="field"><label>${t('Visibles pour')}</label><div class="chips" id="colFor">${profiles.map((p) => `<button type="button" class="chip on" data-p="${esc(p.id)}" aria-pressed="true">${esc(p.name)}</button>`).join('')}</div>
         <span class="help">${t('Profils Stremfin qui voient ces collections (modifiable ensuite).')}</span></div>
     </div>`,
     onOk: async (form) => {
       const ids = $$('#colPick input:checked', form).map((x) => x.value);
-      if (!ids.length) throw new Error(t('Aucune collection choisie'));
-      return api('POST', '/collections/import', { profile: Number(form.np.value), ids, profiles: $$('#colFor .chip.on', form).map((x) => x.dataset.p) });
+      if (!ids.length) throw new Error(t('Lis le fichier, puis choisis des collections'));
+      return api('POST', '/collections/import', { ...input(form), ids, profiles: $$('#colFor .chip.on', form).map((x) => x.dataset.p) });
     }
   });
   const form = $('.modal');
@@ -1433,20 +1582,41 @@ async function addCollections(profiles) {
     chip.classList.toggle('on');
     chip.setAttribute('aria-pressed', chip.classList.contains('on'));
   };
-  const load = async () => {
-    const box = $('#colPick');
-    box.innerHTML = `<p class="muted"><span class="spinner"></span> ${t('Chargement…')}</p>`;
-    const cols = await busy(null, () => api('GET', `/nuvio/profiles/${form.np.value}/collections`));
-    if (!box.isConnected) return;
-    box.innerHTML = cols?.length
-      ? cols.map((c) => `<label class="item"><input type="checkbox" value="${esc(c.rawId)}">
-          <div class="col-thumb">${c.backdrop ? `<img src="${esc(c.backdrop)}" alt="" loading="lazy">` : icon('layers')}</div>
-          <div class="body"><div class="title">${esc(c.title)}${c.imported ? `<span class="badge ok">${t('Déjà ajoutée')}</span>` : ''}</div>
-          <div class="meta">${t('{n} dossier(s)', { n: c.folders })} · ${t('{n} source(s)', { n: c.sources })}</div></div></label>`).join('')
-      : `<div class="empty">${icon('layers')}<p>${t("Ce profil Nuvio n'a pas de collection.")}</p></div>`;
+  $('#jsonMode').onclick = (e) => {
+    const b = e.target.closest('[data-m]');
+    if (!b) return;
+    mode = b.dataset.m;
+    $$('#jsonMode button').forEach((x) => x.classList.toggle('on', x === b));
+    $('#jsonFileBox').hidden = mode !== 'file';
+    $('#jsonUrlBox').hidden = mode !== 'url';
   };
-  form.np.onchange = load;
-  load();
+  // Apercu : collections du fichier (cochees), addons trouves ou manquants.
+  const read = async () => {
+    const r = await busy($('#jsonRead'), () => api('POST', '/collections/preview', input(form)));
+    if (!r || !form.isConnected) return;
+    const warn = [];
+    if (r.addons.length) warn.push(`<p class="small faint">${t('Addons trouvés : {names}.', { names: esc(r.addons.join(', ')) })}</p>`);
+    if (r.missing.length) warn.push(`<p class="small" style="color:var(--warn)">${t('Addon introuvable : {ids}. Ajoute son adresse ci-dessus, sinon ses catalogues resteront vides.', { ids: esc(r.missing.join(', ')) })}</p>`);
+    for (const e of r.errors) warn.push(`<p class="small" style="color:var(--bad)">${esc(t(e))}</p>`);
+    $('#colWarn').innerHTML = warn.join('');
+    $('#colPick').innerHTML = r.collections
+      .map((c) => `<label class="item"><input type="checkbox" value="${esc(c.rawId)}" checked>
+        <div class="col-thumb">${c.backdrop ? `<img src="${esc(c.backdrop)}" alt="" loading="lazy">` : icon('layers')}</div>
+        <div class="body"><div class="title">${esc(c.title)}${c.imported ? `<span class="badge ok">${t('Déjà ajoutée')}</span>` : ''}</div>
+        <div class="meta">${t('{n} dossier(s)', { n: c.folders })} · ${t('{n} source(s)', { n: c.sources })}</div></div></label>`)
+      .join('');
+  };
+  $('#jsonRead').onclick = read;
+  $('#jsonPick').onclick = () => $('#jsonFile').click();
+  $('#jsonFile').onchange = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) return toast(t('Fichier trop lourd (8 Mo max.)'), true);
+    json = await file.text();
+    $('#jsonName').textContent = file.name;
+    read();
+  };
   const r = await done;
   if (r) {
     toast(t('{n} collection(s) ajoutée(s)', { n: r.added }));

@@ -48,8 +48,11 @@ function defaultSettings() {
     streamTimeout: 15000,
     // Cle API TMDB (v3) : fiches traduites, catalogues Stremfin (tendances, sagas, collections).
     tmdbApiKey: process.env.TMDB_API_KEY || '',
-    // Identifiant d'app Trakt (client id) : listes Trakt des collections.
+    // Applications Trakt (client id + secret) et Simkl (client id) : suivi des profils et
+    // listes Trakt des collections. Creees par l'admin sur trakt.tv / simkl.com.
     traktClientId: '',
+    traktClientSecret: '',
+    simklClientId: '',
     // Langue et pays des fiches TMDB (le pays sert aux sorties et classifications).
     metadataLanguage: 'fr-FR',
     // Boutons "Passer l'intro / le generique" (timestamps de TheIntroDB).
@@ -126,11 +129,9 @@ function load() {
     admin: raw.admin || null,
     settings: { ...defaultSettings(), ...(raw.settings || {}) },
     profiles: Array.isArray(raw.profiles) ? raw.profiles.map((p) => ({ ...newProfile(p.name), ...p })) : [],
-    // Bibliotheque de collections (importees de Nuvio), attribuees ensuite aux profils.
+    // Bibliotheque de collections (fichiers .json + addons), attribuees ensuite aux profils.
     collections: Array.isArray(raw.collections) ? raw.collections : []
   };
-  // Compte Nuvio associe (lecture seule) : { userId, email, refreshToken, linkedAt }.
-  if (raw.nuvio?.refreshToken) state.nuvio = raw.nuvio;
   state.settings.upstream = { ...defaultSettings().upstream, ...(state.settings.upstream || {}) };
   migratePlatforms();
   // Premier lancement en Docker : compte admin cree depuis AUTH_USER / AUTH_PASS.
@@ -177,7 +178,9 @@ function updateSettings(patch) {
   const s = state.settings;
   for (const k of Object.keys(defaultSettings())) {
     if (patch[k] === undefined) continue;
-    if (k === 'upstream') {
+    if (['traktClientId', 'traktClientSecret', 'simklClientId'].includes(k)) {
+      s[k] = String(patch[k] || '').trim().slice(0, 200);
+    } else if (k === 'upstream') {
       s.upstream = {
         mode: ['direct', 'socks', 'http'].includes(patch.upstream?.mode) ? patch.upstream.mode : 'direct',
         url: String(patch.upstream?.url || '').trim()

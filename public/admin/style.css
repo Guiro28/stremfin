@@ -371,6 +371,7 @@ code { font-family: var(--mono); font-size: 12.5px; background: var(--input); pa
 .col-pick { max-height: 340px; overflow-y: auto; }
 .col-pick .item { cursor: pointer; }
 .col-pick .col-thumb { width: 80px; }
+.pair-code.big { font-size: 30px; letter-spacing: .18em; color: var(--accent-ink); background: var(--accent-soft); padding: 12px 22px; }
 .pair-code { margin-top: 4px; font: 600 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .04em; word-break: break-all; padding: 8px 12px; border-radius: 10px; background: var(--input); color: var(--muted); user-select: all; }
 @media (max-width: 520px) { .col-item .col-thumb { display: none; } }
 

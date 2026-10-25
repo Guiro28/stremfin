@@ -361,11 +361,25 @@ function page(items, { start = 0, limit } = {}) {
   return { items: limit ? items.slice(start, start + limit) : items.slice(start), total: items.length };
 }
 
+/**
+ * Un meme titre peut exister en deux versions (tt... d'un addon, tmdb:... d'un catalogue TMDB) :
+ * meme cle pour les deux. Episode : son id video (tt..:s:e) ; film : IMDb, ou son jumeau (data.twin).
+ */
+function sameKey(e) {
+  if (e.kind === 'episode') return `ep|${e.data.vid || e.uuid}`;
+  return `mv|${e.data.twin ? [e.uuid, e.data.twin].sort()[0] : e.data.imdb || e.uuid}`;
+}
+
 function resume(profile, limit = 20, types) {
-  return st.udResume
-    .all(profile.id, 200)
-    .map((r) => ids.get(r.uuid))
-    .filter((e) => e && ['movie', 'episode'].includes(e.kind))
+  // Une seule fois par titre ; la version la plus complete (duree connue) l'emporte.
+  const byKey = new Map();
+  for (const r of st.udResume.all(profile.id, 200)) {
+    const e = ids.get(r.uuid);
+    if (!e || !['movie', 'episode'].includes(e.kind)) continue;
+    const k = sameKey(e);
+    if (!byKey.has(k) || (!byKey.get(k).data.runtime && e.data.runtime)) byKey.set(k, e);
+  }
+  return [...byKey.values()]
     .map((e) => lightDto(profile, e))
     .filter((d) => d && (!types || types.includes(d.Type)))
     .slice(0, limit);
@@ -386,11 +400,14 @@ async function nextUp(profile, { limit = 20, seriesId } = {}) {
     const e = ids.get(r.uuid);
     if (!e || e.kind !== 'episode') continue;
     if (seriesId && e.data.seriesUuid !== ids.norm(seriesId)) continue;
-    if (!lastBySeries.has(e.data.seriesUuid)) lastBySeries.set(e.data.seriesUuid, { e, r });
+    // Les deux versions d'une serie (tt... / tmdb:...) partagent l'id video de leurs episodes.
+    const k = String(e.data.vid || '').replace(/:\d+:\d+$/, '') || e.data.seriesUuid;
+    if (!lastBySeries.has(k)) lastBySeries.set(k, { e, r });
   }
   const out = [];
-  for (const [sUuid, { e, r }] of lastBySeries) {
+  for (const { e, r } of lastBySeries.values()) {
     if (out.length >= limit) break;
+    const sUuid = e.data.seriesUuid;
     const series = ids.get(sUuid);
     if (!series) continue;
     // Episode en cours : il apparait deja dans "Reprendre", sauf si on demande une serie precise.

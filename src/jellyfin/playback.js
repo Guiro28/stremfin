@@ -631,9 +631,11 @@ function report(profile, body, stage) {
   const { entry } = unwrap(body?.ItemId);
   if (!entry || !['movie', 'episode'].includes(entry.kind)) return;
   const row = { ...current(profile, entry.uuid) };
+  const wasPlayed = !!row.played;
   const pos = Number(body.PositionTicks);
   const ticks = runtimeOf(entry);
   if (Number.isFinite(pos)) row.position = pos;
+  const position = row.position;
   row.last_played = Date.now();
   // Memes seuils que Jellyfin : vu au-dela de 90 %, pas de reprise sous 5 %.
   if (ticks && row.position > ticks * 0.9) {
@@ -646,6 +648,8 @@ function report(profile, body, stage) {
     row.played = 0;
   }
   saveUd(profile, entry.uuid, row);
+  // Trakt (lecture en direct) et Simkl (vu), si le profil les a associes.
+  require('../tracking').onReport(profile, entry, stage, { position, ticks, paused: body.IsPaused === true, watched: !wasPlayed && !!row.played });
 }
 
 async function setPlayed(profile, id, played) {
@@ -667,6 +671,7 @@ async function setPlayed(profile, id, played) {
     row.last_played = played ? now : row.last_played;
     saveUd(profile, e.uuid, row);
   }
+  require('../tracking').onPlayed(profile, targets, played);
   return dto.userData(entry.uuid, current(profile, entry.uuid), runtimeOf(entry));
 }
 

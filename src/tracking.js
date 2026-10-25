@@ -1,0 +1,565 @@
+// Suivi par profil : Trakt et Simkl (associes par code, dans les deux sens) et historique Nuvio
+// (compte Nuvio propre au profil, associe par code ; lecture seule). L'import marque les titres vus et reprend les lectures en cours de Nuvio, sans
+// ecraser une progression plus recente ; il ne renvoie rien vers Trakt / Simkl (pas de boucle).
+// L'envoi : lectures en direct vers Trakt (scrobble), titres vus / pas vus vers Trakt et Simkl.
+const crypto = require('crypto');
+const config = require('./config');
+const ids = require('./ids');
+const nuvio = require('./nuvio');
+const tmdb = require('./tmdb');
+const { st } = require('./db');
+const pkg = require('../package.json');
+
+const TRAKT = 'https://api.trakt.tv';
+const SIMKL = 'https://api.simkl.com';
+const OOB = 'urn:ietf:wg:oauth:2.0:oob';
+const IMPORT_EVERY = 6 * 3600e3;
+const SERVICES = ['trakt', 'simkl', 'nuvio'];
+
+function log(...args) {
+  console.log(new Date().toISOString(), '[suivi]', ...args);
+}
+
+async function request(url, { method = 'GET', headers = {}, body } = {}) {
+  let r;
+  try {
+    r = await fetch(url, {
+      method,
+      redirect: 'error',
+      signal: AbortSignal.timeout(20000),
+      headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
+      body: body ? JSON.stringify(body) : undefined
+    });
+  } catch (e) {
+    throw new Error(`Service injoignable : ${e.message}`);
+  }
+  const text = await r.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {}
+  return { status: r.status, ok: r.ok, data, headers: r.headers };
+}
+
+const settings = () => config.get().settings;
+
+/** Application Trakt / Simkl renseignee dans les reglages ? */
+function ready(service) {
+  const s = settings();
+  // Nuvio : rien a configurer, chaque profil associe son propre compte.
+  return service === 'trakt' ? !!(s.traktClientId && s.traktClientSecret) : service === 'simkl' ? !!s.simklClientId : true;
+}
+
+const traktHeaders = (token) => ({ Authorization: `Bearer ${token}`, 'trakt-api-key': settings().traktClientId, 'trakt-api-version': '2' });
+const simklHeaders = (token) => ({ Authorization: `Bearer ${token}`, 'simkl-api-key': settings().simklClientId });
+
+function simklUrl(path, params = {}) {
+  const u = new URL(SIMKL + path);
+  for (const [k, v] of Object.entries({ client_id: settings().simklClientId, 'app-name': 'stremfin', 'app-version': pkg.version, ...params })) u.searchParams.set(k, v);
+  return u;
+}
+
+// ---- Association (code a valider sur trakt.tv / simkl.com) -----------------------------------
+
+const pairings = new Map(); // id -> { service, profileId, userCode, deviceCode, expiresAt }
+
+async function pairStart(profile, service) {
+  if (service === 'trakt' && !ready('trakt')) throw new Error("Renseigne d'abord l'application Trakt (Réglages → Suivi)");
+  if (service === 'simkl' && !ready('simkl')) throw new Error("Renseigne d'abord l'application Simkl (Réglages → Suivi)");
+  const s = settings();
+  let p;
+  if (service === 'trakt') {
+    const r = await request(`${TRAKT}/oauth/device/code`, { method: 'POST', body: { client_id: s.traktClientId } });
+    if (!r.ok || !r.data?.device_code) throw new Error('Impossible de créer le code Trakt');
+    p = { deviceCode: r.data.device_code, userCode: r.data.user_code, url: r.data.verification_url || 'https://trakt.tv/activate', expiresIn: r.data.expires_in };
+  } else {
+    const r = await request(simklUrl('/oauth/pin', { redirect_uri: OOB }));
+    if (!r.ok || !r.data?.user_code) throw new Error('Impossible de créer le code Simkl');
+    p = { userCode: r.data.user_code, url: r.data.verification_url || 'https://simkl.com/pin', expiresIn: r.data.expires_in };
+  }
+  for (const [k, x] of pairings) if (x.expiresAt < Date.now()) pairings.delete(k);
+  const id = crypto.randomUUID();
+  const expiresAt = Date.now() + (Number(p.expiresIn) || 600) * 1000;
+  pairings.set(id, { ...p, service, profileId: profile.id, expiresAt });
+  return { id, userCode: p.userCode, url: p.url, expiresAt };
+}
+
+function traktTokens(d) {
+  const created = (Number(d.created_at) || Math.floor(Date.now() / 1000)) * 1000;
+  return { accessToken: d.access_token, refreshToken: d.refresh_token, expiresAt: created + (Number(d.expires_in) || 604800) * 1000 };
+}
+
+/** Le code a-t-il ete valide ? Si oui, le compte est associe au profil. */
+async function pairPoll(profile, id) {
+  const p = pairings.get(id);
+  if (!p || p.profileId !== profile.id || p.expiresAt < Date.now()) throw new Error('Code expiré, recommence');
+  const s = settings();
+  let link;
+  if (p.service === 'trakt') {
+    const r = await request(`${TRAKT}/oauth/device/token`, { method: 'POST', body: { code: p.deviceCode, client_id: s.traktClientId, client_secret: s.traktClientSecret } });
+    if (r.status === 400 || r.status === 429) return { status: 'pending' };
+    if (r.status === 418) throw new Error('Autorisation Trakt refusée');
+    if (r.status === 404 || r.status === 410) throw new Error('Code expiré, recommence');
+    if (!r.ok || !r.data?.access_token) throw new Error('Connexion Trakt impossible');
+    link = traktTokens(r.data);
+    const me = await request(`${TRAKT}/users/settings`, { headers: traktHeaders(link.accessToken) }).catch(() => null);
+    link.user = me?.data?.user?.username || me?.data?.user?.name || '';
+  } else {
+    const r = await request(simklUrl(`/oauth/pin/${encodeURIComponent(p.userCode)}`));
+    if (!r.ok) throw new Error('Connexion Simkl impossible');
+    if (r.data?.result !== 'OK' || !r.data?.access_token) return { status: 'pending' };
+    link = { accessToken: r.data.access_token };
+    const me = await request(simklUrl('/users/settings'), { method: 'POST', headers: simklHeaders(link.accessToken) }).catch(() => null);
+    link.user = me?.data?.user?.name || me?.data?.account?.name || '';
+  }
+  pairings.delete(id);
+  const prev = profile[p.service] || {};
+  profile[p.service] = { import: prev.import !== false, export: prev.export !== false, ...link, connectedAt: Date.now() };
+  config.save();
+  log(`${profile.name} : ${p.service} associe (${link.user || '?'})`);
+  return { status: 'connected', user: link.user };
+}
+
+function unlink(profile, service) {
+  delete profile[service];
+  config.save();
+}
+
+/** Jeton Trakt valide (renouvele un jour avant expiration). */
+async function traktToken(profile) {
+  const t = profile.trakt;
+  if (!t?.accessToken) throw new Error("Trakt n'est pas associé");
+  if (t.expiresAt > Date.now() + 24 * 3600e3) return t.accessToken;
+  const s = settings();
+  const r = await request(`${TRAKT}/oauth/token`, {
+    method: 'POST',
+    body: { refresh_token: t.refreshToken, client_id: s.traktClientId, client_secret: s.traktClientSecret, redirect_uri: OOB, grant_type: 'refresh_token' }
+  });
+  if (!r.ok || !r.data?.access_token) throw new Error('Le lien avec Trakt a expiré : associe à nouveau le compte');
+  Object.assign(t, traktTokens(r.data));
+  config.save();
+  return t.accessToken;
+}
+
+// ---- Historiques distants -> evenements { kind, imdb, tmdb, title, season, episode, at, minutes } ---
+
+const minutesOf = (v) => {
+  const n = Number(String(v ?? '').match(/\d+/)?.[0]);
+  return n > 0 && n < 24 * 60 ? n : 0;
+};
+
+/** Historique Trakt depuis le dernier import (tout, la premiere fois). */
+async function traktEvents(profile) {
+  const t = profile.trakt;
+  const token = await traktToken(profile);
+  const events = [];
+  let newest = t.lastAt || 0;
+  for (let page = 1; page <= 200; page++) {
+    const u = new URL(`${TRAKT}/sync/history`);
+    u.searchParams.set('page', page);
+    u.searchParams.set('limit', '100');
+    u.searchParams.set('extended', 'full');
+    if (t.lastAt) u.searchParams.set('start_at', new Date(t.lastAt + 1000).toISOString());
+    const r = await request(u, { headers: traktHeaders(token) });
+    if (r.status === 401) throw new Error('Le lien avec Trakt a expiré : associe à nouveau le compte');
+    if (!r.ok || !Array.isArray(r.data)) throw new Error('Historique Trakt indisponible');
+    for (const item of r.data) {
+      const at = Date.parse(item.watched_at) || 0;
+      newest = Math.max(newest, at);
+      if (item.type === 'movie' && item.movie) {
+        events.push({ kind: 'movie', imdb: item.movie.ids?.imdb, tmdb: item.movie.ids?.tmdb, title: item.movie.title, at, minutes: minutesOf(item.movie.runtime) });
+      } else if (item.type === 'episode' && item.show && item.episode) {
+        events.push({ kind: 'episode', imdb: item.show.ids?.imdb, tmdb: item.show.ids?.tmdb, title: item.show.title, season: item.episode.season, episode: item.episode.number, at, minutes: minutesOf(item.episode.runtime) });
+      }
+    }
+    const pages = Number(r.headers.get('x-pagination-page-count') || 0);
+    if (!r.data.length || (pages && page >= pages)) break;
+  }
+  return { events, commit: () => (t.lastAt = newest) };
+}
+
+/** Historique Simkl : tout la premiere fois, ensuite ce qui a change depuis le dernier import. */
+async function simklEvents(profile) {
+  const t = profile.simkl;
+  const startedAt = Date.now();
+  const events = [];
+  for (const type of ['movies', 'shows', 'anime']) {
+    const params = { extended: 'full', episode_watched_at: 'yes' };
+    if (t.lastSync) params.date_from = new Date(t.lastSync - 60e3).toISOString();
+    const r = await request(simklUrl(`/sync/all-items/${type}`, params), { headers: simklHeaders(t.accessToken) });
+    if (r.status === 401) throw new Error('Le lien avec Simkl a expiré : associe à nouveau le compte');
+    if (!r.ok) throw new Error('Historique Simkl indisponible');
+    const rows = Array.isArray(r.data) ? r.data : r.data?.[type] || [];
+    for (const item of rows) {
+      if (type === 'movies') {
+        const m = item.movie || {};
+        const at = Date.parse(item.last_watched_at || item.last_watched) || 0;
+        if (item.status === 'completed' && at) events.push({ kind: 'movie', imdb: m.ids?.imdb, tmdb: m.ids?.tmdb, title: m.title, at, minutes: minutesOf(m.runtime) });
+        continue;
+      }
+      const show = item.show || item.anime || {};
+      for (const season of item.seasons || []) {
+        for (const ep of season.episodes || []) {
+          const at = Date.parse(ep.watched_at || ep.last_watched_at) || 0;
+          if (at) events.push({ kind: 'episode', imdb: show.ids?.imdb, tmdb: show.ids?.tmdb, title: show.title, season: season.number, episode: ep.number, at, minutes: minutesOf(show.runtime) });
+        }
+      }
+    }
+  }
+  return { events, commit: () => (t.lastSync = startedAt) };
+}
+
+/** Vus et lectures en cours du profil Nuvio choisi (lecture seule). */
+async function nuvioEvents(profile) {
+  const index = profile.nuvioHistory.profile;
+  const acc = nuvio.forProfile(profile);
+  const [watched, progress] = await Promise.all([nuvio.watched(index, acc), nuvio.progress(index, acc)]);
+  const idOf = (row) => {
+    const c = String(row.content_id || '');
+    return { imdb: /^tt\d+$/.test(c) ? c : undefined, tmdb: Number(c.match(/^tmdb:(\d+)$/)?.[1]) || undefined };
+  };
+  const time = (v) => Number(v) || Date.parse(v) || 0;
+  const events = [];
+  for (const row of watched) {
+    const movie = row.content_type === 'movie';
+    if (!movie && (row.season == null || row.episode == null)) continue;
+    events.push({ kind: movie ? 'movie' : 'episode', ...idOf(row), title: row.title, season: row.season, episode: row.episode, at: time(row.watched_at) });
+  }
+  // Lectures en cours (positions en ms) : seulement entre 5 et 90 %, comme Jellyfin.
+  for (const row of progress) {
+    const pos = Number(row.position) || 0;
+    const dur = Number(row.duration) || 0;
+    const movie = row.content_type === 'movie';
+    if (!dur || pos < dur * 0.05 || pos > dur * 0.9 || (!movie && (row.season == null || row.episode == null))) continue;
+    events.push({ kind: movie ? 'movie' : 'episode', ...idOf(row), season: row.season, episode: row.episode, at: time(row.last_watched), position: pos, duration: dur });
+  }
+  return { events, commit: () => {} };
+}
+
+// ---- Application aux "vus" de Stremfin ---------------------------------------------------------
+
+function current(profile, uuid) {
+  return st.udGet.get(profile.id, uuid) || { position: 0, played: 0, favorite: 0, likes: null, play_count: 0, last_played: null };
+}
+
+function save(profile, uuid, row) {
+  st.udPut.run(profile.id, uuid, Math.max(0, Math.round(row.position || 0)), row.played ? 1 : 0, row.favorite ? 1 : 0, row.likes ?? null, row.play_count || 0, row.last_played || null);
+}
+
+/** Vu a la date `at`, sauf si une lecture plus recente est en cours ici. */
+function markWatched(profile, uuid, at) {
+  const row = { ...current(profile, uuid) };
+  if (row.played || (row.position > 0 && (row.last_played || 0) > at)) return false;
+  row.played = 1;
+  row.position = 0;
+  row.play_count = (row.play_count || 0) + 1;
+  row.last_played = Math.max(row.last_played || 0, at);
+  save(profile, uuid, row);
+  return true;
+}
+
+/** Reprise a `positionMs`, si c'est plus recent que ce que Stremfin connait. */
+function markProgress(profile, uuid, at, positionMs) {
+  const row = { ...current(profile, uuid) };
+  if ((row.last_played || 0) >= at) return false;
+  row.played = 0;
+  row.position = positionMs * 10000;
+  row.last_played = at;
+  save(profile, uuid, row);
+  return true;
+}
+
+/**
+ * Identifiants Stremfin d'un titre : la version IMDb (tt...) et la version TMDB (tmdb:...)
+ * sont deux elements differents selon le catalogue d'ou vient le titre ; on marque les deux.
+ */
+async function sidsOf(kind, imdb, tmdbId) {
+  const out = [];
+  if (imdb) out.push(imdb);
+  let t = Number(tmdbId) || null;
+  if (!t && imdb && tmdb.enabled()) t = (await tmdb.resolve(kind === 'movie' ? 'movie' : 'series', imdb).catch(() => null))?.id || null;
+  if (t) out.push(`tmdb:${t}`);
+  return { sids: out, tmdbId: t };
+}
+
+/** Applique des evenements a un profil. Renvoie { watched, progress }. */
+async function apply(profile, events, source) {
+  const library = require('./jellyfin/library');
+  const titles = new Map();
+  for (const ev of events) {
+    if (!ev.imdb && !ev.tmdb) continue;
+    const k = `${ev.kind}|${ev.imdb || ''}|${ev.tmdb || ''}`;
+    if (!titles.has(k)) titles.set(k, { kind: ev.kind, imdb: ev.imdb, tmdb: ev.tmdb, title: ev.title, events: [] });
+    titles.get(k).events.push(ev);
+  }
+  const list = [...titles.values()];
+  // Correspondance IMDb -> TMDB : 8 titres a la fois (reponses TMDB en cache 30 jours).
+  for (let i = 0; i < list.length; i += 8) {
+    await Promise.all(list.slice(i, i + 8).map(async (x) => Object.assign(x, await sidsOf(x.kind, x.imdb, x.tmdb))));
+  }
+  let watched = 0;
+  let progress = 0;
+  for (const x of list) {
+    if (!x.sids.length) continue;
+    const type = x.kind === 'movie' ? 'movie' : 'series';
+    library.registerMetas(x.sids.map((sid) => ({ id: sid, type, name: x.title || undefined })));
+    // Film en deux versions : chacune connait l'autre (une seule ligne dans "Reprendre").
+    if (x.kind === 'movie' && x.sids.length === 2) {
+      const [a, b] = x.sids.map((sid) => ids.uuidOf(`item|movie|${sid}`));
+      ids.register(`item|movie|${x.sids[0]}`, 'movie', { twin: b });
+      ids.register(`item|movie|${x.sids[1]}`, 'movie', { twin: a });
+    }
+    for (const ev of x.events) {
+      let uuids;
+      if (x.kind === 'movie') {
+        uuids = x.sids.map((sid) => ids.uuidOf(`item|movie|${sid}`));
+      } else {
+        const s = Number(ev.season);
+        const e = Number(ev.episode);
+        const vid = x.imdb ? `${x.imdb}:${s}:${e}` : `tmdb:${x.tmdbId}:${s}:${e}`;
+        uuids = ids.registerMany(
+          x.sids.map((sid) => ({
+            key: `ep|${sid}|${vid}`,
+            kind: 'episode',
+            data: { seriesUuid: ids.uuidOf(`item|series|${sid}`), seasonUuid: ids.uuidOf(`season|${sid}|${s}`), type: 'series', seriesSid: sid, vid, tmdbVid: x.tmdbId ? `tmdb:${x.tmdbId}:${s}:${e}` : undefined, season: s, episode: e }
+          }))
+        );
+      }
+      if (ev.position) {
+        // Duree connue de Nuvio : sert au pourcentage de reprise tant que la fiche n'est pas chargee.
+        for (const u of uuids) {
+          const e = ids.get(u);
+          if (e && !e.data.runtime && ev.duration) ids.register(e.key, e.kind, { runtime: `${Math.round(ev.duration / 60e3)} min` });
+        }
+        if (uuids.map((u) => markProgress(profile, u, ev.at, ev.position)).some(Boolean)) progress++;
+        continue;
+      }
+      if (uuids.map((u) => markWatched(profile, u, ev.at)).some(Boolean)) watched++;
+      // Historique (statistiques) : une ligne par visionnage, sans doublon.
+      const label = x.kind === 'movie' ? x.title : `${x.title || ''} S${String(ev.season).padStart(2, '0')}E${String(ev.episode).padStart(2, '0')}`;
+      const ms = (ev.minutes || 0) * 60e3;
+      st.playImport.run(profile.id, uuids[0], x.kind, label || null, x.kind === 'movie' ? null : x.title || null, ev.at, ev.at, ms, ms, source);
+    }
+  }
+  return { watched, progress };
+}
+
+// ---- Import --------------------------------------------------------------------------------------
+
+const FETCH = { trakt: traktEvents, simkl: simklEvents, nuvio: nuvioEvents };
+const running = new Map();
+
+/** Etat d'un service pour un profil : { linked, active } (active = import a faire). */
+function serviceState(profile, service) {
+  if (service === 'nuvio') {
+    const n = profile.nuvioHistory;
+    const linked = !!profile.nuvio?.refreshToken;
+    return { linked, active: linked && n?.profile != null && n.import !== false };
+  }
+  const linked = !!profile[service]?.accessToken && ready(service);
+  return { linked, active: linked && profile[service].import !== false };
+}
+
+/** Importe l'historique d'un profil depuis ses services associes. */
+function importProfile(profile) {
+  if (running.has(profile.id)) return running.get(profile.id);
+  const job = (async () => {
+    const results = {};
+    for (const service of SERVICES) {
+      if (!serviceState(profile, service).active) continue;
+      const holder = service === 'nuvio' ? profile.nuvioHistory : profile[service];
+      try {
+        const { events, commit } = await FETCH[service](profile);
+        const r = await apply(profile, events, service);
+        commit();
+        Object.assign(holder, { lastSync: Date.now(), lastError: null, lastResult: { ...r, events: events.length } });
+        results[service] = r;
+        log(`${profile.name} : ${service} -> ${events.length} evenement(s), ${r.watched} vu(s), ${r.progress} reprise(s)`);
+      } catch (e) {
+        holder.lastError = e.message;
+        results[service] = { error: e.message };
+        log(`${profile.name} : import ${service} KO : ${e.message}`);
+      }
+    }
+    config.save();
+    return results;
+  })().finally(() => running.delete(profile.id));
+  running.set(profile.id, job);
+  return job;
+}
+
+async function importAll() {
+  for (const p of config.get().profiles.filter((x) => !x.disabled)) await importProfile(p);
+}
+
+let timer = null;
+function start() {
+  clearTimeout(timer);
+  const run = () => {
+    importAll()
+      .catch((e) => log(`import KO : ${e.message}`))
+      .finally(() => {
+        timer = setTimeout(run, IMPORT_EVERY);
+        timer.unref();
+      });
+  };
+  timer = setTimeout(run, 2 * 60e3);
+  timer.unref();
+}
+
+// ---- Envoi vers Trakt et Simkl -----------------------------------------------------------------
+
+function idsOf(d) {
+  const out = {};
+  const imdb = d?.imdb || (/^tt\d+$/.test(d?.sid) ? d.sid : null);
+  const t = Number(d?.tmdb) || Number(String(d?.sid || '').match(/^tmdb:(\d+)$/)?.[1]) || null;
+  if (imdb) out.imdb = imdb;
+  if (t) out.tmdb = t;
+  return Object.keys(out).length ? out : null;
+}
+
+/** Film ou episode au format Trakt / Simkl, ou null. */
+function mediaOf(entry) {
+  if (entry.kind === 'movie') {
+    const i = idsOf(entry.data);
+    return i && { movie: { ids: i } };
+  }
+  if (entry.kind === 'episode') {
+    const i = idsOf(ids.get(entry.data.seriesUuid)?.data);
+    return i && { show: { ids: i }, episode: { season: Number(entry.data.season), number: Number(entry.data.episode) } };
+  }
+  return null;
+}
+
+function failed(profile, service, e) {
+  if (profile[service]) profile[service].lastError = e.message;
+  config.save();
+  log(`${profile.name} : envoi ${service} KO : ${e.message}`);
+}
+
+const exporting = (profile, service) => !!profile[service]?.accessToken && profile[service].export !== false && ready(service);
+
+async function trakt(profile, path, body) {
+  const r = await request(TRAKT + path, { method: 'POST', headers: traktHeaders(await traktToken(profile)), body });
+  // 409 : deja envoye il y a moins d'une heure (scrobble), sans gravite.
+  if (!r.ok && r.status !== 409) throw new Error(`Trakt : erreur ${r.status}`);
+}
+
+async function simkl(profile, path, body) {
+  const r = await request(simklUrl(path), { method: 'POST', headers: simklHeaders(profile.simkl.accessToken), body });
+  if (!r.ok) throw new Error(`Simkl : erreur ${r.status}`);
+}
+
+/** Corps "historique" (films + series regroupees par saison) pour /sync/history. */
+function historyBody(entries, at) {
+  const movies = [];
+  const shows = new Map();
+  for (const e of entries) {
+    const m = mediaOf(e);
+    if (!m) continue;
+    const when = at ? { watched_at: new Date(at).toISOString() } : {};
+    if (m.movie) movies.push({ ids: m.movie.ids, ...when });
+    else {
+      const k = JSON.stringify(m.show.ids);
+      if (!shows.has(k)) shows.set(k, { ids: m.show.ids, seasons: new Map() });
+      const seasons = shows.get(k).seasons;
+      if (!seasons.has(m.episode.season)) seasons.set(m.episode.season, []);
+      seasons.get(m.episode.season).push({ number: m.episode.number, ...when });
+    }
+  }
+  return {
+    movies,
+    shows: [...shows.values()].map((s) => ({ ids: s.ids, seasons: [...s.seasons].map(([number, episodes]) => ({ number, episodes })) }))
+  };
+}
+
+const live = new Map(); // "profil|uuid" -> { paused, at }
+
+/**
+ * Rapport de lecture d'une app : lecture en direct vers Trakt (start / pause / stop ; Trakt
+ * marque vu au-dela de 80 %), et titre devenu vu vers Simkl.
+ */
+function onReport(profile, entry, stage, { position, ticks, paused, watched }) {
+  const media = mediaOf(entry);
+  if (!media) return;
+  if (exporting(profile, 'trakt') && ticks) {
+    for (const [k, v] of live) if (Date.now() - v.at > 6 * 3600e3) live.delete(k);
+    const key = `${profile.id}|${entry.uuid}`;
+    const prev = live.get(key);
+    let action = null;
+    if (stage === 'stopped') {
+      action = 'stop';
+      live.delete(key);
+    } else if (!prev || stage === 'start') {
+      action = paused ? 'pause' : 'start';
+      live.set(key, { paused: !!paused, at: Date.now() });
+    } else if (!!paused !== prev.paused) {
+      action = paused ? 'pause' : 'start';
+      Object.assign(prev, { paused: !!paused, at: Date.now() });
+    } else {
+      prev.at = Date.now();
+    }
+    const progress = Math.round(Math.min(100, Math.max(0, (position / ticks) * 100)) * 100) / 100;
+    if (action) trakt(profile, `/scrobble/${action}`, { ...media, progress, app_version: pkg.version }).catch((e) => failed(profile, 'trakt', e));
+  }
+  if (watched && exporting(profile, 'simkl')) simkl(profile, '/sync/history', historyBody([entry], Date.now())).catch((e) => failed(profile, 'simkl', e));
+}
+
+/** "Vu" / "pas vu" choisi dans une app : envoye a Trakt et Simkl. */
+function onPlayed(profile, entries, played) {
+  const at = played ? Date.now() : null;
+  const body = historyBody(entries, at);
+  if (!body.movies.length && !body.shows.length) return;
+  const path = played ? '/sync/history' : '/sync/history/remove';
+  if (exporting(profile, 'trakt')) trakt(profile, path, body).catch((e) => failed(profile, 'trakt', e));
+  if (exporting(profile, 'simkl')) simkl(profile, path, body).catch((e) => failed(profile, 'simkl', e));
+}
+
+// ---- Pour l'interface ----------------------------------------------------------------------------
+
+function describe(profile) {
+  const view = (service) => {
+    const h = service === 'nuvio' ? profile.nuvioHistory || {} : profile[service] || {};
+    return {
+      ready: ready(service),
+      linked: serviceState(profile, service).linked,
+      user: service === 'nuvio' ? profile.nuvio?.email || '' : h.user || '',
+      import: h.import !== false,
+      export: h.export !== false,
+      lastSync: h.lastSync || null,
+      lastError: h.lastError || null,
+      lastResult: h.lastResult || null
+    };
+  };
+  return { trakt: view('trakt'), simkl: view('simkl'), nuvio: { ...view('nuvio'), profile: profile.nuvioHistory?.profile ?? null } };
+}
+
+/** Options : { trakt: { import, export }, simkl: { import, export }, nuvio: { profile, import } }. */
+function update(profile, patch) {
+  for (const service of ['trakt', 'simkl']) {
+    const p = patch?.[service];
+    if (!p || !profile[service]) continue;
+    if (typeof p.import === 'boolean') profile[service].import = p.import;
+    if (typeof p.export === 'boolean') profile[service].export = p.export;
+  }
+  // Profil Nuvio dont on recupere l'historique (compte Nuvio du profil).
+  const n = patch?.nuvio;
+  if (n) {
+    profile.nuvioHistory = profile.nuvioHistory || {};
+    if (n.profile === null || Number.isInteger(n.profile)) {
+      if (n.profile !== profile.nuvioHistory.profile) Object.assign(profile.nuvioHistory, { lastSync: null, lastError: null, lastResult: null });
+      profile.nuvioHistory.profile = n.profile;
+    }
+    if (typeof n.import === 'boolean') profile.nuvioHistory.import = n.import;
+  }
+  config.save();
+}
+
+/** Compte Nuvio du profil retire : plus d'historique Nuvio a importer. */
+function unlinkNuvio(profile) {
+  nuvio.unlink(nuvio.forProfile(profile));
+  if (profile.nuvioHistory) Object.assign(profile.nuvioHistory, { profile: null, lastSync: null, lastError: null, lastResult: null });
+  config.save();
+}
+
+module.exports = { pairStart, pairPoll, unlink, unlinkNuvio, importProfile, start, onReport, onPlayed, describe, update };

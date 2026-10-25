@@ -144,4 +144,6 @@ server.listen(PORT, () => {
   require('./src/backup').start();
   // Collections mises a jour depuis Nuvio toutes les 6 h.
   require('./src/collections').start();
+  // Historiques Trakt / Simkl / Nuvio importes toutes les 6 h.
+  require('./src/tracking').start();
 });

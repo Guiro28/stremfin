@@ -1,5 +1,6 @@
-// Bibliotheque de collections : importees d'un compte Nuvio (lecture seule), gardees une fois
-// au niveau du serveur, puis attribuees aux profils. Pour les apps, chaque collection est une
+// Bibliotheque de collections : ajoutees a partir d'un fichier .json (format des collections
+// Nuvio / Xperience, envoye ou lu a une adresse) et des addons qu'il cite, gardees une fois au
+// niveau du serveur, puis attribuees aux profils. Pour les apps, chaque collection est une
 // bibliotheque, ses dossiers des sous-dossiers, et chaque source d'un dossier (catalogue d'addon,
 // decouverte TMDB, liste Trakt) un dossier de plus ; un dossier a une seule source montre
 // directement ses titres.
@@ -8,7 +9,6 @@
 const crypto = require('crypto');
 const config = require('./config');
 const cache = require('./cache');
-const nuvio = require('./nuvio');
 const { getJson } = require('./http');
 
 const ADDON_URL = 'stremfin://collections';
@@ -31,49 +31,113 @@ function byId(id) {
   return all().find((c) => c.id === id) || null;
 }
 
-/** Id Stremfin d'une collection : profil Nuvio + id Nuvio (sans separateurs de cle). */
-function idOf(profileIndex, rawId) {
-  return `${profileIndex}-${String(rawId).replace(/[^\w-]/g, '')}`;
+/** Collection deja dans la bibliotheque (meme id dans le .json). */
+function byRawId(rawId) {
+  return all().find((c) => String(c.data?.id) === String(rawId)) || null;
+}
+
+/** Id Stremfin d'une nouvelle collection (sans separateurs de cle). */
+function newId(rawId) {
+  const base = String(rawId).replace(/[^\w-]/g, '').slice(0, 60) || crypto.randomBytes(6).toString('hex');
+  let id = base;
+  for (let n = 2; byId(id); n++) id = `${base}-${n}`;
+  return id;
 }
 
 function revOf(data) {
   return crypto.createHash('sha1').update(JSON.stringify(data)).digest('hex').slice(0, 8);
 }
 
-/**
- * Adresse des addons cites par des collections : les sources Nuvio ne donnent souvent que
- * l'id de l'addon ; on le retrouve parmi les addons du profil Nuvio (manifest lu une fois).
- * Renvoie { addonId: { url, name, catalogs: { "type|id": nom } } }.
- */
-async function resolveAddons(profileIndex, raws) {
-  const wanted = new Set();
-  for (const raw of raws) for (const f of raw.folders || []) for (const src of f.sources || []) if ((src.provider || 'addon') === 'addon' && src.addonId && !safeUrl(src.addonBaseUrl)) wanted.add(src.addonId);
-  if (!wanted.size) return {};
-  const out = {};
-  const rows = await nuvio.addons(profileIndex);
-  await Promise.all(
-    rows.map(async (r) => {
-      try {
-        const url = config.normalizeManifestUrl(r.url);
-        const m = await getJson(url, { upstream: config.get().settings.upstream, timeout: 10000 });
-        if (m?.id && wanted.has(m.id)) out[m.id] = { url, name: String(m.name || r.name || m.id), catalogs: Object.fromEntries((m.catalogs || []).map((k) => [`${k.type}|${k.id}`, String(k.name || k.id)])) };
-      } catch (e) {
-        log(`manifest KO ${String(r.url).replace(/^(https?:\/\/[^/]+).*/, '$1/…')} : ${e.message}`);
-      }
-    })
-  );
+/** Adresse sans son chemin (qui peut contenir un jeton) : pour l'interface et le journal. */
+const hostOf = (u) => String(u || '').replace(/^(https?:\/\/[^/]+).*/, '$1/…');
+
+/** Collections d'un .json : tableau, ou { collections: [...] }. */
+function parseCollections(json) {
+  let j = json;
+  if (typeof j === 'string') {
+    try {
+      j = JSON.parse(j);
+    } catch {
+      throw new Error('Fichier .json illisible');
+    }
+  }
+  const list = Array.isArray(j) ? j : Array.isArray(j?.collections) ? j.collections : null;
+  if (!list) throw new Error("Ce n'est pas un fichier de collections");
+  const out = list.filter((c) => c && c.id && Array.isArray(c.folders));
+  if (!out.length) throw new Error('Aucune collection dans ce fichier');
   return out;
 }
 
-function store(profile, raw, addons = {}) {
-  const id = idOf(profile.index, raw.id);
+/** Collections lues dans le fichier envoye (json) ou a l'adresse du .json (jsonUrl). */
+async function readCollections({ json, jsonUrl }) {
+  if (jsonUrl) {
+    if (!safeUrl(jsonUrl)) throw new Error('Adresse du .json invalide');
+    let j;
+    try {
+      j = await getJson(jsonUrl, { upstream: config.get().settings.upstream, timeout: 20000 });
+    } catch (e) {
+      throw new Error(`.json injoignable : ${e.message}`);
+    }
+    return parseCollections(j);
+  }
+  if (json === undefined || json === null || json === '') throw new Error('Envoie un fichier .json ou donne son adresse');
+  return parseCollections(json);
+}
+
+/** Adresses d'addons donnees dans l'interface (une par ligne), au format manifest.json. */
+function addonList(urls) {
+  const list = (Array.isArray(urls) ? urls : String(urls || '').split(/\s+/)).map((u) => String(u).trim()).filter(Boolean);
+  return [...new Set(list)].map((u) => {
+    try {
+      return config.normalizeManifestUrl(u);
+    } catch {
+      throw new Error(`Adresse d'addon invalide : ${hostOf(u)}`);
+    }
+  });
+}
+
+/**
+ * Addons cites par des collections (les sources ne donnent souvent que leur id) : cherches
+ * parmi les adresses donnees, puis les addons deja connus (collections deja ajoutees, profils).
+ * Renvoie { addons: { addonId: { url, name, catalogs } }, missing: [ids], errors: [messages] }.
+ */
+async function resolveAddons(addonUrls, raws) {
+  const wanted = new Set();
+  for (const raw of raws) {
+    for (const f of raw.folders || []) {
+      for (const src of f.sources || []) if ((src.provider || 'addon') === 'addon' && src.addonId && !safeUrl(src.addonBaseUrl)) wanted.add(src.addonId);
+    }
+  }
+  const candidates = [...addonUrls];
+  for (const c of all()) for (const [id, a] of Object.entries(c.addons || {})) if (wanted.has(id)) candidates.push(a.url);
+  for (const p of config.get().profiles) for (const a of p.addons) if (wanted.has(a.manifest?.id)) candidates.push(a.url);
+  const addons = {};
+  const errors = [];
+  await Promise.all(
+    [...new Set(candidates)].map(async (url) => {
+      try {
+        const m = await getJson(url, { upstream: config.get().settings.upstream, timeout: 15000 });
+        if (m?.id && wanted.has(m.id) && !addons[m.id]) {
+          addons[m.id] = { url, name: String(m.name || m.id), catalogs: Object.fromEntries((m.catalogs || []).map((k) => [`${k.type}|${k.id}`, String(k.name || k.id)])) };
+        }
+      } catch (e) {
+        if (addonUrls.includes(url)) errors.push(`Addon injoignable : ${hostOf(url)} (${e.message})`);
+        log(`manifest KO ${hostOf(url)} : ${e.message}`);
+      }
+    })
+  );
+  return { addons, missing: [...wanted].filter((id) => !addons[id]), errors };
+}
+
+/** Ajoute ou met a jour une collection ; origin = { json: adresse du .json ou null, addonUrls }. */
+function store(raw, addons, origin) {
   const now = Date.now();
-  let c = byId(id);
+  let c = byRawId(raw.id);
   if (!c) {
-    c = { id, importedAt: now };
+    c = { id: newId(raw.id), importedAt: now };
     all().push(c);
   }
-  // Seulement les addons de cette collection (une adresse deja connue reste si Nuvio ne repond pas).
+  // Seulement les addons de cette collection (une adresse deja connue reste si l'addon ne repond pas).
   const used = {};
   for (const f of raw.folders || []) {
     for (const src of f.sources || []) {
@@ -85,61 +149,84 @@ function store(profile, raw, addons = {}) {
       if (a.catalogs?.[key]) used[src.addonId].catalogs[key] = a.catalogs[key];
     }
   }
-  Object.assign(c, { title: String(raw.title || raw.name || 'Collection'), nuvioProfile: profile.index, nuvioProfileName: profile.name, data: raw, addons: used, rev: revOf({ raw, used }), updatedAt: now, missing: false });
+  Object.assign(c, { title: String(raw.title || raw.name || 'Collection'), origin, data: raw, addons: used, rev: revOf({ raw, used }), updatedAt: now, missing: false });
+  // Anciennes collections importees d'un compte Nuvio.
+  delete c.nuvioProfile;
+  delete c.nuvioProfileName;
   return c;
 }
 
-/** Collections d'un profil Nuvio, avec celles deja dans la bibliotheque. */
-async function available(profileIndex) {
-  const list = await nuvio.collections(profileIndex);
-  return list.map((raw) => ({
-    rawId: String(raw.id),
-    title: String(raw.title || raw.name || 'Collection'),
-    folders: raw.folders.length,
-    sources: raw.folders.reduce((n, f) => n + (f.sources?.length || 0), 0),
-    backdrop: imageOf({ data: raw }),
-    imported: !!byId(idOf(profileIndex, raw.id))
-  }));
+/** Apercu d'un .json avant l'ajout : ses collections et les addons manquants. */
+async function preview(input) {
+  const raws = await readCollections(input);
+  const r = await resolveAddons(addonList(input.addonUrls), raws);
+  return {
+    collections: raws.map((raw) => ({
+      rawId: String(raw.id),
+      title: String(raw.title || raw.name || 'Collection'),
+      folders: raw.folders.length,
+      sources: raw.folders.reduce((n, f) => n + (f.sources?.length || 0), 0),
+      backdrop: imageOf({ data: raw }),
+      imported: !!byRawId(raw.id)
+    })),
+    addons: Object.values(r.addons).map((a) => a.name),
+    missing: r.missing,
+    errors: r.errors
+  };
 }
 
-/** Ajoute (ou met a jour) des collections d'un profil Nuvio dans la bibliotheque. */
-async function importFrom(profileIndex, rawIds) {
-  const profile = (await nuvio.profiles()).find((p) => p.index === Number(profileIndex));
-  if (!profile) throw new Error('Profil Nuvio introuvable');
+/** Ajoute (ou met a jour) les collections choisies d'un .json. Renvoie leurs ids. */
+async function importFrom(input, rawIds) {
   const wanted = new Set((rawIds || []).map(String));
-  const raws = (await nuvio.collections(profile.index)).filter((raw) => wanted.has(String(raw.id)));
-  const addons = await resolveAddons(profile.index, raws);
-  const added = raws.map((raw) => store(profile, raw, addons).id);
+  const raws = (await readCollections(input)).filter((raw) => wanted.has(String(raw.id)));
+  if (!raws.length) throw new Error('Aucune collection choisie');
+  const addonUrls = addonList(input.addonUrls);
+  const { addons } = await resolveAddons(addonUrls, raws);
+  const origin = { json: input.jsonUrl ? String(input.jsonUrl) : null, addonUrls };
+  const added = raws.map((raw) => store(raw, addons, origin).id);
   config.save();
-  log(`${added.length} collection(s) importee(s) du profil Nuvio "${profile.name}"`);
+  log(`${added.length} collection(s) ajoutee(s) depuis ${origin.json ? hostOf(origin.json) : 'un fichier .json'}`);
   return added;
 }
 
-/** Met a jour toutes les collections depuis Nuvio ; celles disparues restent, marquees. */
+/**
+ * Met a jour les collections venues d'une adresse de .json (relue) ; celles qui n'y sont plus
+ * restent, marquees. Les collections venues d'un fichier se mettent a jour en le renvoyant.
+ */
 async function refresh() {
-  if (!nuvio.status().linked || !all().length) return { updated: 0, missing: 0 };
-  const profiles = await nuvio.profiles();
   let updated = 0;
   let missing = 0;
-  for (const index of [...new Set(all().map((c) => c.nuvioProfile))]) {
-    const profile = profiles.find((p) => p.index === index);
-    const list = profile ? await nuvio.collections(index) : [];
-    const found = new Map(list.map((raw) => [idOf(index, raw.id), raw]));
-    const addons = await resolveAddons(index, list.filter((raw) => byId(idOf(index, raw.id))));
-    for (const c of all().filter((x) => x.nuvioProfile === index)) {
-      const raw = found.get(c.id);
-      if (raw) {
-        const rev = c.rev;
-        if (store(profile, raw, addons).rev !== rev) updated++;
-      } else if (!c.missing) {
-        c.missing = true;
-        missing++;
+  const errors = [];
+  const groups = new Map();
+  for (const c of all()) {
+    if (!c.origin?.json) continue;
+    if (!groups.has(c.origin.json)) groups.set(c.origin.json, []);
+    groups.get(c.origin.json).push(c);
+  }
+  for (const [jsonUrl, list] of groups) {
+    try {
+      const raws = await readCollections({ jsonUrl });
+      const addonUrls = [...new Set(list.flatMap((c) => c.origin.addonUrls || []))];
+      const { addons } = await resolveAddons(addonUrls, raws);
+      const found = new Map(raws.map((raw) => [String(raw.id), raw]));
+      for (const c of list) {
+        const raw = found.get(String(c.data.id));
+        if (raw) {
+          const rev = c.rev;
+          if (store(raw, addons, c.origin).rev !== rev) updated++;
+        } else if (!c.missing) {
+          c.missing = true;
+          missing++;
+        }
       }
+    } catch (e) {
+      errors.push(`${hostOf(jsonUrl)} : ${e.message}`);
+      log(`mise a jour KO ${hostOf(jsonUrl)} : ${e.message}`);
     }
   }
   config.save();
-  log(`mise a jour : ${updated} modifiee(s), ${missing} disparue(s) chez Nuvio`);
-  return { updated, missing };
+  if (groups.size) log(`mise a jour : ${updated} modifiee(s), ${missing} disparue(s)`);
+  return { updated, missing, errors };
 }
 
 function remove(id) {
@@ -270,13 +357,13 @@ async function traktPage(src, skip) {
 /** Image choisie dans l'interface pour un dossier ("dossier") ou un sous-dossier ("dossier:n"). */
 const customImage = (c, target) => c.images?.[target]?.image || null;
 
-/** Image Nuvio de la collection : son fond, sinon celui de son premier dossier. */
+/** Image d'origine de la collection (.json) : son fond, sinon celui de son premier dossier. */
 function nuvioImageOf(c) {
   const f = (c.data.folders || [])[0] || {};
   return safeUrl(c.data.backdropImageUrl) || safeUrl(f.heroBackdropUrl) || safeUrl(f.coverImageUrl);
 }
 
-/** Image de la bibliotheque ("Mes medias") : celle choisie dans l'interface, sinon celle de Nuvio. */
+/** Image de la bibliotheque ("Mes medias") : celle choisie dans l'interface, sinon celle du .json. */
 function imageOf(c) {
   return c.image || nuvioImageOf(c);
 }
@@ -446,10 +533,11 @@ function describe(c) {
   return {
     id: c.id,
     title: c.title,
-    nuvioProfile: c.nuvioProfileName,
+    // Origine : adresse du .json (relue toutes les 6 h), fichier .json, ou ancien import Nuvio.
+    origin: c.origin?.json ? { kind: 'url', host: hostOf(c.origin.json) } : c.origin ? { kind: 'file' } : { kind: 'nuvio' },
     backdrop: imageOf(c),
     pinned: !!c.data.pinToTop,
-    // Image de la tuile : choisie ici (image), sinon celle de Nuvio (nuvioImage).
+    // Image de la tuile : choisie ici (image), sinon celle du .json (nuvioImage).
     image: c.image || null,
     nuvioImage: nuvioImageOf(c),
     missing: !!c.missing,
@@ -485,4 +573,4 @@ function imageTarget(c, target) {
   return index === undefined || (list.length > 1 && list.some((x) => x.index === Number(index)));
 }
 
-module.exports = { ADDON_URL, imageTarget, list, available, importFrom, refresh, remove, assign, start, addon, folderView, subfolders, sourceViewOf, warmViews, catalog, byId };
+module.exports = { ADDON_URL, imageTarget, list, preview, importFrom, refresh, remove, assign, start, addon, folderView, subfolders, sourceViewOf, warmViews, catalog, byId };

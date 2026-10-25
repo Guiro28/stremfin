@@ -17,6 +17,7 @@ const pkg = require('../package.json');
 const backup = require('./backup');
 const nuvio = require('./nuvio');
 const collections = require('./collections');
+const tracking = require('./tracking');
 const { verifyPassword } = require('./security');
 
 const router = express.Router();
@@ -32,7 +33,8 @@ router.put('/api/profiles/:id/library-image', express.raw({ type: (req) => !Stri
 router.put('/api/profiles/:id/avatar', express.raw({ type: () => true, limit: avatars.MAX_BYTES + 1024 }));
 router.put('/api/backups/upload', express.raw({ type: () => true, limit: '1gb' }));
 router.put('/api/collections/:id/image', express.raw({ type: (req) => !String(req.headers['content-type'] || '').includes('json'), limit: avatars.MAX_BYTES + 1024 }));
-router.use('/api', express.json({ limit: '2mb' }));
+// 8 Mo : fichiers .json de collections envoyes depuis l'interface.
+router.use('/api', express.json({ limit: '8mb' }));
 
 const adminOnly = adminAuth.requireAdmin;
 
@@ -122,6 +124,7 @@ function profileDetail(p) {
     defaultQuality: p.defaultQuality || '1080',
     versionMode: p.versionMode === 'releases' ? 'releases' : 'quality',
     customCss: p.customCss || '',
+    tracking: tracking.describe(p),
     addons: p.addons.map((a, index) => ({
       index,
       url: a.url,
@@ -157,9 +160,11 @@ function profileDetail(p) {
   };
 }
 
-/** La cle TMDB ne repart jamais en clair vers le navigateur. */
+const mask = (v) => (v ? '••••••••' + v.slice(-4) : '');
+
+/** Cle TMDB et secret Trakt ne repartent jamais en clair vers le navigateur. */
 function publicSettings(s) {
-  return { ...s, tmdbApiKey: s.tmdbApiKey ? '••••••••' + s.tmdbApiKey.slice(-4) : '' };
+  return { ...s, tmdbApiKey: mask(s.tmdbApiKey), traktClientSecret: mask(s.traktClientSecret) };
 }
 
 // ---- Tableau de bord -----------------------------------------------------------------
@@ -211,7 +216,7 @@ router.put('/api/settings', adminOnly, async (req, res) => {
   const patch = { ...(req.body || {}) };
   const before = config.get().settings;
   // Valeur masquee renvoyee telle quelle : la cle ne change pas.
-  if (typeof patch.tmdbApiKey === 'string' && patch.tmdbApiKey.startsWith('•')) delete patch.tmdbApiKey;
+  for (const k of ['tmdbApiKey', 'traktClientSecret']) if (typeof patch[k] === 'string' && patch[k].startsWith('•')) delete patch[k];
   if (patch.tmdbApiKey) {
     try {
       await tmdb.checkKey(patch.tmdbApiKey.trim());
@@ -231,53 +236,105 @@ router.put('/api/settings', adminOnly, async (req, res) => {
   res.json(publicSettings(s));
 });
 
-// ---- Nuvio (lecture seule) et bibliotheque de collections ----------------------------------
+// ---- Suivi (Trakt, Simkl, historique Nuvio) d'un profil ----------------------------------------
 
-router.get('/api/nuvio', adminOnly, (req, res) => res.json(nuvio.status()));
-
-router.post('/api/nuvio/pair', adminOnly, async (req, res) => {
+// Compte Nuvio du profil (lecture seule) : appairage par code, profils du compte, retrait.
+router.post('/api/profiles/:id/tracking/nuvio/pair', async (req, res) => {
+  const p = profileOr404(req, res);
+  if (!p) return;
   try {
-    res.json(await nuvio.pairStart());
+    res.json(await nuvio.pairStart(p.id));
   } catch (e) {
     fail(res, 502, e.message);
   }
 });
 
-router.post('/api/nuvio/pair/:id', adminOnly, async (req, res) => {
+router.post('/api/profiles/:id/tracking/nuvio/pair/:pairId', async (req, res) => {
+  const p = profileOr404(req, res);
+  if (!p) return;
   try {
-    res.json(await nuvio.pairPoll(req.params.id));
+    res.json(await nuvio.pairPoll(req.params.pairId, nuvio.forProfile(p), p.id));
   } catch (e) {
     fail(res, 400, e.message);
   }
 });
 
-router.delete('/api/nuvio', adminOnly, (req, res) => {
-  nuvio.unlink();
-  res.json({ ok: true });
-});
-
-router.get('/api/nuvio/profiles', adminOnly, async (req, res) => {
+router.get('/api/profiles/:id/tracking/nuvio/profiles', async (req, res) => {
+  const p = profileOr404(req, res);
+  if (!p) return;
   try {
-    res.json(await nuvio.profiles());
+    res.json(await nuvio.profiles(nuvio.forProfile(p)));
   } catch (e) {
     fail(res, 502, e.message);
   }
 });
 
-router.get('/api/nuvio/profiles/:index/collections', adminOnly, async (req, res) => {
+router.delete('/api/profiles/:id/tracking/nuvio', (req, res) => {
+  const p = profileOr404(req, res);
+  if (!p) return;
+  tracking.unlinkNuvio(p);
+  res.json(profileDetail(p));
+});
+
+router.post('/api/profiles/:id/tracking/:service/pair', async (req, res) => {
+  const p = profileOr404(req, res);
+  if (!p) return;
+  if (!['trakt', 'simkl'].includes(req.params.service)) return fail(res, 404, 'Service inconnu');
   try {
-    res.json(await collections.available(Number(req.params.index)));
+    res.json(await tracking.pairStart(p, req.params.service));
   } catch (e) {
-    fail(res, 502, e.message);
+    fail(res, 400, e.message);
   }
 });
+
+router.post('/api/profiles/:id/tracking/pair/:pairId', async (req, res) => {
+  const p = profileOr404(req, res);
+  if (!p) return;
+  try {
+    res.json(await tracking.pairPoll(p, req.params.pairId));
+  } catch (e) {
+    fail(res, 400, e.message);
+  }
+});
+
+router.delete('/api/profiles/:id/tracking/:service', (req, res) => {
+  const p = profileOr404(req, res);
+  if (!p) return;
+  if (!['trakt', 'simkl'].includes(req.params.service)) return fail(res, 404, 'Service inconnu');
+  tracking.unlink(p, req.params.service);
+  res.json(profileDetail(p));
+});
+
+router.patch('/api/profiles/:id/tracking', (req, res) => {
+  const p = profileOr404(req, res);
+  if (!p) return;
+  tracking.update(p, req.body);
+  res.json(profileDetail(p));
+});
+
+router.post('/api/profiles/:id/tracking/import', async (req, res) => {
+  const p = profileOr404(req, res);
+  if (!p) return;
+  res.json({ results: await tracking.importProfile(p), profile: profileDetail(p) });
+});
+
+// ---- Bibliotheque de collections (fichiers .json + addons) ----------------------------------
 
 router.get('/api/collections', adminOnly, (req, res) => res.json(collections.list()));
+
+// Corps : { json (contenu du fichier) ou jsonUrl, addonUrls, ids?, profiles? }.
+router.post('/api/collections/preview', adminOnly, async (req, res) => {
+  try {
+    res.json(await collections.preview(req.body || {}));
+  } catch (e) {
+    fail(res, 400, e.message);
+  }
+});
 
 router.post('/api/collections/import', adminOnly, async (req, res) => {
   if (!Array.isArray(req.body?.ids) || !req.body.ids.length) return fail(res, 400, 'Aucune collection choisie');
   try {
-    const added = await collections.importFrom(req.body.profile, req.body.ids);
+    const added = await collections.importFrom(req.body, req.body.ids);
     // Attribution directe aux profils choisis dans la meme fenetre.
     if (Array.isArray(req.body.profiles)) {
       for (const id of added) collections.assign(id, [...new Set([...collections.list().find((c) => c.id === id).profiles, ...req.body.profiles])]);
@@ -381,6 +438,7 @@ router.delete('/api/profiles/:id', adminOnly, (req, res) => {
   config.removeProfile(p.id);
   st.tokenDelProfile.run(p.id);
   st.udDelProfile.run(p.id);
+  st.playDelProfile.run(p.id);
   st.adminSessionDelProfile.run(p.id);
   res.json({ ok: true });
 });

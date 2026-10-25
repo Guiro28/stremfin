@@ -187,26 +187,28 @@ chargement de la page ou au retour sur l'onglet. Les apps natives n'utilisent pa
 - **Mes médias** : Films, Séries TV, Films d'animation, Séries d'animation (et en option
   Animés, Documentaires, Séries documentaires, Jeunesse), triables dans l'app par nom,
   date ou note. Leur rangée « ajouts récents » montre les dernières sorties.
-- **Collections Nuvio** (page *Collections*) : on associe un compte Nuvio par code, comme
-  une TV, **en lecture seule** (Stremfin ne modifie jamais rien chez Nuvio ; seul le jeton
-  de renouvellement est gardé dans `data/config.json`). On ajoute ensuite des collections
-  d'un profil Nuvio à la bibliothèque du serveur, puis on choisit les profils Stremfin qui
-  les voient, comme pour des addons. Dans les apps :
+- **Collections** (page *Collections*) : un fichier `.json` de collections au format
+  Nuvio / Xperience (envoyé, ou lu à une adresse) et l'adresse des addons qu'il utilise (ses
+  sources ne donnent souvent que l'id de l'addon). On coche les collections du fichier à
+  ajouter à la bibliothèque du serveur, puis les profils Stremfin qui les voient, comme pour
+  des addons. Les adresses d'addons (qui peuvent contenir un jeton) restent dans
+  `data/config.json` et ne sont jamais réaffichées en entier. Dans les apps :
   - chaque collection devient une **bibliothèque** (image de fond de la collection ;
     une collection épinglée passe en tête tant que le profil ne l'a pas placée) ;
   - ses dossiers deviennent des **sous-dossiers** (couverture, fond et logo de la collection) ;
   - dans un dossier, **un sous-dossier par source** (« Disney+ · Films », « Disney+ · Séries »…) ;
     un dossier qui n'a qu'une source montre directement ses titres. Sources prises en charge :
-    catalogues d'addons (même absents du profil : l'addon est retrouvé dans le compte Nuvio),
+    catalogues d'addons (même absents du profil),
     découvertes TMDB (tri, genres, année) et listes Trakt (avec un identifiant d'app Trakt,
-    *Réglages → Métadonnées*).
+    *Réglages → Suivi*).
   - images modifiables depuis la page *Collections* (fichier ou adresse) : tuile de la
     collection dans « Mes médias », dossiers et sous-dossiers ; un profil peut toujours
     choisir sa propre image de tuile (onglet *Accueil*).
 
-  Les collections sont mises à jour depuis Nuvio toutes les 6 h (ou avec *Mettre à jour*) ;
-  une collection supprimée chez Nuvio reste, signalée. Ordre, nom et activation se règlent
-  dans l'onglet *Bibliothèques* de chaque profil.
+  Un `.json` donné par adresse est relu toutes les 6 h (ou avec *Mettre à jour*) ; une
+  collection qui n'y est plus reste, signalée. Pour un fichier, il suffit de le renvoyer : les
+  collections déjà présentes (même id) sont mises à jour, avec leurs profils et leurs images.
+  Ordre, nom et activation se règlent dans l'onglet *Bibliothèques* de chaque profil.
 - **Accueil** (onglet du profil) : ordre des sections (Mes médias, Continuer à regarder,
   rangées des bibliothèques, À suivre) et bibliothèques avec ou sans rangée. Les rangées
   suivent l'ordre des bibliothèques : mets une collection en tête pour l'avoir juste sous
@@ -218,6 +220,26 @@ chargement de la page ou au retour sur l'onglet. Les apps natives n'utilisent pa
 - **Tri dans les apps Emby** : elles demandent toujours un tri par nom ; par défaut,
   Stremfin garde l'ordre du catalogue (populaires, tendances…), réglable dans
   *Réglages → Serveur*. Les autres tris choisis dans l'app (date, note) sont respectés.
+
+## Suivi : Trakt, Simkl et historique Nuvio
+
+Onglet **Suivi** de chaque profil (aussi dans l'espace de l'utilisateur) :
+
+- **Trakt** et **Simkl** : association par code, à saisir sur trakt.tv / simkl.com. Il faut
+  d'abord une application de chaque service, créée une fois par l'administrateur
+  (*Réglages → Suivi* ; adresse de redirection `urn:ietf:wg:oauth:2.0:oob`).
+  - *Importer* : l'historique (tout la première fois, puis ce qui est nouveau, toutes les 6 h
+    ou avec *Importer maintenant*) marque les titres vus.
+  - *Envoyer* : la lecture en cours part vers Trakt (début, pause, fin ; Trakt marque vu
+    au-delà de 80 %), les titres vus / « pas vus » vers Trakt et Simkl. Ce qui vient d'un
+    import n'est jamais renvoyé.
+- **Nuvio** : chaque profil associe **son propre compte Nuvio** (code, comme une TV, en
+  lecture seule) et choisit le profil Nuvio dont il récupère l'historique : titres vus et
+  lectures en cours (reprises entre 5 et 90 %).
+
+Un titre vu ailleurs n'écrase jamais une lecture plus récente ici. Un même titre peut exister
+en version IMDb (addons) et TMDB (catalogues TMDB) : les deux sont marqués, et il n'apparaît
+qu'une fois dans « Reprendre » et « À suivre ». Les jetons restent dans `data/config.json`.
 
 ## Se connecter depuis une app Jellyfin
 
