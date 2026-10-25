@@ -10,6 +10,7 @@ const { request, readAll } = require('../http');
 const { st } = require('../db');
 const dto = require('./dto');
 const languages = require('../languages');
+const noSourceClip = require('../noSource');
 
 const SRC_TTL = 24 * 3600e3;
 
@@ -707,7 +708,13 @@ async function playbackInfo(profile, token, itemId, mediaSourceId) {
       log(`[play] ${entry.data.name || entry.data.vid} : ${sources.length} source(s), qualite ${QUALITY_NAME[q]} -> ${QUALITY_NAME[src.bucket]} (${Date.now() - t0} ms)`);
     }
   }
-  if (!res.MediaSources.length) {
+  if (!res.MediaSources.length && noSourceClip.enabled()) {
+    // Aucune source : le clip "aucune source disponible" (Reglages -> Lecture et reseau).
+    const lines = NO_SOURCE[config.get().settings.language] || NO_SOURCE.fr;
+    res.MediaSources = [noSourceClip.mediaSource(entry.uuid, token, lines[0])];
+    clipSessions.set(res.PlaySessionId, Date.now());
+    log(`[play] ${entry.data.name || entry.data.vid} : aucune source lisible, clip "aucune source" lance`);
+  } else if (!res.MediaSources.length) {
     res.ErrorCode = 'NoCompatibleStream';
     log(`[play] ${entry.data.name || entry.data.vid} : aucune source lisible`);
   }
@@ -770,7 +777,15 @@ async function embyChapters(itemId, maxWait = 2000) {
 
 // ---- Flux video ---------------------------------------------------------------
 
+// Lectures du clip "aucune source" (PlaySessionId) : jamais comptees (progression, stats, suivi).
+const clipSessions = new Map();
+const isClipReport = (body) => noSourceClip.isClip(body?.MediaSourceId) || clipSessions.has(body?.PlaySessionId);
+setInterval(() => {
+  for (const [k, at] of clipSessions) if (Date.now() - at > 6 * 3600e3) clipSessions.delete(k);
+}, 3600e3).unref();
+
 async function resolveSource(req, itemId, mediaSourceId) {
+  if (noSourceClip.isClip(mediaSourceId)) return { clip: true, ...noSourceClip.clip() };
   const hit = mediaSourceId && cache.peek('src|' + ids.norm(mediaSourceId));
   if (hit) return hit.v;
   // Version demandee sans passer par PlaybackInfo (certaines apps) : on choisit ici.
@@ -780,10 +795,17 @@ async function resolveSource(req, itemId, mediaSourceId) {
   const sources = await sourcesFor(req.profile, entry.uuid);
   const wanted = releaseOf(entry.uuid, mediaSourceId);
   const release = wanted && sources.find((s) => s.id === wanted);
-  return release || pickSource(sources, qualityOf(entry.uuid, mediaSourceId) || defaultQuality(req.profile));
+  const src = release || pickSource(sources, qualityOf(entry.uuid, mediaSourceId) || defaultQuality(req.profile));
+  // Aucune source (lecture demandee sans PlaybackInfo) : le clip, s'il est active.
+  return src || (noSourceClip.enabled() ? { clip: true, ...noSourceClip.clip() } : null);
 }
 
 async function pipe(req, res, src) {
+  // Clip "aucune source" : fichier local (requetes partielles gerees par sendFile).
+  if (src.clip) {
+    res.type(src.container === 'mp4' ? 'video/mp4' : src.container === 'webm' ? 'video/webm' : 'video/x-matroska');
+    return res.sendFile(src.file, { headers: { 'Cache-Control': 'no-store' } });
+  }
   const settings = config.get().settings;
   const mode = src.mode || settings.addonMode;
   if (mode === 'none' && !src.headers && !src.relay) {
@@ -856,6 +878,8 @@ function current(profile, uuid) {
 
 /** Rapport de lecture (debut / progression / arret) envoye par l'app (req : appareil, pour les statistiques). */
 function report(profile, body, stage, req) {
+  // Le clip "aucune source" ne compte pas : ni progression, ni statistiques, ni suivi.
+  if (isClipReport(body)) return;
   const { entry } = unwrap(body?.ItemId);
   if (!entry || !['movie', 'episode'].includes(entry.kind)) return;
   const row = { ...current(profile, entry.uuid) };

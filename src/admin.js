@@ -21,6 +21,7 @@ const tracking = require('./tracking');
 const stats = require('./stats');
 const addons = require('./addons');
 const xperience = require('./xperience');
+const noSource = require('./noSource');
 const { request, readAll } = require('./http');
 const { verifyPassword } = require('./security');
 
@@ -36,6 +37,7 @@ router.use('/api', adminAuth.requireApi);
 router.put('/api/profiles/:id/library-image', express.raw({ type: (req) => !String(req.headers['content-type'] || '').includes('json'), limit: avatars.MAX_BYTES + 1024 }));
 router.put('/api/profiles/:id/avatar', express.raw({ type: () => true, limit: avatars.MAX_BYTES + 1024 }));
 router.put('/api/backups/upload', express.raw({ type: () => true, limit: '1gb' }));
+router.put('/api/no-source', express.raw({ type: () => true, limit: '51mb' }));
 router.put('/api/collections/:id/image', express.raw({ type: (req) => !String(req.headers['content-type'] || '').includes('json'), limit: avatars.MAX_BYTES + 1024 }));
 // 8 Mo : fichiers .json de collections envoyes depuis l'interface.
 router.use('/api', express.json({ limit: '8mb' }));
@@ -213,6 +215,25 @@ router.get('/api/overview', adminOnly, (req, res) => {
     brokenAddons,
     recent: recent.slice(0, 12)
   });
+});
+
+// ---- Clip "aucune source disponible" (Reglages -> Lecture et reseau) -----------------------------
+
+router.get('/api/no-source', adminOnly, (req, res) => res.json(noSource.describe()));
+router.get('/api/no-source/video', adminOnly, (req, res) => {
+  const c = noSource.clip();
+  res.type(c.container === 'mp4' ? 'video/mp4' : c.container === 'webm' ? 'video/webm' : 'video/x-matroska');
+  res.sendFile(c.file, { headers: { 'Cache-Control': 'no-store' } });
+});
+// Corps : la video. En-tetes : duree (ms), codec et taille de l'image (video creee dans le navigateur).
+router.put('/api/no-source', adminOnly, (req, res) => {
+  const info = { durationMs: req.headers['x-duration'], codec: req.headers['x-codec'], width: req.headers['x-width'], height: req.headers['x-height'] };
+  const r = attempt(res, () => noSource.save(req.body, info));
+  if (r) res.json(r);
+});
+router.delete('/api/no-source', adminOnly, (req, res) => {
+  noSource.remove();
+  res.json(noSource.describe());
 });
 
 // ---- Statut des proxys (carte "Etat" du tableau de bord) ------------------------------------------

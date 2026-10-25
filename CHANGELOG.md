@@ -3,6 +3,15 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
+## 0.4.0 — 2026-10-26
+
+### Ajouts
+- **Clip « aucune source disponible »** : quand aucun addon ne fournit la vidéo, la lecture lance
+  un court clip au lieu d'une erreur (activable dans *Réglages → Lecture et réseau*). Un clip de
+  10 s est fourni ; on peut envoyer sa propre vidéo (MP4, WebM, MKV) ou en créer une depuis une
+  image, directement dans le navigateur (sans ffmpeg). Le clip ne compte jamais comme une
+  lecture (statistiques, suivi, titres vus).
+
 ## 0.3.0 — 2026-10-26
 
 ### Ajouts

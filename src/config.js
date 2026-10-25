@@ -47,6 +47,8 @@ function defaultSettings() {
     torrentServer: process.env.TORRENT_SERVER || '',
     // Masque les episodes pas encore sortis.
     hideUnreleased: true,
+    // Clip "aucune source disponible" lance quand aucun addon ne fournit la video.
+    noSourceVideo: true,
     // Delai max d'attente des addons de sources (ms).
     streamTimeout: 15000,
     // Cle API TMDB (v3) : fiches traduites, catalogues Stremfin (tendances, sagas, collections).

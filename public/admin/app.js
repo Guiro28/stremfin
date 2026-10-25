@@ -1457,7 +1457,162 @@ PAGES['settings/playback'] = async (main) => {
       streamTimeout: secs * 1000
     });
   };
+  main.insertAdjacentHTML('beforeend', '<div class="card" id="noSourceCard" style="margin-top:16px"></div>');
+  noSourceCard($('#noSourceCard'));
 };
+
+// ---- Clip "aucune source disponible" -------------------------------------------------------------
+
+/** Carte du clip lance quand aucun addon ne fournit la video : apercu, envoi, creation. */
+async function noSourceCard(el) {
+  const info = await api('GET', '/no-source');
+  const secs = Math.round((info.durationMs || 0) / 1000);
+  el.innerHTML = `<div class="card-head"><div><h2>${t('Quand aucune source n’est disponible')}</h2><p>${t('Au lieu d’une erreur, la lecture lance ce clip. Il ne compte jamais comme une lecture (statistiques, suivi, vus).')}</p></div>
+      <div class="control">${toggle('id="nsOn" aria-label="' + esc(t('Lancer le clip')) + '"', info.enabled)}</div></div>
+    <div class="ns-body">
+      <video class="ns-preview" src="/stremfin/api/no-source/video?v=${info.updatedAt || 0}" controls muted loop playsinline preload="metadata"></video>
+      <div class="stack">
+        <p class="small muted">${info.custom ? t('Clip personnalisé · {format} · {secs} s · {size}', { format: info.container.toUpperCase(), secs, size: fmtSize(info.size) }) : t('Clip fourni avec Stremfin · {secs} s', { secs })}</p>
+        <div class="row">
+          <button class="btn sm primary" id="nsMake">${icon('camera')}${t('Créer depuis une image')}</button>
+          <button class="btn sm" id="nsUpload">${icon('upload')}${t('Envoyer une vidéo')}</button>
+          ${info.custom ? `<button class="btn sm ghost" id="nsReset">${icon('restore')}${t('Revenir au clip par défaut')}</button>` : ''}
+        </div>
+        <p class="small faint">${t('Vidéo : MP4, WebM ou MKV, 50 Mo max. Image : la vidéo est fabriquée par ton navigateur (image, message, durée), puis envoyée au serveur.')}</p>
+      </div>
+      <input type="file" id="nsFile" accept="video/mp4,video/webm,video/x-matroska,.mkv" hidden>
+    </div>`;
+  const reload = () => noSourceCard(el);
+  $('#nsOn', el).onchange = async (e) => {
+    const r = await busy(null, () => api('PUT', '/settings', { noSourceVideo: e.target.checked }), e.target.checked ? t('Clip activé') : t('Clip désactivé'));
+    if (r) state.settings = r;
+    else e.target.checked = !e.target.checked;
+  };
+  $('#nsUpload', el).onclick = () => $('#nsFile', el).click();
+  $('#nsFile', el).onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 50 * 1024 * 1024) return toast(t('Vidéo trop lourde (50 Mo max.)'), true);
+    if (await busy($('#nsUpload', el), () => api('PUT', '/no-source', file), t('Clip enregistré'))) reload();
+  };
+  if ($('#nsReset', el)) $('#nsReset', el).onclick = async () => (await busy(null, () => api('DELETE', '/no-source'), t('Clip par défaut rétabli'))) && reload();
+  $('#nsMake', el).onclick = async () => {
+    const made = await modal({
+      title: t('Créer le clip depuis une image'),
+      lead: esc(t('Ton navigateur fabrique la vidéo (1280×720, sans son) pendant sa durée, puis l’envoie au serveur.')),
+      okLabel: t('Créer et envoyer'),
+      wide: true,
+      body: `<div class="stack">
+        <div class="field"><label>${t('Image de fond (facultatif)')}</label><input type="file" name="image" accept="image/*"></div>
+        <div class="field"><label>${t('Message')}</label><input type="text" name="title" maxlength="60" value="${esc(t('😕 Aucune source disponible'))}"></div>
+        <div class="field"><label>${t('Sous-titre')}</label><input type="text" name="subtitle" maxlength="90" value="${esc(t('Aucun addon ne propose ce titre pour le moment. Réessaie un peu plus tard.'))}"></div>
+        <div class="field"><label>${t('Durée')}</label><select name="secs">${[5, 8, 10, 15, 20, 30].map((n) => `<option value="${n}" ${n === 10 ? 'selected' : ''}>${t('{n} secondes', { n })}</option>`).join('')}</select></div>
+        <canvas class="ns-canvas" width="1280" height="720"></canvas>
+        <p class="small faint" id="nsProgress"></p></div>`,
+      onOk: async (f) => {
+        const canvas = $('.ns-canvas', f);
+        const image = f.image.files[0] ? await loadImage(f.image.files[0]) : null;
+        const clip = await recordClip(canvas, { image, title: f.title.value, subtitle: f.subtitle.value, seconds: Number(f.secs.value) }, (p) => ($('#nsProgress', f).textContent = t('Enregistrement… {p} %', { p })));
+        $('#nsProgress', f).textContent = t('Envoi…');
+        const r = await fetch('/stremfin/api/no-source', {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'X-Stremfin': '1', 'Content-Type': clip.blob.type || 'video/webm', 'X-Duration': String(clip.durationMs), 'X-Codec': clip.codec, 'X-Width': '1280', 'X-Height': '720' },
+          body: clip.blob
+        });
+        const j = await r.json().catch(() => null);
+        if (!r.ok) throw new Error(t(j?.error || 'Erreur {n}', { n: r.status }));
+        return j;
+      }
+    });
+    if (made) {
+      toast(t('Clip enregistré'));
+      reload();
+    }
+  };
+}
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(t('Image illisible')));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+/** Une image du clip : fond (image recadree et assombrie, ou degrade Stremfin), message centre. */
+function drawClipFrame(ctx, { image, title, subtitle }, progress) {
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+  if (image) {
+    const scale = Math.max(W / image.width, H / image.height) * (1.04 - 0.04 * progress); // leger zoom arriere
+    const w = image.width * scale;
+    const h = image.height * scale;
+    ctx.drawImage(image, (W - w) / 2, (H - h) / 2, w, h);
+    ctx.fillStyle = 'rgba(6,9,20,.62)';
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, '#0b1020');
+    g.addColorStop(1, '#1d1340');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    const r = ctx.createRadialGradient(W * 0.5, H * 0.45, 10, W * 0.5, H * 0.45, W * 0.55);
+    r.addColorStop(0, `rgba(132,101,255,${0.28 + 0.08 * Math.sin(progress * Math.PI * 4)})`);
+    r.addColorStop(1, 'rgba(132,101,255,0)');
+    ctx.fillStyle = r;
+    ctx.fillRect(0, 0, W, H);
+  }
+  // Apparition en fondu sur la premiere demi-seconde.
+  ctx.globalAlpha = Math.min(1, progress * 12);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = 'rgba(0,0,0,.5)';
+  ctx.shadowBlur = 18;
+  ctx.font = '700 64px system-ui, "Segoe UI", Roboto, "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
+  ctx.fillText(title || '', W / 2, H * 0.44, W * 0.9);
+  ctx.font = '400 32px system-ui, "Segoe UI", Roboto, sans-serif';
+  ctx.fillStyle = 'rgba(230,234,250,.92)';
+  ctx.fillText(subtitle || '', W / 2, H * 0.58, W * 0.9);
+  ctx.font = '600 24px system-ui, "Segoe UI", Roboto, sans-serif';
+  ctx.fillStyle = 'rgba(184,169,255,.9)';
+  ctx.fillText('Stremfin', W / 2, H * 0.9);
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+}
+
+/** Enregistre le canevas anime en video WebM (VP8, lisible par les apps Android et le web). */
+function recordClip(canvas, opts, onProgress) {
+  return new Promise((resolve, reject) => {
+    const type = ['video/webm;codecs=vp8', 'video/webm'].find((x) => window.MediaRecorder?.isTypeSupported?.(x));
+    if (!type) return reject(new Error(t('Ce navigateur ne sait pas enregistrer de vidéo.')));
+    const ctx = canvas.getContext('2d');
+    const ms = opts.seconds * 1000;
+    const stream = canvas.captureStream(25);
+    const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 3e6 });
+    const chunks = [];
+    rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    rec.onerror = (e) => reject(e.error || new Error('MediaRecorder'));
+    rec.onstop = () => resolve({ blob: new Blob(chunks, { type: 'video/webm' }), durationMs: ms, codec: 'vp8' });
+    const t0 = performance.now();
+    drawClipFrame(ctx, opts, 0);
+    rec.start(1000);
+    // Minuterie (et non requestAnimationFrame) : l'enregistrement continue si l'onglet passe en arriere-plan.
+    const timer = setInterval(() => {
+      const elapsed = performance.now() - t0;
+      const p = Math.min(1, elapsed / ms);
+      drawClipFrame(ctx, opts, p);
+      onProgress?.(Math.round(p * 100));
+      if (p >= 1) {
+        clearInterval(timer);
+        rec.stop();
+        stream.getTracks().forEach((x) => x.stop());
+      }
+    }, 40);
+  });
+}
 
 PAGES['settings/metadata'] = async (main) => {
   const s = state.settings;

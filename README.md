@@ -65,6 +65,12 @@ disponible » et « 🔄 Réessaie un peu plus tard » (dans la langue des libel
 lieu des qualités ou des releases. Une recherche de sources sert à la fiche et à la lecture
 pendant 2 min (20 s si elle n'a rien trouvé) ; activer ou couper un addon la relance.
 
+Appuyer sur Lecture dans ce cas lance un **clip « aucune source disponible »** au lieu d'une
+erreur (*Réglages → Lecture et réseau*, activable). Un clip de 10 s est fourni ; on peut envoyer
+sa propre vidéo (MP4, WebM ou MKV, 50 Mo max.) ou en **créer une depuis une image** : le
+navigateur fabrique la vidéo (image, message, durée) et l'envoie au serveur, sans ffmpeg. Ce
+clip ne compte jamais comme une lecture (statistiques, suivi Trakt / Simkl, titres vus).
+
 ### Pistes audio et sous-titres
 
 Au lancement, Stremfin lit l'en-tête du fichier (MKV, quelques centaines de Ko, sans le
