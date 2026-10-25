@@ -1062,12 +1062,21 @@ PAGES['settings/server'] = async (main) => {
         <div class="control wide"><input name="publicUrl" type="url" placeholder="https://jelly.mondomaine.com" value="${esc(s.publicUrl)}"></div></div>
       <div class="setting"><div class="text"><b>Langue des libellés</b><span>Noms générés par le serveur (Saison, Films, Séries…).</span></div>
         <div class="control"><select name="language"><option value="fr" ${s.language === 'fr' ? 'selected' : ''}>Français</option><option value="en" ${s.language === 'en' ? 'selected' : ''}>English</option></select></div></div>
+      <div class="setting"><div class="text"><b>Tri des bibliothèques dans les apps Emby</b><span>Les apps Emby demandent toujours un tri par nom. <b>Ordre du catalogue</b> : populaires, tendances… comme prévu par le catalogue, et ouverture plus rapide (déjà prêt en cache). Les autres tris choisis dans l'app (date, note) restent respectés.</span></div>
+        <div class="control"><div class="segmented" id="embySort"><button type="button" data-v="catalog" class="${s.embySort !== 'name' ? 'on' : ''}">Ordre du catalogue</button><button type="button" data-v="name" class="${s.embySort === 'name' ? 'on' : ''}">Par nom</button></div></div></div>
       <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">Enregistrer</button></div>
     </form>`;
+  let embySort = s.embySort === 'name' ? 'name' : 'catalog';
+  $('#embySort').onclick = (e) => {
+    const b = e.target.closest('[data-v]');
+    if (!b) return;
+    embySort = b.dataset.v;
+    $$('#embySort button').forEach((x) => x.classList.toggle('on', x === b));
+  };
   $('#f').onsubmit = (e) => {
     e.preventDefault();
     const f = e.target;
-    saveSettings($('button[type=submit]', f), { serverName: f.serverName.value, publicUrl: f.publicUrl.value, language: f.language.value });
+    saveSettings($('button[type=submit]', f), { serverName: f.serverName.value, publicUrl: f.publicUrl.value, language: f.language.value, embySort });
   };
 };
 

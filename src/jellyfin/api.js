@@ -141,6 +141,17 @@ function sortOf(q) {
   return 'popularity.desc';
 }
 
+/**
+ * Tri d'une bibliotheque. Les apps Emby demandent toujours "par nom" par defaut : sauf
+ * reglage contraire, on garde alors l'ordre du catalogue (populaires, tendances...), deja
+ * prepare en cache. Les autres tris choisis dans l'app (date, note) sont respectes.
+ */
+function librarySort(req, q) {
+  const sort = sortOf(q);
+  if (isEmby(req) && sort?.startsWith('name.') && config.get().settings.embySort !== 'name') return undefined;
+  return sort;
+}
+
 function filterPlayed(items, q) {
   if (q.isplayed === 'true') return items.filter((i) => i.UserData?.Played);
   if (q.isplayed === 'false') return items.filter((i) => !i.UserData?.Played);
@@ -432,7 +443,7 @@ router.get(['/Users/:u/Items', '/Items'], async (req, res) => {
   else if (q.genreids) genre = ids.get(list(q.genreids)[0])?.data?.name;
 
   const wantEpisodes = types.some((t) => t.toLowerCase() === 'episode') && q.recursive === 'true';
-  const { items, total } = await library.children(p, parentId, { start, limit: limit || 100, genre, episodes: wantEpisodes, sort: sortOf(q) });
+  const { items, total } = await library.children(p, parentId, { start, limit: limit || 100, genre, episodes: wantEpisodes, sort: librarySort(req, q) });
   const parent = ids.get(parentId);
   const loose = ['platform', 'platformlist'].includes(parent?.kind) || (parent?.kind === 'view' && parent.data.type === 'platforms');
   const shown = filterPlayed(loose ? items : items.filter(typeOk), q);

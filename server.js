@@ -150,4 +150,6 @@ server.listen(PORT, () => {
   discovery.start(PORT);
   tmdb.warm();
   for (const p of config.get().profiles) stremio.refreshManifests(p).catch(() => {});
+  // Bibliotheques et rayons des plateformes prepares en arriere-plan (ouverture immediate).
+  require('./src/jellyfin/library').startWarming();
 });

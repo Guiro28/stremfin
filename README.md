@@ -187,6 +187,13 @@ chargement de la page ou au retour sur l'onglet. Les apps natives n'utilisent pa
   rangées des bibliothèques, À suivre) et bibliothèques avec ou sans rangée. Les rangées
   suivent l'ordre des bibliothèques : mets *Plateformes* en tête pour l'avoir juste sous
   « Continuer à regarder ».
+- **Ouverture rapide** : les bibliothèques et les rayons des plateformes sont préparés en
+  arrière-plan (300 premiers titres, une minute après le démarrage puis toutes les 2 h) et
+  s'ouvrent en quelques dizaines de millisecondes. Les pages se chargent par lots en
+  parallèle et la suite d'une grille se prépare pendant qu'on la parcourt.
+- **Tri dans les apps Emby** : elles demandent toujours un tri par nom ; par défaut,
+  Stremfin garde l'ordre du catalogue (populaires, tendances…), réglable dans
+  *Réglages → Serveur*. Les autres tris choisis dans l'app (date, note) sont respectés.
 
 ## Se connecter depuis une app Jellyfin
 

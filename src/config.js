@@ -58,6 +58,9 @@ function defaultSettings() {
     webSpotlight: true,
     // Contenu de Spotlight : "trending" (films tendance TMDB) ou "resume" (reprises).
     webSpotlightSource: 'trending',
+    // Tri par defaut des bibliotheques dans les apps Emby (qui demandent toujours "par nom") :
+    // "catalog" = ordre du catalogue (populaires, tendances...), "name" = par nom.
+    embySort: 'catalog',
     // Plateformes proposees comme bibliotheques (fournisseurs TMDB de la region choisie).
     providers: [
       { id: 8, name: 'Netflix' },
@@ -192,6 +195,7 @@ function updateSettings(patch) {
   s.publicUrl = s.publicUrl.replace(/\/+$/, '');
   if (!['abyss', 'none'].includes(s.webTheme)) s.webTheme = 'abyss';
   if (!['trending', 'resume'].includes(s.webSpotlightSource)) s.webSpotlightSource = 'trending';
+  if (!['catalog', 'name'].includes(s.embySort)) s.embySort = 'catalog';
   s.torrentServer = s.torrentServer.replace(/\/+$/, '');
   if (!['proxy', 'redirect'].includes(s.streamMode)) s.streamMode = 'proxy';
   save();

@@ -103,8 +103,11 @@ function views(profile) {
 // ---- Pagination -------------------------------------------------------------
 // Stremio pagine par "skip" avec des pages de taille variable ; Jellyfin demande
 // StartIndex/Limit. On accumule les pages en memoire et on decoupe.
+// La 1re page donne la taille des pages ; les suivantes se chargent ensuite par lots en
+// parallele (l'app Emby demande 300 titres d'un coup : 15 pages TMDB).
 
 const pagers = new Map();
+const PARALLEL_PAGES = 6;
 
 // `filter` (optionnel) : { key, fn: async (meta) => bool } applique a chaque page chargee,
 // pour que la pagination reste juste quand on masque des titres (ex: pas encore sortis).
@@ -112,44 +115,80 @@ function pagerFor(view, genre, filter, sort) {
   const key = `${view.key}|${genre || ''}|${filter?.key || ''}|${sort || ''}`;
   let p = pagers.get(key);
   if (!p || Date.now() - p.at > PAGER_TTL) {
-    p = { metas: [], seen: new Set(), raw: 0, lastSize: 0, done: false, at: Date.now(), loading: null };
+    p = { metas: [], seen: new Set(), raw: 0, lastSize: 0, pageSize: 0, done: false, at: Date.now(), loading: null };
     pagers.set(key, p);
   }
   return p;
 }
 
-function loadNext(p, view, genre, filter, sort) {
+/** Charge `count` pages a partir de la position courante (en parallele), dans l'ordre. */
+function loadPages(p, view, count, genre, filter, sort) {
   if (p.loading) return p.loading;
   p.loading = (async () => {
-    const extra = {};
-    if (genre) extra.genre = genre;
-    if (sort) extra.sort = sort;
-    if (p.raw) extra.skip = p.raw;
-    let metas = [];
-    try {
-      metas = (await stremio.catalog(view.addonUrl, view.type, view.catId, extra)).metas;
-    } catch (e) {
-      console.log(new Date().toISOString(), `[catalog] KO ${view.key}: ${e.message}`);
-      p.done = true;
-      p.at = Date.now() - PAGER_TTL + 60e3; // on retentera dans une minute
-      return;
-    }
-    p.raw += metas.length;
-    p.lastSize = metas.length || p.lastSize;
+    const base = p.raw;
+    const step = p.pageSize;
+    const fetchPage = (skip) => {
+      const extra = {};
+      if (genre) extra.genre = genre;
+      if (sort) extra.sort = sort;
+      if (skip) extra.skip = skip;
+      return stremio.catalog(view.addonUrl, view.type, view.catId, extra).then(
+        (r) => ({ metas: r.metas }),
+        (error) => ({ error })
+      );
+    };
+    const pages = await Promise.all(Array.from({ length: count }, (_, i) => fetchPage(base + i * step)));
+
     const fresh = [];
-    for (const m of metas) {
-      if (!m?.id || p.seen.has(m.id)) continue;
-      p.seen.add(m.id);
-      fresh.push({ ...m, type: m.type || view.type });
+    for (const [i, page] of pages.entries()) {
+      if (page.error) {
+        console.log(new Date().toISOString(), `[catalog] KO ${view.key}: ${page.error.message}`);
+        p.done = true;
+        // Rien de charge du tout : on retentera dans une minute.
+        if (!p.raw && i === 0) p.at = Date.now() - PAGER_TTL + 60e3;
+        break;
+      }
+      const metas = page.metas;
+      // Position dans le catalogue de l'addon (une page incomplete n'est pas forcement la fin).
+      p.raw = base + i * step + metas.length;
+      p.lastSize = metas.length || p.lastSize;
+      if (!p.pageSize) p.pageSize = metas.length;
+      let added = 0;
+      for (const m of metas) {
+        if (!m?.id || p.seen.has(m.id)) continue;
+        p.seen.add(m.id);
+        fresh.push({ ...m, type: m.type || view.type });
+        added++;
+      }
+      // Page vide, page deja vue (addon qui ignore skip) ou catalogue sans pagination : fin.
+      // Les pages suivantes du lot sont ignorees.
+      if (!added || !view.hasSkip || p.raw >= MAX_ITEMS) {
+        p.done = true;
+        break;
+      }
     }
+    // Filtre (ex: titres sortis) applique a tout le lot en une fois.
     const keep = filter ? await Promise.all(fresh.map((m) => filter.fn(m).catch(() => true))) : null;
     p.metas.push(...fresh.filter((m, i) => !keep || keep[i]));
-    // Page vide, page deja vue (addon qui ignore skip) ou catalogue sans pagination : fin.
-    if (!fresh.length || !view.hasSkip || p.metas.length >= MAX_ITEMS || p.raw >= MAX_ITEMS) p.done = true;
+    if (p.metas.length >= MAX_ITEMS) p.done = true;
   })().finally(() => {
     p.loading = null;
   });
   return p.loading;
+}
+
+/** Charge les pages jusqu'a avoir `want` titres (ou la fin du catalogue). */
+async function fill(p, view, want, genre, filter, sort) {
+  while (!p.done && p.metas.length < want) {
+    if (p.loading) {
+      await p.loading;
+      continue;
+    }
+    // Taille des pages inconnue (1re page) : une seule page ; ensuite, un lot.
+    const missing = want - p.metas.length;
+    const count = p.pageSize && view.hasSkip ? Math.min(PARALLEL_PAGES, Math.max(1, Math.ceil(missing / p.pageSize))) : 1;
+    await loadPages(p, view, count, genre, filter, sort);
+  }
 }
 
 /** Renvoie { metas, total } pour la tranche [start, start+limit[ d'un catalogue. */
@@ -158,7 +197,9 @@ async function slice(view, start = 0, limit = 50, genre, filter, sort) {
   // Le tri n'a de sens que pour les catalogues TMDB integres bases sur /discover.
   if (!view.sortable) sort = undefined;
   const p = pagerFor(view, genre, filter, sort);
-  while (!p.done && p.metas.length < start + limit) await loadNext(p, view, genre, filter, sort);
+  await fill(p, view, start + limit, genre, filter, sort);
+  // Anticipation : la tranche suivante se prepare pendant que l'app affiche celle-ci.
+  if (!p.done) fill(p, view, start + limit + Math.min(limit, 100), genre, filter, sort).catch(() => {});
   const metas = p.metas.slice(start, start + limit);
   // Tant qu'on n'a pas tout charge, on annonce une page de plus pour que l'app continue a defiler.
   const total = p.done ? p.metas.length : p.metas.length + (p.lastSize || limit);

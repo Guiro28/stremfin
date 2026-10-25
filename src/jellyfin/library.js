@@ -269,6 +269,18 @@ function viewByUuid(profile, uuid) {
   return catalog.views(profile).find((v) => v.uuid === ids.norm(uuid)) || null;
 }
 
+/** Rayon d'une plateforme (ex: Prime Video -> Films populaires), vu comme un catalogue TMDB. */
+function platformListView(providerId, sid, listType) {
+  return {
+    key: `plist|${providerId}|${sid}`,
+    addonUrl: tmdb.ADDON_URL,
+    type: listType,
+    catId: `tmdb-provider-${providerId}`,
+    hasSkip: true,
+    sortable: true
+  };
+}
+
 async function viewItems(profile, view, { start = 0, limit = 50, genre, sort } = {}) {
   const { metas, total } = await catalog.slice(view, start, limit, genre, releasedFilter(profile), sort);
   let items = metasToDtos(profile, metas);
@@ -336,15 +348,7 @@ async function children(profile, parentId, opts = {}) {
   }
   if (entry.kind === 'platformlist') {
     const d = entry.data;
-    const view = {
-      key: `plist|${d.providerId}|${d.sid}`,
-      addonUrl: tmdb.ADDON_URL,
-      type: d.listType,
-      catId: `tmdb-provider-${d.providerId}`,
-      hasSkip: true,
-      sortable: true
-    };
-    return viewItems(profile, view, { ...opts, sort: opts.sort || d.sort });
+    return viewItems(profile, platformListView(d.providerId, d.sid, d.listType), { ...opts, sort: opts.sort || d.sort });
   }
   if (entry.kind === 'view') {
     const view = viewByUuid(profile, entry.uuid);
@@ -447,6 +451,73 @@ async function imageUrl(id, type, index = 0) {
   }
 }
 
+// ---- Prechauffage ----------------------------------------------------------------
+// Bibliotheques puis rayons des plateformes, prepares en arriere-plan dans l'ordre du
+// catalogue : une app qui en ouvre un recoit aussitot ses premiers titres (l'app Emby en
+// demande 300 d'un coup). Une liste deja en cache ne coute presque rien.
+
+const WARM_ITEMS = 300;
+const WARM_EVERY = 2 * 3600e3;
+const WARM_DELAY = 60e3;
+let warmTimer = null;
+let warming = false;
+
+async function warmLibraries() {
+  if (warming) return;
+  warming = true;
+  const t0 = Date.now();
+  let lists = 0;
+  const done = new Set();
+  const warmOne = async (view, filter, sort) => {
+    // Meme liste pour plusieurs profils (meme filtre) : une seule fois.
+    const k = `${view.key}|${filter?.key || ''}|${sort || ''}`;
+    if (done.has(k)) return;
+    done.add(k);
+    try {
+      await catalog.slice(view, 0, WARM_ITEMS, undefined, filter, sort);
+      lists++;
+    } catch (e) {
+      log(`[warm] ${view.key} : ${e.message}`);
+    }
+  };
+  try {
+    const profiles = config.get().profiles.filter((p) => !p.disabled);
+    const shelves = [];
+    for (const profile of profiles) {
+      const filter = releasedFilter(profile);
+      for (const view of catalog.views(profile)) {
+        if (view.type !== 'platforms') {
+          await warmOne(view, filter);
+          continue;
+        }
+        // Bibliotheque "Plateformes" : ses rayons, apres toutes les bibliotheques.
+        for (const p of config.get().settings.providers) {
+          for (const m of tmdb.platformListMetas(p.id)) shelves.push({ view: platformListView(m.providerId, m.id, m.listType), filter, sort: m.sort });
+        }
+      }
+    }
+    for (const s of shelves) await warmOne(s.view, s.filter, s.sort);
+    log(`[warm] ${lists} listes prechauffees en ${Math.round((Date.now() - t0) / 1000)} s`);
+  } finally {
+    warming = false;
+  }
+}
+
+/** Lance le prechauffage peu apres le demarrage, puis regulierement. */
+function startWarming() {
+  clearTimeout(warmTimer);
+  const run = () => {
+    warmLibraries()
+      .catch((e) => log(`[warm] ${e.message}`))
+      .finally(() => {
+        warmTimer = setTimeout(run, WARM_EVERY);
+        warmTimer.unref();
+      });
+  };
+  warmTimer = setTimeout(run, WARM_DELAY);
+  warmTimer.unref();
+}
+
 module.exports = {
   udRow,
   metaFor,
@@ -466,5 +537,7 @@ module.exports = {
   resume,
   favorites,
   nextUp,
-  imageUrl
+  imageUrl,
+  warmLibraries,
+  startWarming
 };

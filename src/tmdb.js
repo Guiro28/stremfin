@@ -68,7 +68,7 @@ function img(path, size) {
 let active = 0;
 const waiting = [];
 async function slot(fn) {
-  if (active >= 8) await new Promise((r) => waiting.push(r));
+  if (active >= 12) await new Promise((r) => waiting.push(r));
   active++;
   try {
     return await fn();
@@ -308,7 +308,9 @@ async function released(type, sid, preview = {}) {
   try {
     const r = await resolve(type, sid);
     if (!r) return true;
-    const d = await details(r.mediaType, r.id);
+    // Requete legere (dates seules, ~20 Ko) : verifiee pour chaque titre des bibliotheques,
+    // la fiche complete (~230 Ko) rendrait l'ouverture d'une bibliotheque tres lente.
+    const d = await get(`/${r.mediaType}/${r.id}`, r.mediaType === 'movie' ? { append_to_response: 'release_dates' } : {});
     if (r.mediaType === 'tv') return !!d.first_air_date && Date.parse(d.first_air_date) <= now;
     const dates = (d.release_dates?.results || []).flatMap((c) => c.release_dates || []);
     if (dates.some((x) => HOME_RELEASE.includes(x.type) && Date.parse(x.release_date) <= now)) return true;
