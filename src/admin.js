@@ -123,6 +123,7 @@ function profileDetail(p) {
       return { key: v.key, name: v.name, type: v.type, image: custom || null, preview: custom || ids.get(v.uuid)?.data.image || null };
     }),
     preferredLanguages: p.preferredLanguages || [],
+    playback: { ...config.PLAYBACK, ...(p.playback || {}) },
     hideWatched: !!p.hideWatched,
     onlyReleased: !!p.onlyReleased,
     defaultQuality: p.defaultQuality || '1080',
@@ -469,7 +470,7 @@ router.get('/api/profiles/:id', (req, res) => {
   if (p) res.json(profileDetail(p));
 });
 
-const USER_FIELDS = ['password', 'preferredLanguages', 'defaultQuality', 'versionMode', 'customCss', 'hideWatched', 'onlyReleased', 'catalogs', 'catalogOrder', 'homeSections', 'latestExcludes'];
+const USER_FIELDS = ['password', 'preferredLanguages', 'playback', 'defaultQuality', 'versionMode', 'customCss', 'hideWatched', 'onlyReleased', 'catalogs', 'catalogOrder', 'homeSections', 'latestExcludes'];
 
 router.patch('/api/profiles/:id', (req, res) => {
   let body = req.body || {};

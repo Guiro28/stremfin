@@ -76,6 +76,13 @@ function defaultSettings() {
   };
 }
 
+// Preferences de lecture d'un profil : langue audio (vide = langues prioritaires du profil),
+// langue des sous-titres (vide = premiere langue prioritaire), et quand les afficher :
+// Default (pistes marquees "par defaut" / "forcees"), Always, OnlyForced, Smart (si l'audio
+// n'est pas dans la langue des sous-titres), None.
+const SUBTITLE_MODES = ['Default', 'Always', 'OnlyForced', 'Smart', 'None'];
+const PLAYBACK = { audioLanguage: '', subtitleLanguage: '', subtitleMode: 'Default', playDefaultAudioTrack: false, rememberAudio: true, rememberSubtitles: true };
+
 function newProfile(name) {
   return {
     id: hex(16),
@@ -91,6 +98,8 @@ function newProfile(name) {
     collections: [],
     // Langues audio a faire remonter en premier dans la liste des sources.
     preferredLanguages: ['fr'],
+    // Pistes au lancement (reglables aussi depuis les apps Jellyfin / Emby) : voir PLAYBACK.
+    playback: { ...PLAYBACK },
     // Retire des catalogues les films deja vus.
     hideWatched: false,
     // Qualite lancee par defaut (2160, 1080, 720) ; a defaut, la plus proche disponible.
@@ -311,7 +320,7 @@ function duplicateProfile(id, name, password) {
   assertUniqueName(n);
   const p = newProfile(n);
   p.passwordHash = requirePassword(password);
-  for (const k of ['addons', 'catalogs', 'catalogOrder', 'collections', 'preferredLanguages', 'hideWatched', 'defaultQuality', 'versionMode', 'customCss', 'onlyReleased', 'homeSections', 'latestExcludes']) {
+  for (const k of ['addons', 'catalogs', 'catalogOrder', 'collections', 'preferredLanguages', 'playback', 'hideWatched', 'defaultQuality', 'versionMode', 'customCss', 'onlyReleased', 'homeSections', 'latestExcludes']) {
     if (src[k] !== undefined) p[k] = JSON.parse(JSON.stringify(src[k]));
   }
   state.profiles.push(p);
@@ -337,6 +346,16 @@ function updateProfile(id, patch) {
   if (Array.isArray(patch.latestExcludes)) p.latestExcludes = patch.latestExcludes.map(String);
   if (Array.isArray(patch.preferredLanguages)) {
     p.preferredLanguages = patch.preferredLanguages.map((l) => String(l).toLowerCase().trim()).filter(Boolean);
+  }
+  if (patch.playback && typeof patch.playback === 'object') {
+    const { to2 } = require('./languages');
+    const pb = { ...PLAYBACK, ...(p.playback || {}) };
+    const x = patch.playback;
+    if (typeof x.audioLanguage === 'string') pb.audioLanguage = to2(x.audioLanguage).slice(0, 8);
+    if (typeof x.subtitleLanguage === 'string') pb.subtitleLanguage = to2(x.subtitleLanguage).slice(0, 8);
+    if (SUBTITLE_MODES.includes(x.subtitleMode)) pb.subtitleMode = x.subtitleMode;
+    for (const k of ['playDefaultAudioTrack', 'rememberAudio', 'rememberSubtitles']) if (typeof x[k] === 'boolean') pb[k] = x[k];
+    p.playback = pb;
   }
   if (typeof patch.hideWatched === 'boolean') p.hideWatched = patch.hideWatched;
   if (typeof patch.onlyReleased === 'boolean') p.onlyReleased = patch.onlyReleased;
@@ -419,6 +438,8 @@ module.exports = {
   removeProfile,
   normalizeManifestUrl,
   MODES,
+  PLAYBACK,
+  SUBTITLE_MODES,
   HOME_SECTIONS,
   hasAdmin,
   checkAdmin,

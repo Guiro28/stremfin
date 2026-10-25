@@ -337,6 +337,25 @@ router.get('/Users/:u', (req, res) => {
   if (ids.norm(req.params.u) !== req.profile.id) return res.status(404).send('User not found');
   res.json(dto.userDto(req.profile, { autoLogin: isEmby(req) }));
 });
+// Preferences de lecture choisies dans les reglages de l'app (langues audio et sous-titres).
+// Jellyfin 10.9+ : POST /Users/Configuration?userId=... ; Emby et anciens Jellyfin : /Users/{id}/Configuration.
+router.post(['/Users/Configuration', '/Users/:u/Configuration'], (req, res) => {
+  const target = req.params.u || lq(req).userid;
+  if (target && ids.norm(target) !== req.profile.id) return res.status(403).send('Forbidden');
+  const b = req.body || {};
+  const playback = {};
+  if (typeof b.AudioLanguagePreference === 'string') playback.audioLanguage = b.AudioLanguagePreference;
+  if (typeof b.SubtitleLanguagePreference === 'string') playback.subtitleLanguage = b.SubtitleLanguagePreference;
+  if (typeof b.SubtitleMode === 'string') playback.subtitleMode = b.SubtitleMode;
+  if (typeof b.PlayDefaultAudioTrack === 'boolean') playback.playDefaultAudioTrack = b.PlayDefaultAudioTrack;
+  if (typeof b.RememberAudioSelections === 'boolean') playback.rememberAudio = b.RememberAudioSelections;
+  if (typeof b.RememberSubtitleSelections === 'boolean') playback.rememberSubtitles = b.RememberSubtitleSelections;
+  config.updateProfile(req.profile.id, { playback });
+  const pb = req.profile.playback;
+  log(`[user] ${req.profile.name} : audio ${pb.audioLanguage || 'langues du profil'}, sous-titres ${pb.subtitleLanguage || 'langue du profil'} (${pb.subtitleMode})`);
+  res.status(204).end();
+});
+
 router.get(['/Users/:u/Views', '/UserViews'], (req, res) => {
   const views = catalog.views(req.profile).map((v) => library.lightDto(req.profile, ids.get(v.uuid)));
   res.json(dto.queryResult(views));
@@ -665,7 +684,9 @@ router.get('/Localization/Options', (req, res) =>
     { Name: 'English', Value: 'en-US' }
   ])
 );
-router.get(['/Localization/Cultures', '/Localization/Countries', '/Localization/ParentalRatings', '/Plugins', '/Packages', '/ScheduledTasks', '/SyncPlay/List'], (req, res) => res.json([]));
+// Langues proposees dans les reglages audio / sous-titres des apps.
+router.get('/Localization/Cultures', (req, res) => res.json(require('../languages').cultures(config.get().settings.language)));
+router.get(['/Localization/Countries', '/Localization/ParentalRatings', '/Plugins', '/Packages', '/ScheduledTasks', '/SyncPlay/List'], (req, res) => res.json([]));
 
 // App Emby Android TV : la reponse WakeOnLanInfo referme l'ecran "Qui regarde ?". Si elle
 // arrive avant la fin de la verification de licence de l'app (en ligne, ~0,5 s), l'accueil

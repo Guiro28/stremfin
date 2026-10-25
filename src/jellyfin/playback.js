@@ -9,6 +9,7 @@ const introdb = require('../introdb');
 const { request, readAll } = require('../http');
 const { st } = require('../db');
 const dto = require('./dto');
+const languages = require('../languages');
 
 const SRC_TTL = 24 * 3600e3;
 
@@ -173,11 +174,45 @@ function displayName(addon, s) {
   return out.length > 140 ? out.slice(0, 137) + '…' : out;
 }
 
+// Recherches de sources en cours ou recentes, par profil, element et addons actifs : la fiche,
+// son prechargement et la lecture partagent une seule recherche aupres des addons. Activer,
+// couper ou changer un addon change la cle : la recherche suivante repart de zero.
+const SOURCES_MEMO = 2 * 60e3;
+// Aucune source : resultat garde peu de temps (addon lent ou en panne a ce moment-la).
+const EMPTY_MEMO = 20e3;
+const searches = new Map();
+
+function searchKey(profile, uuid) {
+  const addons = stremio.enabledAddons(profile).map((a) => `${a.lib || a.url}:${a.mode || ''}`).join(',');
+  return `${profile.id}|${uuid}|${hash(addons)}`;
+}
+const fresh = (r) => r.pending || Date.now() - r.at < (r.count ? SOURCES_MEMO : EMPTY_MEMO);
+
 /**
  * Sources lisibles pour un film/episode, triees (langues preferees d'abord).
  * Chaque source recoit un id stable, memorise pour la route /stream.
  */
-async function sourcesFor(profile, uuid) {
+function sourcesFor(profile, uuid) {
+  const key = searchKey(profile, uuid);
+  const known = searches.get(key);
+  if (known && fresh(known)) return known.promise;
+  const rec = { pending: true, at: 0, count: null, promise: findSources(profile, uuid) };
+  searches.set(key, rec);
+  rec.promise.then(
+    (list) => Object.assign(rec, { pending: false, at: Date.now(), count: list.length }),
+    () => searches.delete(key)
+  );
+  for (const [k, r] of searches) if (!fresh(r)) searches.delete(k);
+  return rec.promise;
+}
+
+/** Une recherche recente (avec les addons actuels) n'a trouve aucune source pour cet element ? */
+function knownEmpty(profile, uuid) {
+  const r = searches.get(searchKey(profile, uuid));
+  return !!r && !r.pending && r.count === 0 && fresh(r);
+}
+
+async function findSources(profile, uuid) {
   const entry = ids.get(uuid);
   const tg = await target(entry);
   if (!tg) return [];
@@ -224,9 +259,19 @@ async function sourcesFor(profile, uuid) {
 async function subtitlesFor(profile, uuid) {
   const tg = await target(ids.get(uuid));
   if (!tg) return [];
-  const wanted = new Set((profile.preferredLanguages || []).concat('en').flatMap((l) => SUB_LANG[l] || [l]));
+  // Langues prioritaires, anglais, et la langue de sous-titres choisie (reglages de l'app).
+  const chosen = profile.playback?.subtitleLanguage;
+  const wanted = new Set((profile.preferredLanguages || []).concat('en', chosen ? [chosen] : []).flatMap((l) => languages.variants(l)));
   const subs = await stremio.subtitles(profile, tg.type, tg.ids);
-  return subs.filter(({ sub }) => sub?.url && (!sub.lang || wanted.has(String(sub.lang).toLowerCase()))).slice(0, 30);
+  // Langues du profil d'abord, dans son ordre de preference.
+  const rank = (lang) => {
+    const i = (profile.preferredLanguages || []).findIndex((l) => (SUB_LANG[l] || [l]).includes(String(lang || '').toLowerCase()));
+    return i === -1 ? 99 : i;
+  };
+  return subs
+    .filter(({ sub }) => sub?.url && (!sub.lang || wanted.has(String(sub.lang).toLowerCase())))
+    .sort((a, b) => rank(a.sub.lang) - rank(b.sub.lang))
+    .slice(0, 30);
 }
 
 // ---- Qualites -----------------------------------------------------------------
@@ -316,8 +361,27 @@ function orderedQualities(profile) {
   return [...QUALITIES].sort((a, b) => (a.key === def ? -1 : b.key === def ? 1 : 0));
 }
 
+// Une fiche en mode "3 qualites" attend les addons au plus 4 s pour savoir s'il y a des sources.
+const QUALITY_WAIT = 4000;
+
+// Selecteur de version quand aucun addon ne fournit la video (langue des libelles du serveur).
+// Deux lignes : les apps n'affichent le selecteur qu'a partir de deux versions.
+const NO_SOURCE = {
+  fr: ['😕 Aucune source disponible', '🔄 Réessaie un peu plus tard'],
+  en: ['😕 No source available', '🔄 Try again a bit later'],
+  es: ['😕 Ninguna fuente disponible', '🔄 Vuelve a intentarlo más tarde'],
+  de: ['😕 Keine Quelle verfügbar', '🔄 Versuche es etwas später erneut'],
+  it: ['😕 Nessuna fonte disponibile', '🔄 Riprova un po’ più tardi']
+};
+function noSource(itemUuid, profile) {
+  const lines = NO_SOURCE[config.get().settings.language] || NO_SOURCE.fr;
+  // Ids de l'element : si des sources apparaissent entre-temps, la lecture les trouve.
+  return lines.map((name, i) => ({ ...placeholderSource(itemUuid), Id: i ? qualityId(itemUuid, defaultQuality(profile)) : itemUuid, Name: name }));
+}
+
 /** Les 3 versions affichees sur la fiche (qualite par defaut du profil en premier). */
 function qualitySources(profile, itemUuid) {
+  if (knownEmpty(profile, itemUuid)) return noSource(itemUuid, profile);
   return orderedQualities(profile).map((q) => ({ ...placeholderSource(itemUuid), Id: qualityId(itemUuid, q.key), Name: q.name }));
 }
 
@@ -344,9 +408,12 @@ function topReleases(profile, sources) {
  * addons (mode "releases"). Sans release a temps, on revient aux 3 qualites.
  */
 async function versionSources(profile, itemUuid) {
-  if (profile.versionMode !== 'releases') return qualitySources(profile, itemUuid);
-  const timeout = new Promise((r) => setTimeout(() => r(null), RELEASES_WAIT));
-  const sources = await Promise.race([sourcesFor(profile, itemUuid).catch(() => []), timeout]);
+  const releases = profile.versionMode === 'releases';
+  // null = addons trop lents (la recherche continue en arriere-plan).
+  const timeout = new Promise((r) => setTimeout(() => r(null), releases ? RELEASES_WAIT : QUALITY_WAIT));
+  const sources = await Promise.race([sourcesFor(profile, itemUuid).catch(() => null), timeout]);
+  if (sources && !sources.length) return noSource(itemUuid, profile);
+  if (!releases) return qualitySources(profile, itemUuid);
   const top = sources ? topReleases(profile, sources) : [];
   if (!top.length) return qualitySources(profile, itemUuid);
   return top.map(({ q, src }) => ({
@@ -358,17 +425,165 @@ async function versionSources(profile, itemUuid) {
   }));
 }
 
+// ---- Pistes reelles du fichier -------------------------------------------------
+// Les apps ne proposent que les pistes annoncees par le serveur : on lit l'en-tete du fichier
+// (Matroska) pour annoncer toutes ses pistes audio et ses sous-titres integres.
+
+// Codes de langue ISO 639-2 "bibliographiques" (Matroska) -> code a 2 lettres.
+const LANG2 = { fre: 'fr', fra: 'fr', eng: 'en', spa: 'es', ger: 'de', deu: 'de', ita: 'it', por: 'pt', dut: 'nl', nld: 'nl', jpn: 'ja', chi: 'zh', zho: 'zh', kor: 'ko', rus: 'ru', ara: 'ar', pol: 'pl', swe: 'sv', dan: 'da', nor: 'no', fin: 'fi', tur: 'tr', gre: 'el', ell: 'el', heb: 'he', hin: 'hi', cze: 'cs', ces: 'cs', hun: 'hu', rum: 'ro', ron: 'ro', ukr: 'uk', tha: 'th', vie: 'vi', ind: 'id', may: 'ms', msa: 'ms', per: 'fa', fas: 'fa', cat: 'ca', bul: 'bg', hrv: 'hr', srp: 'sr', slo: 'sk', slk: 'sk', slv: 'sl', ice: 'is', isl: 'is', est: 'et', lav: 'lv', lit: 'lt', baq: 'eu', eus: 'eu', glg: 'gl', wel: 'cy', cym: 'cy' };
+const CODEC = {
+  'V_MPEGH/ISO/HEVC': 'hevc', 'V_MPEG4/ISO/AVC': 'h264', V_AV1: 'av1', V_VP9: 'vp9', V_VP8: 'vp8', 'V_MPEG2': 'mpeg2video',
+  A_AAC: 'aac', A_AC3: 'ac3', A_EAC3: 'eac3', A_DTS: 'dts', A_TRUEHD: 'truehd', A_OPUS: 'opus', A_FLAC: 'flac', A_VORBIS: 'vorbis', 'A_MPEG/L3': 'mp3', 'A_PCM/INT/LIT': 'pcm_s16le',
+  'S_TEXT/UTF8': 'subrip', 'S_TEXT/ASS': 'ass', 'S_TEXT/SSA': 'ssa', 'S_TEXT/WEBVTT': 'webvtt', 'S_HDMV/PGS': 'PGSSUB', S_VOBSUB: 'dvdsub', 'S_DVBSUB': 'dvbsub'
+};
+const TEXT_SUBS = new Set(['subrip', 'ass', 'ssa', 'webvtt']);
+
+function codecOf(codecId) {
+  const id = String(codecId || '');
+  return CODEC[id] || CODEC[Object.keys(CODEC).find((k) => id.startsWith(k + '/'))] || id.replace(/^[VAS]_/, '').toLowerCase();
+}
+
+/** Nom de la langue dans la langue des libelles du serveur ("Français", "Anglais"...). */
+function langName(code) {
+  const c = String(code || '').toLowerCase();
+  if (!c || c === 'und' || c === 'zxx') return null;
+  const two = LANG2[c] || c.split('-')[0];
+  try {
+    const name = new Intl.DisplayNames([config.get().settings.language || 'fr'], { type: 'language' }).of(two);
+    return name && name !== two ? name[0].toUpperCase() + name.slice(1) : c;
+  } catch {
+    return c;
+  }
+}
+
+/** Pistes du fichier d'une source (en cache 24 h), ou null si illisibles. */
+async function tracksOf(src) {
+  if (!['mkv', 'webm'].includes(src.container) || src.relay) return null;
+  const key = 'probe|' + hash(src.url);
+  const hit = cache.peek(key);
+  if (hit) return hit.v.tracks;
+  const settings = config.get().settings;
+  const mode = src.mode || settings.addonMode;
+  let tracks = null;
+  const t0 = Date.now();
+  const opts = { headers: src.headers || undefined, upstream: mode === 'warp' ? settings.upstream : undefined };
+  // Un lien de debrideur peut repondre 404 / 5xx le temps de preparer le fichier : 2e essai 2 s apres.
+  for (let attempt = 1; attempt <= 2 && !tracks; attempt++) {
+    try {
+      tracks = await require('../probe').mkvTracks(src.url, opts);
+    } catch (e) {
+      const retry = attempt === 1 && /reponse (404|5\d\d)/.test(e.message);
+      log(`[probe] ${hostOf(src.url)} : ${e.message}${retry ? ', nouvel essai' : ''}`);
+      if (!retry) break;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+  if (tracks) log(`[probe] ${tracks.filter((t) => t.type === 'audio').length} audio, ${tracks.filter((t) => t.type === 'subtitle').length} sous-titre(s) en ${Date.now() - t0} ms`);
+  else log(`[probe] ${hostOf(src.url)} : pistes non trouvees (${Date.now() - t0} ms)`);
+  // Echec (lien pas encore pret...) : nouvel essai a la lecture suivante.
+  cache.put(key, { tracks }, tracks ? 24 * 3600e3 : 60e3);
+  return tracks;
+}
+
+/** Pistes du fichier au format Jellyfin (Index = ordre dans le fichier, comme ffprobe). */
+function fileStreams(tracks, text) {
+  const guess = guessStreams(text);
+  return tracks.map((t, index) => {
+    const codec = codecOf(t.codecId);
+    const lang = t.language && t.language !== 'und' ? t.language : undefined;
+    const name = langName(t.languageIetf || t.language);
+    const common = {
+      Codec: codec,
+      Language: lang,
+      Title: t.name || undefined,
+      Index: index,
+      IsDefault: !!t.default,
+      IsForced: !!t.forced,
+      IsHearingImpaired: !!t.hearingImpaired,
+      IsInterlaced: false,
+      IsExternal: false,
+      Level: 0
+    };
+    if (t.type === 'video') {
+      // Plage dynamique (HDR, Dolby Vision) : deduite du nom de la release.
+      return { ...guess[0], ...common, Type: 'Video', Width: t.width || guess[0].Width, Height: t.height || guess[0].Height, IsAVC: codec === 'h264' };
+    }
+    if (t.type === 'audio') {
+      const ch = t.channels || 2;
+      const layout = ch >= 8 ? '7.1' : ch >= 6 ? '5.1' : ch === 1 ? 'mono' : 'stereo';
+      const detail = t.name || `${codec.toUpperCase()} ${layout}`;
+      return { ...common, Type: 'Audio', Channels: ch, ChannelLayout: layout, IsTextSubtitleStream: false, SupportsExternalStream: false, DisplayTitle: name ? `${name} · ${detail}` : detail };
+    }
+    const forced = t.forced ? ' (forcé)' : '';
+    const detail = t.name || codec.toUpperCase();
+    return {
+      ...common,
+      Type: 'Subtitle',
+      IsTextSubtitleStream: TEXT_SUBS.has(codec),
+      SupportsExternalStream: false,
+      DeliveryMethod: 'Embed',
+      DisplayTitle: `${name || '?'}${forced} · ${detail}`
+    };
+  });
+}
+
+const playbackPrefs = (profile) => ({ ...config.PLAYBACK, ...(profile?.playback || {}) });
+const sameLang = (stream, code) => !!code && languages.variants(code).includes(String(stream.Language || '').toLowerCase());
+
+/**
+ * Piste audio par defaut : celle marquee "par defaut" dans le fichier si le profil le demande,
+ * sinon la langue audio choisie (reglages de l'app ou de Stremfin), puis les langues prioritaires.
+ */
+function defaultAudio(streams, profile) {
+  const audio = streams.filter((s) => s.Type === 'Audio');
+  const pb = playbackPrefs(profile);
+  if (pb.playDefaultAudioTrack) return audio.find((s) => s.IsDefault) || audio[0];
+  for (const l of [pb.audioLanguage, ...(profile?.preferredLanguages || [])].filter(Boolean)) {
+    const hit = audio.find((s) => sameLang(s, l));
+    if (hit) return hit;
+  }
+  return audio.find((s) => s.IsDefault) || audio[0];
+}
+
+/**
+ * Sous-titres actives au lancement, selon le mode choisi (memes regles que Jellyfin) :
+ * Default = pistes "forcees" ou "par defaut" du fichier ; Always = toujours dans la langue choisie ;
+ * OnlyForced = seulement les "forcees" ; Smart = si l'audio n'est pas dans la langue choisie ;
+ * None = jamais. Langue des sous-titres : celle choisie, sinon la premiere langue prioritaire.
+ */
+function defaultSubtitle(streams, profile, audio) {
+  const pb = playbackPrefs(profile);
+  if (pb.subtitleMode === 'None') return null;
+  const subs = streams.filter((s) => s.Type === 'Subtitle');
+  const lang = pb.subtitleLanguage || (profile?.preferredLanguages || [])[0] || '';
+  const inLang = subs.filter((s) => sameLang(s, lang));
+  const full = inLang.find((s) => !s.IsForced) || inLang[0];
+  const forced = subs.find((s) => s.IsForced && (sameLang(s, lang) || (audio?.Language && s.Language === audio.Language)));
+  switch (pb.subtitleMode) {
+    case 'Always':
+      return full || null;
+    case 'OnlyForced':
+      return forced || null;
+    case 'Smart':
+      return audio?.Language && !sameLang(audio, lang) ? full || null : forced || null;
+    default:
+      return forced || subs.find((s) => s.IsDefault && !s.IsExternal && (!lang || sameLang(s, lang))) || null;
+  }
+}
+
 function mediaSource(itemUuid, src, token, subs, opts = {}) {
   const ticks = runtimeOf(ids.get(itemUuid));
-  const streams = guessStreams(src.text);
+  const streams = opts.tracks?.length ? fileStreams(opts.tracks, src.text) : guessStreams(src.text);
   const msid = opts.id || src.id;
+  const audio = defaultAudio(streams, opts.profile);
+  const first = streams.length;
   subs.forEach(({ addon, sub }, i) => {
-    const index = 2 + i;
+    const index = first + i;
     cache.put(`sub|${msid}|${index}`, { url: sub.url }, SRC_TTL);
     streams.push({
       Codec: 'srt',
       Language: sub.lang,
-      DisplayTitle: `${sub.lang || '?'} · ${addon}`,
+      DisplayTitle: `${langName(sub.lang) || '?'} · ${addon}`,
       Title: addon,
       Type: 'Subtitle',
       Index: index,
@@ -384,6 +599,7 @@ function mediaSource(itemUuid, src, token, subs, opts = {}) {
       Level: 0
     });
   });
+  const subtitle = defaultSubtitle(streams, opts.profile, audio);
   return {
     Protocol: 'File',
     Id: msid,
@@ -414,7 +630,8 @@ function mediaSource(itemUuid, src, token, subs, opts = {}) {
     Formats: [],
     RequiredHttpHeaders: {},
     TranscodingSubProtocol: 'http',
-    DefaultAudioStreamIndex: 1,
+    DefaultAudioStreamIndex: audio ? audio.Index : 1,
+    DefaultSubtitleStreamIndex: subtitle ? subtitle.Index : -1,
     // Indispensable pour que les apps demandent /MediaSegments (boutons "Passer l'intro").
     HasSegments: !!config.get().settings.introSkip,
     DirectStreamUrl: `/Videos/${itemUuid}/stream.${src.container}?static=true&mediaSourceId=${msid}&api_key=${token}`
@@ -472,11 +689,11 @@ async function playbackInfo(profile, token, itemId, mediaSourceId) {
   const wanted = releaseOf(entry.uuid, mediaSourceId);
   const release = wanted && sources.find((s) => s.id === wanted);
   if (exact) {
-    res.MediaSources = [mediaSource(entry.uuid, exact, token, subs)];
+    res.MediaSources = [mediaSource(entry.uuid, exact, token, subs, { profile, tracks: await tracksOf(exact) })];
   } else if (release) {
     const id = ids.norm(mediaSourceId);
     cache.put('src|' + id, release, SRC_TTL);
-    res.MediaSources = [mediaSource(entry.uuid, release, token, subs, { id, name: versionLabel(QUALITY_NAME[release.bucket], release) })];
+    res.MediaSources = [mediaSource(entry.uuid, release, token, subs, { id, name: versionLabel(QUALITY_NAME[release.bucket], release), profile, tracks: await tracksOf(release) })];
     log(`[play] ${entry.data.name || entry.data.vid} : release choisie ${QUALITY_NAME[release.bucket]} (${Date.now() - t0} ms)`);
   } else {
     // Sinon : la version choisie (4K/1080p/720p) ou la qualite par defaut du profil.
@@ -486,7 +703,7 @@ async function playbackInfo(profile, token, itemId, mediaSourceId) {
       const id = qualityId(entry.uuid, q);
       cache.put('src|' + id, src, SRC_TTL);
       const label = src.bucket === q ? QUALITY_NAME[q] : `${QUALITY_NAME[q]} → ${QUALITY_NAME[src.bucket]}`;
-      res.MediaSources = [mediaSource(entry.uuid, src, token, subs, { id, name: versionLabel(label, src) })];
+      res.MediaSources = [mediaSource(entry.uuid, src, token, subs, { id, name: versionLabel(label, src), profile, tracks: await tracksOf(src) })];
       log(`[play] ${entry.data.name || entry.data.vid} : ${sources.length} source(s), qualite ${QUALITY_NAME[q]} -> ${QUALITY_NAME[src.bucket]} (${Date.now() - t0} ms)`);
     }
   }

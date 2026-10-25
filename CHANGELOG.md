@@ -3,6 +3,25 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
+## 0.3.0 — 2026-10-26
+
+### Ajouts
+- **Pistes audio et sous-titres intégrés** : Stremfin lit l'en-tête des fichiers MKV (sans les
+  télécharger) et annonce aux apps toutes leurs pistes audio (VF, VO, commentaires…) et leurs
+  sous-titres intégrés (SRT, ASS, PGS), avec langue et nom. Un lien de débrideur pas encore
+  prêt est réessayé.
+- **Préférences de lecture** par profil : langue audio, langue des sous-titres et sous-titres au
+  lancement (Par défaut, Intelligent, Toujours, Seulement les forcés, Aucun). Réglables dans
+  l'onglet *Préférences* et dans les paramètres des apps Jellyfin et Emby, qui les enregistrent
+  maintenant sur le serveur ; la liste des langues leur est fournie.
+- **Aucune source** : le sélecteur de version affiche « 😕 Aucune source disponible » quand aucun
+  addon ne fournit la vidéo.
+
+### Changements
+- Sous-titres des addons (OpenSubtitles…) : langues du profil en premier, noms de langue lisibles.
+- Une seule recherche de sources pour la fiche, son préchargement et la lecture ; activer ou
+  couper un addon la relance.
+
 ## 0.2.1 — 2026-10-26
 
 ### Changements

@@ -60,6 +60,27 @@ peut lister les **5 meilleures releases de chaque qualité** trouvées par les a
 15 versions, qualité par défaut en tête). Si les addons ne répondent pas dans les 8 s,
 la fiche affiche les 3 qualités ; les réponses restent en cache pour la prochaine ouverture.
 
+Quand aucun addon ne fournit la vidéo, le sélecteur de version affiche « 😕 Aucune source
+disponible » et « 🔄 Réessaie un peu plus tard » (dans la langue des libellés du serveur) au
+lieu des qualités ou des releases. Une recherche de sources sert à la fiche et à la lecture
+pendant 2 min (20 s si elle n'a rien trouvé) ; activer ou couper un addon la relance.
+
+### Pistes audio et sous-titres
+
+Au lancement, Stremfin lit l'en-tête du fichier (MKV, quelques centaines de Ko, sans le
+télécharger) pour annoncer aux apps **toutes ses pistes** : audios (VF, VO, commentaires…) et
+**sous-titres intégrés** (SRT, ASS, PGS), avec leur langue et leur nom. L'audio par défaut
+suit les langues préférées du profil ; des sous-titres « forcés » dans cette langue sont
+activés d'office. Les sous-titres des addons de sous-titres (ex. OpenSubtitles) s'ajoutent à la
+liste, langues du profil d'abord. Résultat gardé 24 h par fichier ; un lien de débrideur pas
+encore prêt est réessayé.
+
+**Préférences de lecture** (par profil, onglet *Préférences*, ou dans les paramètres des apps
+Jellyfin et Emby, qui les enregistrent sur le serveur) : langue de la piste audio, langue des
+sous-titres et sous-titres au lancement : *Par défaut* (pistes forcées ou marquées par défaut),
+*Intelligent* (sous-titres complets si l'audio est dans une autre langue), *Toujours*,
+*Seulement les forcés* ou *Aucun*.
+
 ### Passer l'intro et le générique
 
 Les timestamps viennent de [TheIntroDB](https://theintrodb.org) (base communautaire,

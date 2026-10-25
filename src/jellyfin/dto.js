@@ -3,6 +3,7 @@
 // on renseigne donc toujours les champs non-nullables du schema OpenAPI.
 const crypto = require('crypto');
 const clientContext = require('./clientContext');
+const languages = require('../languages');
 const config = require('../config');
 const ids = require('../ids');
 const avatars = require('../avatars');
@@ -354,6 +355,7 @@ function userDto(profile, { autoLogin = false } = {}) {
   const views = require('../catalog').views(profile);
   const excluded = new Set(profile.latestExcludes || []);
   const now = new Date().toISOString();
+  const pb = { ...config.PLAYBACK, ...(profile.playback || {}) };
   return {
     Name: profile.name,
     ServerId: serverId(),
@@ -368,20 +370,21 @@ function userDto(profile, { autoLogin = false } = {}) {
     LastLoginDate: now,
     LastActivityDate: now,
     Configuration: {
-      AudioLanguagePreference: (profile.preferredLanguages || [])[0] || '',
-      PlayDefaultAudioTrack: true,
-      SubtitleLanguagePreference: '',
+      // Preferences de lecture du profil (modifiables depuis les reglages des apps).
+      AudioLanguagePreference: languages.to3(pb.audioLanguage),
+      PlayDefaultAudioTrack: pb.playDefaultAudioTrack,
+      SubtitleLanguagePreference: languages.to3(pb.subtitleLanguage),
       DisplayMissingEpisodes: false,
       GroupedFolders: [],
-      SubtitleMode: 'Default',
+      SubtitleMode: pb.subtitleMode,
       DisplayCollectionsView: false,
       EnableLocalPassword: false,
       OrderedViews: views.map((v) => v.uuid),
       LatestItemsExcludes: views.filter((v) => excluded.has(v.key)).map((v) => v.uuid),
       MyMediaExcludes: [],
       HidePlayedInLatest: false,
-      RememberAudioSelections: true,
-      RememberSubtitleSelections: true,
+      RememberAudioSelections: pb.rememberAudio,
+      RememberSubtitleSelections: pb.rememberSubtitles,
       EnableNextEpisodeAutoPlay: true,
       CastReceiverId: ''
     },

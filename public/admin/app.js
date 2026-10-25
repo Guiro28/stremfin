@@ -766,11 +766,28 @@ const LANGS = [
   ['fr', 'Français'], ['en', 'Anglais'], ['es', 'Espagnol'], ['de', 'Allemand'], ['it', 'Italien']
 ];
 
+// Modes des sous-titres au lancement (memes que Jellyfin / Emby) : valeur, libelle, explication.
+const SUB_MODES = [
+  ['Default', 'Par défaut', 'Pistes « forcées » ou marquées « par défaut » dans le fichier (dialogues étrangers).'],
+  ['Smart', 'Intelligent', "Sous-titres complets si l'audio n'est pas dans la langue des sous-titres, sinon seulement les forcés."],
+  ['Always', 'Toujours', 'Sous-titres complets dans la langue choisie, à chaque lecture.'],
+  ['OnlyForced', 'Seulement les forcés', 'Uniquement les sous-titres « forcés » (passages en langue étrangère).'],
+  ['None', 'Aucun', 'Jamais de sous-titres au lancement (ils restent disponibles dans le lecteur).']
+];
+const playbackLangOptions = (value, none) =>
+  `<option value="">${esc(none)}</option>${LANGS.map(([v, l]) => `<option value="${v}" ${value === v ? 'selected' : ''}>${t(l)}</option>`).join('')}${value && !LANGS.some(([v]) => v === value) ? `<option value="${esc(value)}" selected>${esc(value)}</option>` : ''}`;
+
 function tabPrefs(el, p) {
   const tmdbOn = !!state.info?.tmdb;
   el.innerHTML = `<div class="card">
     <div class="setting"><div class="text"><b>${t('Langues audio prioritaires')}</b><span>${t("Les sources dans ces langues passent en premier, avant la qualité (dans l'ordre de sélection).")}</span></div>
       <div class="control"><div class="chips" id="langs">${LANGS.map(([v, l]) => `<button type="button" class="chip ${p.preferredLanguages.includes(v) ? 'on' : ''}" data-lang="${v}">${t(l)}${p.preferredLanguages.includes(v) ? ` <span class="faint">${p.preferredLanguages.indexOf(v) + 1}</span>` : ''}</button>`).join('')}</div></div></div>
+    <div class="setting"><div class="text"><b>${t('Piste audio au lancement')}</b><span>${t("Langue de l'audio choisie au lancement, si le fichier la propose. Aussi réglable dans les paramètres des apps Jellyfin et Emby.")}</span></div>
+      <div class="control"><select id="pbAudio" style="width:auto">${playbackLangOptions(p.playback.audioLanguage, t('Langues prioritaires'))}</select></div></div>
+    <div class="setting"><div class="text"><b>${t('Langue des sous-titres')}</b><span>${t('Sans choix : la première langue prioritaire.')}</span></div>
+      <div class="control"><select id="pbSubLang" style="width:auto">${playbackLangOptions(p.playback.subtitleLanguage, t('Première langue prioritaire'))}</select></div></div>
+    <div class="setting"><div class="text"><b>${t('Sous-titres au lancement')}</b><span>${t(SUB_MODES.find(([v]) => v === p.playback.subtitleMode)?.[2] || '')}</span></div>
+      <div class="control"><select id="pbSubMode" style="width:auto">${SUB_MODES.map(([v, l]) => `<option value="${v}" ${p.playback.subtitleMode === v ? 'selected' : ''}>${t(l)}</option>`).join('')}</select></div></div>
     <div class="setting"><div class="text"><b>${t('Qualité par défaut')}</b><span>${t('Lancée sans choix explicite ; à défaut, la plus proche disponible.')}</span></div>
       <div class="control"><div class="segmented" id="quality">${[['2160', '4K'], ['1080', '1080p'], ['720', '720p']].map(([v, l]) => `<button type="button" data-q="${v}" class="${p.defaultQuality === v ? 'on' : ''}">${l}</button>`).join('')}</div></div></div>
     <div class="setting"><div class="text"><b>${t('Versions proposées')}</b><span>${t("Sur la fiche d'un film ou d'un épisode : 3 qualités, ou les 5 meilleures releases de chaque qualité trouvées par les addons (jusqu'à 15).")}</span></div>
@@ -785,6 +802,17 @@ function tabPrefs(el, p) {
     <textarea id="customCss" rows="12" spellcheck="false" placeholder="/* ${esc(t('Exemple'))} */&#10;.skinHeader { background: #101820; }" style="width:100%;font-family:var(--mono);font-size:13px;resize:vertical">${esc(p.customCss)}</textarea>
     <div class="row" style="margin-top:10px;justify-content:space-between"><span class="small faint">${t("S'applique au prochain chargement de la page dans Jellyfin web.")}</span><button class="btn primary" id="cssSave">${t('Enregistrer le CSS')}</button></div>
   </div>`;
+  // Preferences de lecture : enregistrees a chaque changement.
+  const savePlayback = async (patch) => {
+    const r = await busy(null, () => api('PATCH', `/profiles/${p.id}`, { playback: patch }), t('Enregistré'));
+    if (!r) return tabPrefs(el, p);
+    r.self = p.self;
+    state.profile = r;
+    tabPrefs(el, r);
+  };
+  $('#pbAudio').onchange = (e) => savePlayback({ audioLanguage: e.target.value });
+  $('#pbSubLang').onchange = (e) => savePlayback({ subtitleLanguage: e.target.value });
+  $('#pbSubMode').onchange = (e) => savePlayback({ subtitleMode: e.target.value });
   $('#cssSave').onclick = async (e) => {
     const r = await busy(e.currentTarget, () => api('PATCH', `/profiles/${p.id}`, { customCss: $('#customCss').value }), t('CSS enregistré'));
     if (r) {
