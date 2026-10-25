@@ -1,6 +1,6 @@
 {
   "name": "stremfin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Serveur compatible Jellyfin qui sert les catalogues et sources de tes addons Stremio/Nuvio aux applications Jellyfin.",
   "main": "server.js",
   "type": "commonjs",
