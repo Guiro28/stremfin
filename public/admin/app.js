@@ -256,7 +256,7 @@ const state = { authed: false, setup: false, role: null, username: '', profileId
 const NAV_ADMIN = [
   { group: null, items: [{ id: 'dashboard', label: 'Tableau de bord', icon: 'dashboard' }, { id: 'stats', label: 'Statistiques', icon: 'chart' }] },
   { group: 'Utilisateurs', items: [{ id: 'profiles', label: 'Profils', icon: 'users' }, { id: 'devices', label: 'Appareils', icon: 'devices' }] },
-  { group: 'Bibliothèque', items: [{ id: 'collections', label: 'Collections', icon: 'layers' }] },
+  { group: 'Bibliothèque', items: [{ id: 'library', label: 'Addons', icon: 'puzzle' }, { id: 'collections', label: 'Collections', icon: 'layers' }] },
   {
     group: 'Réglages',
     items: [
@@ -871,10 +871,17 @@ function tabHome(el, p) {
   draw();
 }
 
+// Aide des modes de connexion (infobulle du choix dans l'onglet Addons).
+const MODE_HELP = {
+  none: "L'app lit la vidéo directement à la source.",
+  direct: 'La vidéo passe par le serveur, avec son IP.',
+  warp: 'La vidéo passe par le serveur et le proxy externe.'
+};
+
 function tabAddons(el, p) {
   el.innerHTML = `<div class="card">
-    <div class="card-head"><div><h2>${t('Addons Stremio')}</h2><p>${t("L'ordre compte : pour une fiche, le premier addon capable de la fournir est utilisé (après TMDB).")}</p></div>
-      <div class="row">${p.self ? '' : `<button class="btn sm" id="copyAddons">${icon('copy')}${t('Copier depuis…')}</button>`}<button class="btn sm" id="refreshAddons">${icon('refresh')}${t('Recharger')}</button></div></div>
+    <div class="card-head"><div><h2>${t('Addons Stremio')}</h2><p>${t("L'ordre compte : pour une fiche, le premier addon capable de la fournir est utilisé (après TMDB).")} ${p.self ? '' : t('Un addon ajouté ici rejoint aussi la bibliothèque du serveur (page Addons).')}</p></div>
+      <div class="row">${p.self ? '' : `<button class="btn sm" id="pickAddons">${icon('puzzle')}${t('Depuis la bibliothèque')}</button><button class="btn sm" id="copyAddons">${icon('copy')}${t('Copier depuis…')}</button>`}<button class="btn sm" id="refreshAddons">${icon('refresh')}${t('Recharger')}</button></div></div>
     <form class="row" id="addAddon" style="margin-bottom:16px"><input class="grow" name="url" type="url" placeholder="${esc(t('https://…/manifest.json ou stremio://…'))}" style="width:auto" required>
       <button class="btn primary" type="submit">${icon('plus')}${t('Ajouter')}</button></form>
     ${p.addons.length ? `<div class="list" id="addonList">${p.addons.map((a) => `<div class="item ${a.enabled ? '' : 'off'}" data-key="${esc(a.url)}">
@@ -884,11 +891,13 @@ function tabAddons(el, p) {
           <div class="meta">${a.resources.map((r) => `<span class="badge">${esc(r)}</span>`).join('')}${a.description ? `<span class="small">${esc(a.description.slice(0, 120))}</span>` : ''}</div></div>
         <div class="actions">
           ${a.catalogCount ? `<button class="btn sm ${a.catalogsHidden ? '' : 'ghost'}" data-cats="${a.index}" title="${esc(a.catalogsHidden ? t('Ses catalogues ne sont pas proposés comme bibliothèques') : t('Ses catalogues sont proposés dans Bibliothèques'))}">${icon('layers')}${a.catalogsHidden ? t('Catalogues masqués') : t('{n} catalogue(s)', { n: a.catalogCount })}</button>` : ''}
+          <select class="sm mode-select" data-mode="${a.index}" aria-label="${esc(t('Mode de connexion'))}" title="${esc(t(MODE_HELP[a.mode] || ''))}">${window.StremfinLibrary.MODES.map(([m, label]) => `<option value="${m}" ${a.mode === m ? 'selected' : ''}>${esc(t(label))}</option>`).join('')}</select>
           ${a.configureUrl ? `<a class="btn ghost icon-only" href="${esc(a.configureUrl)}" target="_blank" rel="noopener noreferrer" title="${esc(t("Configurer l'addon"))}">${icon('settings')}</a>` : ''}
           ${toggle(`data-enable="${a.index}" aria-label="${esc(t('Activer'))}"`, a.enabled)}
           <button class="btn ghost icon-only" data-del="${a.index}" title="${esc(t('Retirer'))}">${icon('trash')}</button>
         </div></div>`).join('')}</div>
-      <p class="small faint" style="margin-top:10px">${t("« Catalogues » : cliquer pour garder l'addon seulement pour ses sources et ses fiches, sans proposer ses catalogues.")}</p>`
+      <p class="small faint" style="margin-top:10px">${t("« Catalogues » : cliquer pour garder l'addon seulement pour ses sources et ses fiches, sans proposer ses catalogues.")}</p>
+      <p class="small faint">${t('Mode de connexion : « Sans proxy », l’app lit la vidéo à la source ; « Proxy interne », la vidéo passe par le serveur (son IP) ; « Proxy externe », par le serveur et le proxy externe (Réglages → Lecture et réseau).')}</p>`
       : `<div class="empty">${icon('puzzle')}<p>${t('Aucun addon. Ajoute au moins un addon de sources pour pouvoir lire.')}</p></div>`}
   </div>`;
 
@@ -902,6 +911,7 @@ function tabAddons(el, p) {
     e.preventDefault();
     refresh(await busy($('#addAddon button'), () => api('POST', `/profiles/${p.id}/addons`, { url: e.target.url.value }), t('Addon ajouté')));
   };
+  if ($('#pickAddons')) $('#pickAddons').onclick = async () => refresh(await window.StremfinLibrary.pickForProfile(p));
   $('#refreshAddons').onclick = async (e) => refresh(await busy(e.currentTarget, () => api('POST', `/profiles/${p.id}/addons/refresh`), t('Manifests rechargés')));
   if ($('#copyAddons')) $('#copyAddons').onclick = async () => {
     const others = (await api('GET', '/profiles')).filter((o) => o.id !== p.id);
@@ -923,6 +933,14 @@ function tabAddons(el, p) {
   const addonUrl = (idx) => `/profiles/${p.id}/addons/${idx}?url=${encodeURIComponent(p.addons[Number(idx)].url)}`;
   sortable(list, async (urls) => refresh(await busy(null, () => api('PUT', `/profiles/${p.id}/addons/order`, { urls }), t('Ordre enregistré'))));
   list.addEventListener('change', async (e) => {
+    const m = e.target.dataset.mode;
+    if (m !== undefined) {
+      const before = p.addons[Number(m)].mode;
+      const r = await busy(null, () => api('PATCH', addonUrl(m), { mode: e.target.value }), t('Mode de connexion enregistré'));
+      if (r) refresh(r);
+      else e.target.value = before;
+      return;
+    }
     const idx = e.target.dataset.enable;
     if (idx === undefined) return;
     const r = await busy(null, () => api('PATCH', addonUrl(idx), { enabled: e.target.checked }), e.target.checked ? t('Addon activé') : t('Addon désactivé'));
@@ -1261,10 +1279,10 @@ PAGES['settings/playback'] = async (main) => {
   const s = state.settings;
   main.innerHTML = `${head(t('Lecture et réseau'), t('Comment les vidéos et les addons sont joints.'))}
     <form class="card" id="f">
-      <div class="setting"><div class="text"><b>${t('Lecture des vidéos')}</b><span>${t("<b>Via le serveur</b> : la vidéo passe par ce serveur (IP du serveur ou WARP). <b>Directe</b> : l'app lit la source elle-même.")}</span></div>
-        <div class="control"><div class="segmented" id="mode"><button type="button" data-v="proxy" class="${s.streamMode === 'proxy' ? 'on' : ''}">${t('Via le serveur')}</button><button type="button" data-v="redirect" class="${s.streamMode === 'redirect' ? 'on' : ''}">${t('Directe')}</button></div></div></div>
-      <div class="setting"><div class="text"><b>${t('Sortie réseau')}</b><span>${t('Pour joindre les addons et les vidéos (ex. Cloudflare WARP en SOCKS5).')}</span></div>
-        <div class="control"><select name="upMode"><option value="direct">${t('Directe')}</option><option value="socks">SOCKS5</option><option value="http">${t('Proxy HTTP')}</option></select></div></div>
+      <div class="setting"><div class="text"><b>${t('Mode de connexion par défaut')}</b><span>${t('Proposé pour les addons ajoutés à un profil ; chaque addon garde ensuite son mode, profil par profil (page Addons).')}</span></div>
+        <div class="control"><div class="segmented" id="mode">${window.StremfinLibrary.MODES.map(([m, label]) => `<button type="button" data-v="${m}" class="${s.addonMode === m ? 'on' : ''}">${t(label)}</button>`).join('')}</div></div></div>
+      <div class="setting"><div class="text"><b>${t('Proxy externe')}</b><span>${t('Pour les addons en mode « Proxy externe » (ex. Cloudflare WARP en SOCKS5), ainsi que pour les catalogues et les manifests.')}</span></div>
+        <div class="control"><select name="upMode"><option value="direct">${t('Aucun')}</option><option value="socks">SOCKS5</option><option value="http">${t('Proxy HTTP')}</option></select></div></div>
       <div class="setting" id="upUrlRow"><div class="text"><b>${t('Adresse du proxy de sortie')}</b><span>${t('Ex. {a} ou {b}.', { a: '<code>socks5://127.0.0.1:40000</code>', b: '<code>http://user:pass@hote:port</code>' })}</span></div>
         <div class="control wide"><input name="upUrl" type="text" value="${esc(s.upstream.url)}" placeholder="socks5://127.0.0.1:40000"></div></div>
       <div class="setting"><div class="text"><b>${t('Serveur de streaming Stremio')}</b><span>${t('Pour lire les sources torrent sans débrideur. Vide : torrents ignorés.')}</span></div>
@@ -1274,7 +1292,7 @@ PAGES['settings/playback'] = async (main) => {
       <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
     </form>`;
   const f = $('#f');
-  let mode = s.streamMode;
+  let mode = s.addonMode;
   f.upMode.value = s.upstream.mode;
   const syncUp = () => $('#upUrlRow').classList.toggle('hidden', f.upMode.value === 'direct');
   syncUp();
@@ -1290,7 +1308,7 @@ PAGES['settings/playback'] = async (main) => {
     const secs = Number(f.timeout.value);
     if (!(secs >= 3 && secs <= 60)) return toast(t("L'attente doit être entre 3 et 60 secondes"), true);
     saveSettings($('button[type=submit]', f), {
-      streamMode: mode,
+      addonMode: mode,
       upstream: { mode: f.upMode.value, url: f.upMode.value === 'direct' ? '' : f.upUrl.value },
       torrentServer: f.torrentServer.value,
       streamTimeout: secs * 1000

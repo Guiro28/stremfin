@@ -62,7 +62,8 @@ function playable(s) {
   }
   // Torrents : lisibles seulement via un serveur de streaming Stremio.
   if (s.infoHash && settings.torrentServer) {
-    return { url: `${settings.torrentServer}/${String(s.infoHash).toLowerCase()}/${s.fileIdx ?? 0}`, headers: null };
+    // Serveur de streaming souvent interne (reseau Docker) : toujours relaye par ce serveur.
+    return { url: `${settings.torrentServer}/${String(s.infoHash).toLowerCase()}/${s.fileIdx ?? 0}`, headers: null, relay: true };
   }
   return null;
 }
@@ -188,7 +189,7 @@ async function sourcesFor(profile, uuid) {
   };
   const list = [];
   const seen = new Set();
-  raw.forEach(({ addon, addonLogo, stream }, order) => {
+  raw.forEach(({ addon, addonLogo, mode, stream }, order) => {
     const p = playable(stream);
     if (!p || seen.has(p.url)) return;
     seen.add(p.url);
@@ -203,6 +204,9 @@ async function sourcesFor(profile, uuid) {
       // Addon d'origine (panneau "Lecture en cours").
       addon,
       addonLogo,
+      // Mode de connexion de l'addon sur ce profil (lecture a la source, IP du serveur ou proxy externe).
+      mode,
+      relay: !!p.relay,
       container: containerOf(stream, p.url),
       size: sizeOf(stream),
       release: releaseName(stream),
@@ -564,7 +568,8 @@ async function resolveSource(req, itemId, mediaSourceId) {
 
 async function pipe(req, res, src) {
   const settings = config.get().settings;
-  if (settings.streamMode === 'redirect' && !src.headers) {
+  const mode = src.mode || settings.addonMode;
+  if (mode === 'none' && !src.headers && !src.relay) {
     log(`[play] redirection -> ${hostOf(src.url)}`);
     return res.redirect(302, src.url);
   }
@@ -574,7 +579,7 @@ async function pipe(req, res, src) {
   if (!headers.accept) headers.accept = '*/*';
 
   const { res: origin } = await request(src.url, {
-    upstream: settings.upstream,
+    upstream: mode === 'warp' ? settings.upstream : undefined,
     headers,
     method: req.method === 'HEAD' ? 'HEAD' : 'GET',
     timeout: 30000,

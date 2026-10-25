@@ -8,7 +8,7 @@ Jellyfin Media Player, web…) s'y connecte comme à un vrai serveur Jellyfin.
 ```
 App Jellyfin  ──►  Stremfin (API Jellyfin)  ──►  addons Stremio (catalog / meta / stream / subtitles)
                         │
-                        └──►  vidéo : relayée par le serveur (IP serveur ou WARP), ou lue en direct
+                        └──►  vidéo : selon l'addon, relayée par le serveur (son IP ou WARP), ou lue en direct
 ```
 
 ## Ce que ça fait
@@ -94,8 +94,8 @@ de créer le compte administrateur. Un profil « Moi » est créé avec Cinemeta
 
 Le [`docker-compose.yml`](docker-compose.yml) démarre Stremfin **et** un conteneur
 Cloudflare WARP ([caomingjun/warp](https://github.com/cmj2002/warp-docker)) exposant un
-SOCKS5. Stremfin y fait passer les addons, TMDB et les vidéos (mode « via le serveur ») dès
-le premier démarrage (`UPSTREAM_MODE=socks`, `UPSTREAM_URL=socks5://warp:1080`).
+SOCKS5 (le « proxy externe »). Stremfin y fait passer TMDB, les catalogues et les addons en mode
+« Proxy externe » dès le premier démarrage (`UPSTREAM_MODE=socks`, `UPSTREAM_URL=socks5://warp:1080`).
 
 ```bash
 mkdir stremfin && cd stremfin
@@ -152,9 +152,23 @@ la racine : elles sont reconnues et envoyées directement sur `/web`.
 - **Sécurité** : mots de passe hachés (scrypt), sessions par cookie `HttpOnly` /
   `SameSite=Strict`, protection CSRF, blocage de 15 min après 10 échecs.
 - **Profils** (un onglet par sujet) : *Connexion*, *Préférences* (langues, qualité,
-  versions proposées, vus masqués, seulement ce qui est sorti, CSS du client web), *Accueil*, *Addons* (activation, ordre, catalogues
-  affichés ou masqués, copie depuis un autre profil), *Bibliothèques* (activation,
+  versions proposées, vus masqués, seulement ce qui est sorti, CSS du client web), *Accueil*, *Addons* (choix dans la bibliothèque,
+  activation, ordre, mode de connexion, catalogues affichés ou masqués, copie depuis un autre
+  profil), *Bibliothèques* (activation,
   renommage, ordre), *Appareils*.
+- **Addons** : bibliothèque d'addons du serveur, reprise de Nuvio Manager. Chaque addon est
+  ajouté une fois (URL du manifest, nom facultatif), avec les profils qui l'utilisent ; on
+  l'attribue à un ou plusieurs profils, ou plusieurs addons d'un coup à un profil (dans l'ordre
+  choisi par glisser-déposer). Changer son nom ou son URL met à jour tous les profils ; le
+  retirer l'enlève aussi des profils. Un addon ajouté depuis l'onglet d'un profil rejoint la
+  bibliothèque. **Mode de connexion**, profil par profil (fenêtre ouverte depuis les avatars) :
+  - *Sans proxy* : l'app lit la vidéo directement à la source (redirection) ;
+  - *Proxy interne* : la vidéo passe par le serveur, avec son IP ;
+  - *Proxy externe* : l'addon et la vidéo passent par le proxy externe (*Réglages → Lecture et
+    réseau*, ex. WARP).
+
+  Les sources qui exigent des en-têtes et les torrents (serveur de streaming) passent toujours
+  par le serveur. Le mode proposé pour un nouvel addon se règle dans *Lecture et réseau*.
 - **Collections** : bibliothèque de collections Nuvio partagée par le serveur (voir plus bas).
 - **Réglages** : serveur, lecture et réseau, métadonnées (TMDB, identifiant d'app Trakt),
   client web.
@@ -277,7 +291,7 @@ dans l'admin. Seuls `PORT` et `DATA_DIR` restent des réglages de déploiement.
 | `PORT` | Port HTTP (défaut 8096) |
 | `DATA_DIR` | Dossier des données (défaut `./data`) |
 | `AUTH_USER` / `AUTH_PASS` | Compte admin initial (sinon créé depuis l'interface au premier accès) |
-| `UPSTREAM_MODE` / `UPSTREAM_URL` | Sortie réseau initiale : `direct`, `socks` (WARP) ou `http` |
+| `UPSTREAM_MODE` / `UPSTREAM_URL` | Proxy externe initial : `direct` (aucun), `socks` (WARP) ou `http` |
 | `TORRENT_SERVER` | URL d'un serveur de streaming Stremio pour les torrents |
 | `SERVER_NAME` | Nom affiché dans les apps (modifiable dans l'admin) |
 | `TMDB_API_KEY` | Clé API TMDB v3 (modifiable dans l'admin) |

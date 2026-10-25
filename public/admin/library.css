@@ -1,0 +1,180 @@
+/* Page Addons : bibliotheque d'addons reprise de Nuvio Manager (branche dev, style.css +
+   aurora.css), limitee a .nm-lib pour ne pas toucher aux classes de Stremfin. Variables de
+   Nuvio Manager : stats.css. */
+.nm-lib .form { display: grid; gap: 18px; }
+.nm-lib .form > label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.nm-lib .muted { color: var(--text-muted); line-height: 1.6; margin: 0; font-size: 13px; }
+.nm-lib .check-label { display: flex; gap: 10px; align-items: center; line-height: 1.6; }
+.nm-lib .list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 4px; }
+.nm-lib .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.nm-lib .badge {
+  font-size: 0.75rem;
+  color: var(--accent);
+  background: var(--selected);
+  border: 1px solid var(--selected-border);
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+.nm-lib .badge.neutral { background: var(--button); border-color: var(--border-strong); color: var(--text-secondary); }
+.nm-lib .badge.bad { color: var(--bad); background: var(--bad-soft); border-color: transparent; padding: 2px 8px; }
+.nm-lib .empty-symbol { font-size: 2rem; color: var(--accent); }
+.nm-lib .empty h2 { margin: 6px 0; font-size: 1.1rem; color: var(--text); }
+
+.nm-lib .addon {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--aurora-card-shadow), inset 0 1px rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(14px) saturate(1.08);
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+:root[data-theme="light"] .nm-lib .addon { box-shadow: var(--aurora-card-shadow), inset 0 1px #fff; }
+.nm-lib .addon:hover { border-color: rgba(59, 217, 231, 0.32); box-shadow: 0 15px 34px rgba(0, 5, 18, 0.18); }
+.nm-lib .addon-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; }
+.nm-lib .addon-name { font-weight: 600; }
+.nm-lib .library-addon-identity { display: flex; align-items: center; gap: 16px; flex: 1 1 0; min-width: 0; overflow: hidden; }
+.nm-lib .library-addon-copy { flex: 1 1 0; min-width: 0; overflow: hidden; }
+.nm-lib .library-addon-identity .url { margin: 6px 0 0; }
+.nm-lib .addon-logo {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 92px;
+  width: 92px;
+  height: 92px;
+  overflow: hidden;
+  border: 1px solid rgba(143, 172, 214, 0.26);
+  border-radius: 14px;
+  background: linear-gradient(145deg, var(--selected), var(--button));
+  color: var(--selected-ink);
+  font-size: 1.35rem;
+  font-weight: 750;
+  box-shadow: 0 8px 20px rgba(0, 5, 18, 0.18);
+}
+.nm-lib .addon-logo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: var(--surface); }
+.nm-lib .url {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 9px 0 14px;
+}
+.nm-lib .library-addon .actions { flex: 0 0 auto; justify-content: flex-end; }
+
+/* Tout sur une ligne (identite · avatars + nombre · boutons). */
+.nm-lib .lib-row-right { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
+.nm-lib .lib-usage { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; }
+.nm-lib .lib-avatar-stack { display: flex; align-items: center; }
+.nm-lib .avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: #fff;
+}
+.nm-lib .avatar-fallback { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 700; }
+.nm-lib .profile-avatar { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--surface); }
+.nm-lib .lib-avatar-stack .avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  margin-left: -8px;
+  border: 2px solid var(--panel-solid);
+  flex: 0 0 auto;
+}
+.nm-lib .lib-avatar-stack .avatar:first-child { margin-left: 0; }
+.nm-lib .lib-avatar-stack .avatar-fallback { font-size: 0.78rem; }
+.nm-lib .lib-avatar-more { margin-left: 6px; font-size: 0.78rem; color: var(--text-muted); }
+.nm-lib .lib-count { white-space: nowrap; }
+.nm-lib .lib-count-empty { opacity: 0.75; }
+
+/* Fenetre de gestion des profils d'un addon. */
+.nm-lib .lib-usage-list { gap: 0; }
+.nm-lib .lib-profile { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.nm-lib .lib-profile:last-child { border-bottom: 0; }
+.nm-lib .lib-profile .avatar { width: 36px; height: 36px; border-radius: 50%; flex: 0 0 auto; }
+.nm-lib .lib-profile .avatar-fallback { font-size: 0.95rem; }
+.nm-lib .lib-profile-meta { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.nm-lib .lib-profile-name { font-weight: 600; }
+.nm-lib .lib-profile-meta .muted { font-size: 0.78rem; }
+.nm-lib .mode-toggle { display: inline-flex; flex: 0 0 auto; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+.nm-lib .mode-toggle button {
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  font-weight: 550;
+  border: 0;
+  border-radius: 0;
+  border-left: 1px solid var(--border);
+  padding: 7px 11px;
+  font-size: 0.82rem;
+  background: transparent;
+}
+.nm-lib .mode-toggle button:hover { background: var(--button-hover); }
+.nm-lib .mode-toggle button:first-child { border-left: 0; }
+.nm-lib .mode-toggle button.active { background: var(--purple); color: #fff; }
+.nm-lib .icon-btn {
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  background: var(--button);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+}
+.nm-lib .icon-btn:hover { background: var(--button-hover); }
+.nm-lib .icon-btn.active { color: var(--bad, #e05a5a); border-color: var(--bad, #e05a5a); }
+.nm-lib .lib-profile.removing { opacity: 0.5; }
+.nm-lib .lib-profile.removing .lib-profile-name { text-decoration: line-through; }
+
+/* Attribution multiple : liste a cocher. */
+.nm-lib .lib-pick-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; }
+.nm-lib .lib-picklist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.nm-lib .lib-pick { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; color: var(--text); font-weight: 500; font-size: 14px; }
+.nm-lib .lib-pick:hover { background: var(--selected); }
+.nm-lib .lib-pick-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nm-lib .lib-drag { flex: 0 0 auto; cursor: grab; color: var(--text-muted); font-size: 1rem; line-height: 1; user-select: none; }
+.nm-lib .lib-pick.dragging { opacity: 0.5; background: var(--selected); }
+.nm-lib .addon-logo.addon-logo-sm { flex: 0 0 30px; width: 30px; height: 30px; border-radius: 8px; font-size: 0.85rem; font-weight: 700; }
+.nm-lib .addon-logo.addon-logo-md { flex: 0 0 64px; width: 64px; height: 64px; border-radius: 12px; font-size: 1.5rem; font-weight: 700; }
+/* La lettre ne s'affiche que sans image (l'image est retiree si elle ne charge pas). */
+.nm-lib .addon-logo:has(> img) > span { display: none; }
+.nm-lib .lib-pick .avatar { flex: 0 0 30px; width: 30px; height: 30px; border-radius: 50%; }
+.nm-lib .lib-pick .avatar-fallback { font-size: 0.85rem; }
+.nm-lib .assign-group { margin-bottom: 4px; }
+
+@media (max-width: 720px) {
+  .nm-lib .lib-profile { flex-wrap: wrap; }
+  .nm-lib .lib-profile .mode-toggle { width: 100%; order: 3; }
+  .nm-lib .lib-profile .mode-toggle button { flex: 1; }
+  .nm-lib .lib-profile-meta { flex: 1 1 60%; }
+}
+@media (max-width: 1100px) {
+  .nm-lib .addon-top { align-items: flex-start; flex-direction: column; }
+  .nm-lib .library-addon-identity { flex: 0 0 auto; width: 100%; }
+  .nm-lib .addon-logo { flex-basis: 76px; width: 76px; height: 76px; }
+  .nm-lib .lib-row-right { flex-wrap: wrap; width: 100%; }
+  .nm-lib .library-addon .actions { flex: 1 1 100%; justify-content: flex-start; }
+}
+
+/* Onglet Addons du profil : mode de connexion de chaque addon. */
+.mode-select { width: auto; padding: 5px 8px; font-size: 13px; }

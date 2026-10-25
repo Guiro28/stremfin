@@ -2,7 +2,7 @@
 #
 #   docker compose up -d
 #
-# Les addons, TMDB et les videos (mode "via le serveur") sortent par WARP grace a
+# TMDB, les catalogues et les addons en mode "Proxy externe" (videos comprises) sortent par WARP grace a
 # UPSTREAM_MODE=socks / UPSTREAM_URL=socks5://warp:1080. Ces valeurs ne servent qu'au
 # 1er demarrage : ensuite tout se regle dans l'interface (Reglages -> Lecture et reseau).
 

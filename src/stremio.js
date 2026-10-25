@@ -8,6 +8,19 @@ function upstream() {
   return config.get().settings.upstream;
 }
 
+/**
+ * Sortie reseau d'un addon de profil selon son mode : proxy externe en mode "warp",
+ * IP du serveur sinon (mode "direct", ou "none" ou seule la video est lue par l'app).
+ */
+function netOf(a) {
+  return a.mode === 'warp' ? upstream() : undefined;
+}
+
+/** Nom affiche d'un addon : celui choisi dans la bibliotheque, sinon celui du manifest. */
+function nameOf(a) {
+  return a.name || a.manifest?.name || a.url;
+}
+
 function baseOf(manifestUrl) {
   return String(manifestUrl).replace(/\/manifest\.json(\?.*)?$/, '');
 }
@@ -24,19 +37,26 @@ async function fetchManifest(url) {
   return m;
 }
 
-/** Recharge le manifest des addons qui n'en ont pas encore (ou de tous si force). */
-async function refreshManifests(profile, force = false) {
+/**
+ * Recharge le manifest des addons de la bibliotheque qui n'en ont pas encore (ou de tous si
+ * force) ; avec un profil, seulement ceux de ce profil. Les profils suivent a l'enregistrement.
+ */
+async function refreshManifests(profile = null, force = false) {
+  const used = profile && new Set(profile.addons.map((a) => a.lib));
   let changed = false;
   await Promise.all(
-    profile.addons.map(async (a) => {
-      if (a.manifest && !force) return;
-      try {
-        a.manifest = await fetchManifest(a.url);
-        changed = true;
-      } catch (e) {
-        log(`[addon] manifest KO ${a.url}: ${e.message}`);
-      }
-    })
+    config
+      .get()
+      .addons.filter((l) => !used || used.has(l.id))
+      .map(async (l) => {
+        if (l.manifest && !force) return;
+        try {
+          l.manifest = await fetchManifest(l.url);
+          changed = true;
+        } catch (e) {
+          log(`[addon] manifest KO ${l.url}: ${e.message}`);
+        }
+      })
   );
   if (changed) config.save();
 }
@@ -105,14 +125,14 @@ async function meta(profile, type, id) {
         'meta|' + url,
         12 * HOUR,
         async () => {
-          const j = await getJson(url, { upstream: upstream() });
+          const j = await getJson(url, { upstream: netOf(a) });
           return j?.meta ? { meta: j.meta } : null;
         },
         { stale: 7 * 24 * HOUR }
       );
       if (r?.meta) return r.meta;
     } catch (e) {
-      log(`[addon] meta KO ${a.manifest.name} ${type}/${id}: ${e.message}`);
+      log(`[addon] meta KO ${nameOf(a)} ${type}/${id}: ${e.message}`);
     }
   }
   return null;
@@ -122,7 +142,7 @@ async function meta(profile, type, id) {
  * Sources de tous les addons du profil, interrogees en parallele.
  * `ids` : identifiants equivalents par ordre de preference (ex: tt..., tmdb:...) ;
  * chaque addon recoit le premier qu'il sait traiter.
- * Renvoie [{ addon, stream }] dans l'ordre des addons. Cache 30 min.
+ * Renvoie [{ addon, addonLogo, mode, stream }] dans l'ordre des addons. Cache 30 min.
  */
 async function streams(profile, type, ids) {
   const timeout = config.get().settings.streamTimeout;
@@ -135,15 +155,15 @@ async function streams(profile, type, ids) {
       try {
         const r = await cache.cached('stream|' + url, 30 * 60e3, async () => {
           const t0 = Date.now();
-          const j = await getJson(url, { upstream: upstream(), timeout });
+          const j = await getJson(url, { upstream: netOf(a), timeout });
           const list = Array.isArray(j?.streams) ? j.streams : [];
-          log(`[addon] ${a.manifest.name} ${type}/${id}: ${list.length} source(s) en ${Date.now() - t0} ms`);
+          log(`[addon] ${nameOf(a)} ${type}/${id}: ${list.length} source(s) en ${Date.now() - t0} ms`);
           // On ne met pas en cache une reponse vide : l'addon peut avoir eu un raté.
           return list.length ? { streams: list } : null;
         });
-        return (r?.streams || []).map((stream) => ({ addon: a.manifest.name, addonLogo: a.manifest.logo || null, stream }));
+        return (r?.streams || []).map((stream) => ({ addon: nameOf(a), addonLogo: a.manifest.logo || null, mode: a.mode, stream }));
       } catch (e) {
-        log(`[addon] streams KO ${a.manifest.name} ${type}/${id}: ${e.message}`);
+        log(`[addon] streams KO ${nameOf(a)} ${type}/${id}: ${e.message}`);
         return [];
       }
     })
@@ -161,10 +181,10 @@ async function subtitles(profile, type, ids, extra) {
       const url = resourceUrl(a.url, 'subtitles', type, id, extra);
       try {
         const r = await cache.cached('subs|' + url, 6 * HOUR, async () => {
-          const j = await getJson(url, { upstream: upstream(), timeout: 10000 });
+          const j = await getJson(url, { upstream: netOf(a), timeout: 10000 });
           return { subtitles: Array.isArray(j?.subtitles) ? j.subtitles : [] };
         });
-        return r.subtitles.map((s) => ({ addon: a.manifest.name, sub: s }));
+        return r.subtitles.map((s) => ({ addon: nameOf(a), sub: s }));
       } catch {
         return [];
       }
@@ -175,6 +195,7 @@ async function subtitles(profile, type, ids, extra) {
 
 module.exports = {
   baseOf,
+  nameOf,
   fetchManifest,
   refreshManifests,
   supports,

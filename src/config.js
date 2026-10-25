@@ -33,9 +33,12 @@ function defaultSettings() {
     publicUrl: '',
     // Langue des libelles generes par le serveur (Saison, Films, Series...).
     language: 'fr',
-    // proxy = la video passe par le serveur (IP serveur/WARP) ; redirect = l'app lit la source directement.
-    streamMode: 'proxy',
-    // Sortie reseau pour les addons et les videos (direct | socks | http), comme stremio-proxy.
+    // Mode de connexion propose pour un addon ajoute a un profil (comme Nuvio Manager) :
+    // none = l'app lit la video a la source, direct = via le serveur (son IP),
+    // warp = via le serveur et le proxy externe ci-dessous.
+    // Par defaut : via le proxy externe s'il est fourni au premier lancement (Docker + WARP).
+    addonMode: ['socks', 'http'].includes(process.env.UPSTREAM_MODE) && process.env.UPSTREAM_URL ? 'warp' : 'direct',
+    // Proxy externe (direct | socks | http), ex. WARP : addons en mode "warp", catalogues et manifests.
     upstream: {
       mode: ['direct', 'socks', 'http'].includes(process.env.UPSTREAM_MODE) ? process.env.UPSTREAM_MODE : 'direct',
       url: process.env.UPSTREAM_URL || ''
@@ -129,11 +132,14 @@ function load() {
     admin: raw.admin || null,
     settings: { ...defaultSettings(), ...(raw.settings || {}) },
     profiles: Array.isArray(raw.profiles) ? raw.profiles.map((p) => ({ ...newProfile(p.name), ...p })) : [],
+    // Bibliotheque d'addons du serveur : [{ id, url, name, manifest }], attribues ensuite aux profils.
+    addons: Array.isArray(raw.addons) ? raw.addons : [],
     // Bibliotheque de collections (fichiers .json + addons), attribuees ensuite aux profils.
     collections: Array.isArray(raw.collections) ? raw.collections : []
   };
   state.settings.upstream = { ...defaultSettings().upstream, ...(state.settings.upstream || {}) };
   migratePlatforms();
+  migrateStreamMode();
   // Premier lancement en Docker : compte admin cree depuis AUTH_USER / AUTH_PASS.
   if (!state.admin && process.env.AUTH_USER && process.env.AUTH_PASS) {
     state.admin = { username: process.env.AUTH_USER.trim(), passwordHash: hashPassword(process.env.AUTH_PASS) };
@@ -163,7 +169,48 @@ function migratePlatforms() {
   console.log('[config] Plateformes retirées (remplacées par les collections)');
 }
 
+// Ancien reglage global "Lecture des videos" : devient le mode de chaque addon des profils.
+function migrateStreamMode() {
+  const s = state.settings;
+  if (s.streamMode === undefined) return;
+  const external = s.upstream.mode !== 'direct' && !!s.upstream.url;
+  s.addonMode = s.streamMode === 'redirect' ? 'none' : external ? 'warp' : 'direct';
+  delete s.streamMode;
+  for (const p of state.profiles) for (const a of p.addons) if (!a.mode) a.mode = s.addonMode;
+  console.log(`[config] Mode des addons : ${s.addonMode} (ancien reglage "Lecture des videos")`);
+}
+
+const MODES = ['none', 'direct', 'warp'];
+
+/**
+ * Chaque addon d'un profil renvoie a la bibliotheque (lib = id) : addons des profils sans
+ * correspondance ajoutes a la bibliotheque (meme URL = meme addon), puis URL, nom et manifest
+ * recopies depuis la bibliotheque.
+ */
+function linkAddons() {
+  const lib = state.addons;
+  for (const p of state.profiles) {
+    for (const a of p.addons) {
+      let l = lib.find((x) => x.id === a.lib) || lib.find((x) => x.url === a.url);
+      if (!l) {
+        l = { id: hex(8), url: a.url, name: '', manifest: a.manifest || null, addedAt: Date.now() };
+        lib.push(l);
+      }
+      if (!l.manifest && a.manifest) l.manifest = a.manifest;
+      a.lib = l.id;
+      a.url = l.url;
+      a.name = l.name || '';
+      a.manifest = l.manifest;
+      if (!MODES.includes(a.mode)) a.mode = state.settings.addonMode;
+    }
+    // Un meme addon une seule fois par profil.
+    const seen = new Set();
+    p.addons = p.addons.filter((a) => !seen.has(a.lib) && seen.add(a.lib));
+  }
+}
+
 function save() {
+  linkAddons();
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const tmp = FILE + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
@@ -206,7 +253,7 @@ function updateSettings(patch) {
   s.backupHour = Math.min(23, Math.max(0, Math.round(Number(s.backupHour)) || 0));
   s.backupRetention = Math.min(365, Math.max(1, Math.round(Number(s.backupRetention)) || 7));
   s.torrentServer = s.torrentServer.replace(/\/+$/, '');
-  if (!['proxy', 'redirect'].includes(s.streamMode)) s.streamMode = 'proxy';
+  if (!MODES.includes(s.addonMode)) s.addonMode = 'direct';
   save();
   return s;
 }
@@ -371,6 +418,7 @@ module.exports = {
   updateProfile,
   removeProfile,
   normalizeManifestUrl,
+  MODES,
   HOME_SECTIONS,
   hasAdmin,
   checkAdmin,

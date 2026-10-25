@@ -19,6 +19,7 @@ const nuvio = require('./nuvio');
 const collections = require('./collections');
 const tracking = require('./tracking');
 const stats = require('./stats');
+const addons = require('./addons');
 const { verifyPassword } = require('./security');
 
 const router = express.Router();
@@ -128,12 +129,14 @@ function profileDetail(p) {
     tracking: tracking.describe(p),
     addons: p.addons.map((a, index) => ({
       index,
+      lib: a.lib,
       url: a.url,
+      mode: a.mode,
       ok: !!a.manifest,
       enabled: a.enabled !== false,
       catalogsHidden: !!a.catalogsHidden,
       catalogCount: (a.manifest?.catalogs || []).length,
-      name: a.manifest?.name || a.url,
+      name: stremio.nameOf(a),
       description: a.manifest?.description || '',
       version: a.manifest?.version,
       logo: a.manifest?.logo,
@@ -518,25 +521,30 @@ router.put('/api/profiles/:id/libraries/order', (req, res) => {
 
 // ---- Addons d'un profil ----------------------------------------------------------------------
 
+/**
+ * Ajout d'addons au profil : { url } (l'addon rejoint aussi la bibliotheque du serveur) ou,
+ * pour l'admin, { ids } pris dans la bibliotheque. Mode : celui choisi, sinon celui des Reglages.
+ */
 router.post('/api/profiles/:id/addons', async (req, res) => {
   const p = profileOr404(req, res);
   if (!p) return;
-  let url;
+  const mode = req.body?.mode || config.get().settings.addonMode;
   try {
-    url = config.normalizeManifestUrl(req.body?.url);
+    addons.checkMode(mode);
+    if (Array.isArray(req.body?.ids)) {
+      if (req.role !== 'admin') return fail(res, 403, 'Accès refusé');
+      addons.assignMany(p.id, req.body.ids, mode);
+      return res.json(profileDetail(p));
+    }
+    const url = config.normalizeManifestUrl(req.body?.url);
+    if (p.addons.some((a) => a.url === url)) return fail(res, 409, 'Cet addon est déjà installé sur ce profil');
+    const l = await addons.add(url, '', { reuse: true });
+    addons.install(p, l, mode);
+    config.save();
+    res.json(profileDetail(p));
   } catch (e) {
-    return fail(res, 400, e.message);
+    fail(res, 400, e.message);
   }
-  if (p.addons.some((a) => a.url === url)) return fail(res, 409, 'Cet addon est déjà installé sur ce profil');
-  let manifest;
-  try {
-    manifest = await stremio.fetchManifest(url);
-  } catch (e) {
-    return fail(res, 400, `Manifest injoignable : ${e.message}`);
-  }
-  p.addons.push({ url, manifest, enabled: true });
-  config.save();
-  res.json(profileDetail(p));
 });
 
 /** Retrouve un addon par son index en verifiant l'URL (evite d'agir sur le mauvais apres un reordre). */
@@ -554,6 +562,10 @@ router.patch('/api/profiles/:id/addons/:idx', (req, res) => {
   if (typeof req.body?.enabled === 'boolean') a.enabled = req.body.enabled;
   // Addon utilise seulement pour ses sources / fiches : ses catalogues ne sont plus proposes.
   if (typeof req.body?.catalogsHidden === 'boolean') a.catalogsHidden = req.body.catalogsHidden;
+  if (req.body?.mode !== undefined) {
+    if (!config.MODES.includes(req.body.mode)) return fail(res, 400, 'Mode de connexion invalide');
+    a.mode = req.body.mode;
+  }
   config.save();
   res.json(profileDetail(p));
 });
@@ -601,6 +613,45 @@ router.post('/api/profiles/:id/addons/copy', (req, res) => {
   res.json(profileDetail(p));
 });
 
+// ---- Bibliotheque d'addons (reprise de Nuvio Manager) ------------------------------------------
+
+function libraryView() {
+  const s = config.get().settings;
+  const profiles = config.get().profiles;
+  return {
+    addons: addons.list().map((a) => ({
+      ...a,
+      users: a.users.map((u) => ({ ...u, avatarUrl: avatarUrl(config.getProfile(u.profileId)) }))
+    })),
+    profiles: profiles.map((p) => ({ id: p.id, name: p.name, avatarUrl: avatarUrl(p), disabled: !!p.disabled })),
+    defaultMode: s.addonMode,
+    // Proxy externe configure (mode "warp" utilisable).
+    external: s.upstream.mode !== 'direct' && !!s.upstream.url
+  };
+}
+
+router.get('/api/library', adminOnly, (req, res) => res.json(libraryView()));
+
+const libraryAction = (fn) => async (req, res) => {
+  try {
+    const r = await fn(req);
+    res.json({ ...libraryView(), ...(r && typeof r === 'object' && 'applied' in r ? r : {}) });
+  } catch (e) {
+    fail(res, 400, e.message);
+  }
+};
+
+router.post('/api/library', adminOnly, libraryAction((req) => addons.add(req.body?.url, req.body?.name)));
+router.post('/api/library/refresh', adminOnly, libraryAction(() => stremio.refreshManifests(null, true)));
+// Plusieurs addons vers un profil : { profileId, ids (dans l'ordre), mode }.
+router.post('/api/library/assign', adminOnly, libraryAction((req) => addons.assignMany(req.body?.profileId, req.body?.ids, req.body?.mode)));
+router.patch('/api/library/:id', adminOnly, libraryAction((req) => addons.update(req.params.id, { url: req.body?.url, name: req.body?.name })));
+router.delete('/api/library/:id', adminOnly, libraryAction((req) => addons.remove(req.params.id)));
+// Un addon vers plusieurs profils : { profiles: [id], mode }.
+router.post('/api/library/:id/assign', adminOnly, libraryAction((req) => addons.assignToProfiles(req.params.id, req.body?.profiles, req.body?.mode)));
+// Modes par profil : { changes: [{ profileId, mode | "remove" }] }.
+router.post('/api/library/:id/modes', adminOnly, libraryAction((req) => addons.setModes(req.params.id, req.body?.changes)));
+
 // ---- Appareils ---------------------------------------------------------------------------------
 
 router.get('/api/devices', adminOnly, (req, res) => res.json(devicesOf()));
@@ -637,8 +688,8 @@ router.post('/api/maintenance/clear-cache', adminOnly, (req, res) => {
 });
 
 router.post('/api/maintenance/refresh-addons', adminOnly, async (req, res) => {
-  await Promise.all(config.get().profiles.map((p) => stremio.refreshManifests(p, true)));
-  const broken = config.get().profiles.reduce((n, p) => n + p.addons.filter((a) => !a.manifest).length, 0);
+  await stremio.refreshManifests(null, true);
+  const broken = config.get().addons.filter((l) => !l.manifest).length;
   res.json({ ok: true, broken });
 });
 

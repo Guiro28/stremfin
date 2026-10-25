@@ -116,7 +116,7 @@ function onReport(profile, entry, stage, info) {
   else q.update.run(now, Math.round(s.watched), Math.round(s.position), s.playId);
 }
 
-/** Octets d'une video relayee par le serveur (mode "via le serveur") : debit et volume. */
+/** Octets d'une video relayee par le serveur (modes "Proxy interne" et "Proxy externe") : debit et volume. */
 function addBytes(uuid, profileId, n) {
   for (const s of live.values()) {
     if (s.uuid === uuid && (!profileId || s.profileId === profileId)) {

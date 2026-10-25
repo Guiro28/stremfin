@@ -55,7 +55,7 @@ function allCatalogs(profile) {
       out.push({
         key: catalogKey(a.url, c.type, c.id),
         addonUrl: a.url,
-        addonName: a.manifest.name,
+        addonName: stremio.nameOf(a),
         type: c.type,
         catId: c.id,
         defaultName: c.plainName || c.type === 'collection' ? c.name || c.id : `${c.name || c.id} · ${label(c.type)}`,
