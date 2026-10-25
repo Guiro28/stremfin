@@ -440,6 +440,10 @@ PAGES.dashboard = async (main) => {
             <div class="control">${o.tmdb ? `<span class="badge ok">${t('Actif')}</span>` : `<a class="btn sm" href="#/settings/metadata">${t('Configurer')}</a>`}</div></div>
           <div class="setting"><div class="text"><b>${t("Passer l'intro")}</b><span>${t('Timestamps de TheIntroDB.')}</span></div>
             <div class="control">${o.introSkip ? `<span class="badge ok">${t('Actif')}</span>` : `<span class="badge">${t('Désactivé')}</span>`}</div></div>
+          <div class="setting"><div class="text"><b>${t('Proxy interne')}</b><span id="proxyInternalInfo">${t('Vérification…')}</span></div>
+            <div class="control" id="proxyInternal"><span class="spinner"></span></div></div>
+          <div class="setting"><div class="text"><b>${t('Proxy externe')}</b><span id="proxyExternalInfo">${t('Vérification…')}</span></div>
+            <div class="control" id="proxyExternal"><span class="spinner"></span></div></div>
           <div class="setting"><div class="text"><b>${t('Addons')}</b><span>${o.brokenAddons.length ? t('{n} addon(s) injoignable(s)', { n: o.brokenAddons.length }) : t('Tous les manifests répondent.')}</span></div>
             <div class="control">${o.brokenAddons.length ? `<a class="btn sm" href="#/maintenance">${t('Voir')}</a>` : `<span class="badge ok">${t('OK')}</span>`}</div></div>
         </div>
@@ -453,7 +457,35 @@ PAGES.dashboard = async (main) => {
         </div>
       </div>
     </div>`;
+  proxyStatus();
 };
+
+/**
+ * Statut des proxys (carte "Etat") : proxy interne = sortie par l'IP du serveur, proxy externe =
+ * sortie par le proxy des Reglages (WARP...). Teste via Cloudflare, resultat garde 5 min.
+ */
+async function proxyStatus() {
+  let r;
+  try {
+    r = await api('GET', '/overview/proxies');
+  } catch {
+    return;
+  }
+  const set = (id, badge, info) => {
+    if (!$('#' + id)) return;
+    $('#' + id).innerHTML = badge;
+    $('#' + id + 'Info').textContent = info;
+  };
+  const uses = (n) => t('{n} addon(s) de profil dans ce mode.', { n });
+  set('proxyInternal', r.internal.ok ? `<span class="badge ok">${t('Actif')}</span>` : `<span class="badge bad">${t('Injoignable')}</span>`,
+    `${t("La vidéo passe par le serveur, avec son IP.")} ${uses(r.internal.addons)}`);
+  const ext = r.external;
+  set('proxyExternal',
+    !ext.configured ? `<a class="btn sm" href="#/settings/playback">${t('Configurer')}</a>`
+      : !ext.ok ? `<span class="badge bad">${t('Injoignable')}</span>`
+      : ext.warp ? `<span class="badge ok">${t('WARP actif')}</span>` : `<span class="badge ok">${t('Actif (sans WARP)')}</span>`,
+    ext.configured ? `${t('La vidéo passe par le serveur et le proxy externe.')} ${uses(ext.addons)}` : t('Aucun proxy externe configuré (Réglages → Lecture et réseau).'));
+}
 
 // Liste des profils
 PAGES.profiles = async (main, parts) => {
@@ -512,7 +544,7 @@ const PROFILE_TABS = [
   { id: 'home', label: 'Accueil', icon: 'dashboard' },
   { id: 'addons', label: 'Addons', icon: 'puzzle' },
   { id: 'libraries', label: 'Bibliothèques', icon: 'layers' },
-  { id: 'tracking', label: 'Suivi', icon: 'refresh' },
+  { id: 'tracking', label: 'Source de suivi', icon: 'refresh' },
   { id: 'devices', label: 'Appareils', icon: 'devices' }
 ];
 
@@ -539,10 +571,11 @@ async function profilePage(main, id, tab, self) {
     <nav class="tabs">${PROFILE_TABS.map((x) => `<a class="tab ${x.id === tab ? 'active' : ''}" href="${base}${x.id}">${icon(x.icon)}${esc(t(x.label))}${counts[x.id] !== undefined ? `<span class="count">${counts[x.id]}</span>` : ''}</a>`).join('')}</nav>
     <div id="tab"></div>`;
 
-  $('#avatarBtn').onclick = () => $('#avatarFile').click();
+  $('#avatarBtn').onclick = () => avatarDialog(p);
   $('#avatarFile').onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    $('.avatar-dialog [data-close]')?.click();
     if (file.size > 3 * 1024 * 1024) return toast(t('Image trop lourde (3 Mo max.)'), true);
     if (await busy(null, () => api('PUT', `/profiles/${p.id}/avatar`, file), t('Avatar mis à jour'))) render();
   };
@@ -569,6 +602,84 @@ async function profilePage(main, id, tab, self) {
   }
   const tabs = { login: tabLogin, prefs: tabPrefs, home: tabHome, addons: tabAddons, libraries: tabLibraries, tracking: tabTracking, devices: tabDevices };
   (tabs[tab] || tabLogin)($('#tab'), p);
+}
+
+/**
+ * Fenetre d'avatar (reprise de Nuvio Manager) : galerie des avatars Xperience par categorie, avec
+ * recherche, ou image envoyee depuis l'appareil.
+ */
+function avatarDialog(p) {
+  const done = modal({
+    title: t("Changer l'avatar"),
+    wide: true,
+    okLabel: '',
+    cancelLabel: t('Fermer'),
+    body: `<div class="avatar-dialog">
+      <div class="avatar-upload">${avatar(p, 'l')}<div class="grow"><b>${esc(p.name)}</b><p class="small muted">${t("Choisis un avatar Xperience ou envoie ta propre image (PNG, JPEG, WebP ou GIF, 3 Mo max.).")}</p></div>
+        <div class="row"><button type="button" class="btn sm" id="avatarUpload">${icon('upload')}${t('Envoyer une image')}</button>${p.avatarUrl ? `<button type="button" class="btn sm danger" id="avatarRemove">${icon('trash')}${t("Retirer l'avatar")}</button>` : ''}</div></div>
+      <div class="xperience-avatar-heading">
+        <h3>${t('Avatars personnalisés Xperience')}</h3>
+        <p class="avatar-source-note">${t('Source des images : {link}. Les fichiers restent hébergés par Xperience.', { link: `<a href="https://xperience-app.com/avatars" target="_blank" rel="noopener noreferrer">${esc(t('galerie Xperience ↗'))}</a>` })}</p>
+      </div>
+      <div class="xperience-avatar-tools">
+        <div class="field"><label>${t('Catégorie')}</label><select id="xpCategory" disabled><option>${t('Chargement…')}</option></select></div>
+        <div class="field"><label>${t('Rechercher')}</label><input id="xpSearch" type="search" placeholder="${esc(t('Nom d’un avatar…'))}" disabled></div>
+      </div>
+      <p id="xpCount" class="small muted">${t('Chargement du catalogue Xperience…')}</p>
+      <div id="xpGallery" class="avatar-gallery xperience-avatar-gallery"></div>
+    </div>`
+  });
+  const root = [...document.querySelectorAll('.backdrop')].pop();
+  const category = $('#xpCategory', root);
+  const search = $('#xpSearch', root);
+  const gallery = $('#xpGallery', root);
+  const count = $('#xpCount', root);
+  $('#avatarUpload', root).onclick = () => $('#avatarFile').click();
+  if ($('#avatarRemove', root)) $('#avatarRemove', root).onclick = async () => {
+    $('[data-close]', root).click();
+    if (await busy(null, () => api('DELETE', `/profiles/${p.id}/avatar`), t('Avatar retiré'))) render();
+  };
+  let list = [];
+  const avatarName = (a) => a.name.replace(/[-_]+/g, ' ').replace(/\bprofile avatar\b/gi, '').replace(/\s+/g, ' ').trim() || a.name;
+  const show = () => {
+    const cat = category.value;
+    const query = search.value.trim().toLocaleLowerCase(UI.locale);
+    const matching = list.filter((a) => (cat === '__all__' || a.category === cat) && (!query || `${a.name} ${a.category}`.toLocaleLowerCase(UI.locale).includes(query)));
+    count.textContent = t('{n} avatars', { n: matching.length });
+    gallery.innerHTML = matching.map((a) => {
+      const name = avatarName(a);
+      return `<button type="button" data-xp="${esc(a.url)}" class="avatar-choice" title="${esc(name)}" aria-label="${esc(t('Choisir {name}', { name }))}"><img src="${esc(a.url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"></button>`;
+    }).join('') || `<p class="small muted">${t('Aucun avatar dans cette sélection.')}</p>`;
+  };
+  gallery.onclick = async (e) => {
+    const b = e.target.closest('[data-xp]');
+    if (!b || gallery.classList.contains('saving')) return;
+    gallery.classList.add('saving');
+    b.classList.add('selected');
+    const r = await busy(null, () => api('POST', `/profiles/${p.id}/avatar/xperience`, { url: b.dataset.xp }), t('Avatar mis à jour'));
+    gallery.classList.remove('saving');
+    if (!r) return b.classList.remove('selected');
+    $('[data-close]', root).click();
+    render();
+  };
+  api('GET', '/xperience-avatars')
+    .then((r) => {
+      if (!root.isConnected) return;
+      list = r.avatars || [];
+      const cats = r.categories || [];
+      category.innerHTML = `<option value="__all__">${t('Toutes les catégories')}</option>${cats.map((c) => `<option value="${esc(c)}">${esc(c)} (${list.filter((a) => a.category === c).length})</option>`).join('')}`;
+      category.value = cats[0] || '__all__';
+      category.disabled = search.disabled = false;
+      category.onchange = show;
+      search.oninput = show;
+      // Entree dans la recherche : pas d'envoi du formulaire (qui fermerait la fenetre).
+      search.onkeydown = (e) => e.key === 'Enter' && e.preventDefault();
+      show();
+    })
+    .catch((err) => {
+      if (root.isConnected) count.textContent = t('Catalogue Xperience indisponible : {error}', { error: err.message });
+    });
+  return done;
 }
 
 async function patchProfile(p, body, msg = t('Enregistré')) {
@@ -1091,6 +1202,8 @@ function bindRevoke(root, after) {
 // ---- Suivi (Trakt, Simkl, historique Nuvio) ----------------------------------------------------
 
 const TRACKERS = { trakt: 'Trakt', simkl: 'Simkl' };
+// Logos des services de suivi (memes images que Nuvio Manager).
+const TRACKER_LOGO = { trakt: '/stremfin/ui/trakt.png', simkl: '/stremfin/ui/simkl.webp', nuvio: '/stremfin/ui/nuvio.png' };
 
 function tabTracking(el, p) {
   const tr = p.tracking;
@@ -1104,27 +1217,29 @@ function tabTracking(el, p) {
   const toggles = (service, x, exp = true) => `
     <div class="setting"><div class="text"><b>${t('Importer')}</b><span>${t('Les titres vus là-bas sont marqués vus ici (toutes les 6 h).')}</span></div><div class="control">${toggle(`data-opt="${service}.import"`, x.import)}</div></div>
     ${exp ? `<div class="setting"><div class="text"><b>${t('Envoyer')}</b><span>${service === 'trakt' ? t('Lectures en cours, titres vus et « pas vus » envoyés à Trakt.') : t('Titres vus et « pas vus » envoyés à Simkl.')}</span></div><div class="control">${toggle(`data-opt="${service}.export"`, x.export)}</div></div>` : ''}`;
+  // Etat du compte, comme les cartes de Nuvio Manager : "● Associé" en vert, sinon "Pas associé".
+  const linkedLine = (x) => (x.linked ? `<p class="connection-ok">● ${t('Associé : {user}.', { user: esc(x.user || '—') })}</p>` : `<p>${t('Pas associé.')}</p>`);
   const tracker = (service) => {
     const x = tr[service];
     const name = TRACKERS[service];
-    return `<div class="card">
-      <div class="card-head"><div><h2>${name}</h2><p>${x.linked ? t('Associé : {user}.', { user: esc(x.user || '—') }) : t('Pas associé.')}</p></div>
+    return `<article class="card connection-card"><img class="connection-logo" src="${TRACKER_LOGO[service]}" alt="${esc(t('Logo {name}', { name }))}"><div>
+      <div class="card-head"><div><h2>${name}</h2>${linkedLine(x)}</div>
         <div class="row">${x.linked ? `<button class="btn danger sm" data-unlink="${service}">${t('Dissocier')}</button>` : `<button class="btn primary sm" data-pair="${service}" ${x.ready ? '' : 'disabled'}>${icon('link')}${t('Associer')}</button>`}</div></div>
       ${x.ready ? '' : `<p class="small faint">${admin ? t("Renseigne d'abord l'application {name} dans Réglages → Suivi.", { name }) : t("L'administrateur doit d'abord configurer {name}.", { name })}</p>`}
-      ${x.linked ? toggles(service, x) : ''}${last(x)}</div>`;
+      ${x.linked ? toggles(service, x) : ''}${last(x)}</div></article>`;
   };
   const n = tr.nuvio;
   // Nuvio : compte propre au profil (lecture seule), puis profil Nuvio dont on recupere l'historique.
-  const nuvioCard = `<div class="card">
-      <div class="card-head"><div><h2>Nuvio</h2><p>${n.linked ? t('Associé : {user}.', { user: esc(n.user || '—') }) : t('Pas associé.')}</p></div>
+  const nuvioCard = `<article class="card connection-card"><img class="connection-logo contain" src="${TRACKER_LOGO.nuvio}" alt="${esc(t('Logo {name}', { name: 'Nuvio' }))}"><div>
+      <div class="card-head"><div><h2>Nuvio</h2>${linkedLine(n)}</div>
         <div class="row">${n.linked ? `<button class="btn danger sm" id="nuvioUnlink">${t('Dissocier')}</button>` : `<button class="btn primary sm" id="nuvioLink">${icon('link')}${t('Associer')}</button>`}</div></div>
       <p class="small faint">${t('Historique (vus et reprises) d\'un profil de ton compte Nuvio, en lecture seule : rien n\'est jamais modifié chez Nuvio.')}</p>
       ${n.linked
         ? `<div class="setting"><div class="text"><b>${t('Profil Nuvio')}</b><span>${t("Profil dont l'historique est récupéré.")}</span></div><div class="control"><select id="nuvioProfile" style="width:auto"><option value="">${t('Aucun')}</option></select></div></div>
           ${n.profile != null ? toggles('nuvio', n, false) : ''}${last(n)}`
-        : ''}</div>`;
+        : ''}</div></article>`;
   const any = tr.trakt.linked || tr.simkl.linked || (n.linked && n.profile != null);
-  el.innerHTML = `<div class="card" style="margin-bottom:16px"><div class="setting" style="border:0;padding:0"><div class="text"><b>${t('Suivi de visionnage')}</b><span>${t("Associe Trakt ou Simkl pour que ce profil retrouve ce que tu as vu ailleurs, et y envoie ce que tu regardes ici. Un titre vu là-bas n'écrase jamais une lecture plus récente ici.")}</span></div>
+  el.innerHTML = `<div class="card" style="margin-bottom:16px"><div class="setting" style="border:0;padding:0"><div class="text"><b>${t('Sources de suivi')}</b><span>${t("Associe Trakt ou Simkl pour que ce profil retrouve ce que tu as vu ailleurs, et y envoie ce que tu regardes ici. Un titre vu là-bas n'écrase jamais une lecture plus récente ici.")}</span></div>
       <div class="control"><button class="btn" id="trackImport" ${any ? '' : 'disabled'}>${icon('refresh')}${t('Importer maintenant')}</button></div></div></div>
     <div class="grid grid-3">${tracker('trakt')}${tracker('simkl')}${nuvioCard}</div>`;
 
@@ -1351,21 +1466,33 @@ PAGES['settings/metadata'] = async (main) => {
 PAGES['settings/tracking'] = async (main) => {
   const s = state.settings;
   const link = (url, label) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`;
-  main.innerHTML = `${head(t('Suivi'), t("Applications Trakt et Simkl du serveur : elles servent à associer les profils (onglet Suivi de chaque profil) et à lire les listes Trakt des collections."))}
-    <form class="card" id="f">
-      <div class="setting"><div class="text"><b>${t('Trakt : Client ID')}</b><span>${t("Crée une application sur {link}, avec l'adresse de redirection {uri}, puis copie son Client ID et son Client Secret.", { link: link('https://trakt.tv/oauth/applications/new', 'trakt.tv'), uri: '<code>urn:ietf:wg:oauth:2.0:oob</code>' })}</span></div>
+  main.innerHTML = `${head(t('Suivi'), t("Applications Trakt et Simkl du serveur : elles servent à associer les profils (onglet Source de suivi de chaque profil) et à lire les listes Trakt des collections."))}
+    <div class="stack">
+    <form class="card connection-card" id="fTrakt"><img class="connection-logo" src="${TRACKER_LOGO.trakt}" alt="${esc(t('Logo {name}', { name: 'Trakt' }))}"><div>
+      <div class="card-head"><div><h2>Trakt</h2>${s.traktClientId && s.traktClientSecret ? `<p class="connection-ok">● ${t('Configuré')}</p>` : `<p>${t('Pas configuré.')}</p>`}</div></div>
+      <div class="setting"><div class="text"><b>${t('Client ID')}</b><span>${t("Crée une application sur {link}, avec l'adresse de redirection {uri}, puis copie son Client ID et son Client Secret.", { link: link('https://trakt.tv/oauth/applications/new', 'trakt.tv'), uri: '<code>urn:ietf:wg:oauth:2.0:oob</code>' })}</span></div>
         <div class="control wide"><input name="traktId" type="text" autocomplete="off" spellcheck="false" value="${esc(s.traktClientId || '')}"></div></div>
-      <div class="setting"><div class="text"><b>${t('Trakt : Client Secret')}</b><span>${t('Gardé sur le serveur, jamais réaffiché en entier.')}</span></div>
+      <div class="setting"><div class="text"><b>${t('Client Secret')}</b><span>${t('Gardé sur le serveur, jamais réaffiché en entier.')}</span></div>
         <div class="control wide"><input name="traktSecret" type="text" autocomplete="off" spellcheck="false" value="${esc(s.traktClientSecret || '')}"></div></div>
-      <div class="setting"><div class="text"><b>${t('Simkl : Client ID')}</b><span>${t("Crée une application sur {link}, avec l'adresse de redirection {uri}, puis copie son Client ID.", { link: link('https://simkl.com/settings/developer/new/', 'simkl.com'), uri: '<code>urn:ietf:wg:oauth:2.0:oob</code>' })}</span></div>
+      <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
+    </div></form>
+    <form class="card connection-card" id="fSimkl"><img class="connection-logo" src="${TRACKER_LOGO.simkl}" alt="${esc(t('Logo {name}', { name: 'Simkl' }))}"><div>
+      <div class="card-head"><div><h2>Simkl</h2>${s.simklClientId ? `<p class="connection-ok">● ${t('Configuré')}</p>` : `<p>${t('Pas configuré.')}</p>`}</div></div>
+      <div class="setting"><div class="text"><b>${t('Client ID')}</b><span>${t("Crée une application sur {link}, avec l'adresse de redirection {uri}, puis copie son Client ID.", { link: link('https://simkl.com/settings/developer/new/', 'simkl.com'), uri: '<code>urn:ietf:wg:oauth:2.0:oob</code>' })}</span></div>
         <div class="control wide"><input name="simklId" type="text" autocomplete="off" spellcheck="false" value="${esc(s.simklClientId || '')}"></div></div>
       <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
-    </form>`;
-  const f = $('#f');
-  f.onsubmit = (e) => {
+    </div></form>
+    </div>`;
+  // Chaque service s'enregistre a part ; la page est redessinee pour mettre a jour son etat.
+  const saveService = (f, patch) => async (e) => {
     e.preventDefault();
-    saveSettings($('button[type=submit]', f), { traktClientId: f.traktId.value.trim(), traktClientSecret: f.traktSecret.value.trim(), simklClientId: f.simklId.value.trim() });
+    await saveSettings($('button[type=submit]', f), patch(f));
+    if (location.hash === '#/settings/tracking') render();
   };
+  const ft = $('#fTrakt');
+  const fs = $('#fSimkl');
+  ft.onsubmit = saveService(ft, (f) => ({ traktClientId: f.traktId.value.trim(), traktClientSecret: f.traktSecret.value.trim() }));
+  fs.onsubmit = saveService(fs, (f) => ({ simklClientId: f.simklId.value.trim() }));
 };
 
 PAGES['settings/web'] = async (main) => {

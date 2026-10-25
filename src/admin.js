@@ -20,6 +20,8 @@ const collections = require('./collections');
 const tracking = require('./tracking');
 const stats = require('./stats');
 const addons = require('./addons');
+const xperience = require('./xperience');
+const { request, readAll } = require('./http');
 const { verifyPassword } = require('./security');
 
 const router = express.Router();
@@ -209,6 +211,43 @@ router.get('/api/overview', adminOnly, (req, res) => {
     indexedItems: st.idsCount.get().n,
     brokenAddons,
     recent: recent.slice(0, 12)
+  });
+});
+
+// ---- Statut des proxys (carte "Etat" du tableau de bord) ------------------------------------------
+
+/**
+ * Sortie testee via la page "trace" de Cloudflare : joignable ou non, et WARP actif ou non.
+ * Resultat garde 5 min par sortie (IP du serveur, ou proxy externe configure).
+ */
+const proxyChecks = new Map();
+async function traceVia(upstream) {
+  const key = upstream ? `${upstream.mode}|${upstream.url}` : 'direct';
+  const hit = proxyChecks.get(key);
+  if (hit && Date.now() - hit.at < 5 * 60e3) return hit.value;
+  let value;
+  try {
+    const { res } = await request('https://www.cloudflare.com/cdn-cgi/trace', { upstream, timeout: 8000 });
+    const text = (await readAll(res)).toString('utf8');
+    const warp = /^warp=(\w+)/m.exec(text)?.[1] || 'off';
+    value = { ok: res.statusCode === 200, warp: warp === 'on' || warp === 'plus' };
+  } catch {
+    value = { ok: false, warp: false };
+  }
+  proxyChecks.set(key, { at: Date.now(), value });
+  return value;
+}
+
+router.get('/api/overview/proxies', adminOnly, async (req, res) => {
+  const c = config.get();
+  const up = c.settings.upstream;
+  const configured = up.mode !== 'direct' && !!up.url;
+  // Nombre d'addons (par profil) dans chaque mode.
+  const uses = (mode) => c.profiles.reduce((n, p) => n + p.addons.filter((a) => a.mode === mode).length, 0);
+  const [internal, external] = await Promise.all([traceVia(undefined), configured ? traceVia(up) : null]);
+  res.json({
+    internal: { ...internal, addons: uses('direct') },
+    external: { configured, ...(external || { ok: false, warp: false }), addons: uses('warp') }
   });
 });
 
@@ -472,6 +511,19 @@ router.put('/api/profiles/:id/avatar', (req, res) => {
   const p = profileOr404(req, res);
   if (!p) return;
   if (attempt(res, () => (avatars.save(p, req.body), true))) res.json(profileDetail(p));
+});
+
+// Avatars Xperience (comme Nuvio Manager) : catalogue, puis avatar choisi telecharge pour le profil.
+router.get('/api/xperience-avatars', async (req, res) => res.json(await xperience.catalogue()));
+router.post('/api/profiles/:id/avatar/xperience', async (req, res) => {
+  const p = profileOr404(req, res);
+  if (!p) return;
+  try {
+    await xperience.useAvatar(p, req.body?.url);
+    res.json(profileDetail(p));
+  } catch (e) {
+    fail(res, 400, e.message);
+  }
 });
 
 router.delete('/api/profiles/:id/avatar', (req, res) => {

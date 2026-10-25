@@ -169,6 +169,9 @@ la racine : elles sont reconnues et envoyées directement sur `/web`.
 
   Les sources qui exigent des en-têtes et les torrents (serveur de streaming) passent toujours
   par le serveur. Le mode proposé pour un nouvel addon se règle dans *Lecture et réseau*.
+- **Avatar d'un profil** : un clic sur l'avatar ouvre la galerie des avatars Xperience (par
+  catégorie, avec recherche, comme dans Nuvio Manager) ; l'avatar choisi est téléchargé par le
+  serveur et envoyé aux apps. On peut aussi envoyer sa propre image (3 Mo max.).
 - **Collections** : bibliothèque de collections Nuvio partagée par le serveur (voir plus bas).
 - **Réglages** : serveur, lecture et réseau, métadonnées (TMDB, identifiant d'app Trakt),
   client web.
@@ -237,7 +240,8 @@ chargement de la page ou au retour sur l'onglet. Les apps natives n'utilisent pa
 
 ## Suivi : Trakt, Simkl et historique Nuvio
 
-Onglet **Suivi** de chaque profil (aussi dans l'espace de l'utilisateur) :
+Onglet **Source de suivi** de chaque profil (aussi dans l'espace de l'utilisateur), une carte par
+service avec son logo, comme dans Nuvio Manager :
 
 - **Trakt** et **Simkl** : association par code, à saisir sur trakt.tv / simkl.com. Il faut
   d'abord une application de chaque service, créée une fois par l'administrateur
