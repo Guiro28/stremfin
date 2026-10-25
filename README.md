@@ -212,6 +212,7 @@ dans l'admin. Seuls `PORT` et `DATA_DIR` restent des réglages de déploiement.
 | `SERVER_NAME` | Nom affiché dans les apps (modifiable dans l'admin) |
 | `TMDB_API_KEY` | Clé API TMDB v3 (modifiable dans l'admin) |
 | `WEB_DIR` | Dossier du client web Jellyfin (fourni dans l'image Docker) |
+| `LOG_REQUESTS` | `1` : journal de chaque requête (méthode, adresse, statut, durée, app), jetons masqués. Pour diagnostiquer une app |
 
 ## Limites actuelles
 

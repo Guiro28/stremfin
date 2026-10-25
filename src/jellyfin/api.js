@@ -150,7 +150,8 @@ function filterPlayed(items, q) {
 // ---- Routes publiques -------------------------------------------------------
 
 router.get('/System/Info/Public', (req, res) => res.json(publicInfo(req)));
-router.all('/System/Ping', (req, res) => res.type('text/plain').send('Jellyfin Server'));
+// Apps Emby : un texte contenant "jellyf" leur fait croire a un serveur incompatible.
+router.all('/System/Ping', (req, res) => res.type('text/plain').send(isEmby(req) ? 'Emby Server' : 'Jellyfin Server'));
 // Liste des profils a l'ecran "Qui regarde ?" : seulement ceux deja connectes depuis CET
 // appareil (un appareil inconnu ne voit personne). L'app Emby ne reprend la session
 // enregistree que si le profil apparait ici.

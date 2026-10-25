@@ -36,6 +36,20 @@ app.use((req, res, next) => {
   next();
 });
 
+// Journal des requetes (LOG_REQUESTS=1) : pour diagnostiquer une app qui se comporte mal.
+if (process.env.LOG_REQUESTS === '1') {
+  app.use((req, res, next) => {
+    const t0 = Date.now();
+    res.on('finish', () => {
+      const ua = String(req.headers['x-emby-client'] || req.headers['user-agent'] || '').slice(0, 40);
+      // Jetons masques dans le journal.
+      const url = req.originalUrl.replace(/(api_key|X-Emby-Token|ApiKey)=[^&]+/gi, '$1=…');
+      console.log(new Date().toISOString(), `[http] ${res.statusCode} ${req.method} ${url} ${Date.now() - t0}ms (${ua})`);
+    });
+    next();
+  });
+}
+
 // Certaines apps prefixent les routes par /emby (heritage Emby).
 app.use((req, res, next) => {
   if (/^\/emby\//i.test(req.url)) {
@@ -81,6 +95,15 @@ app.get('/stremfin/platform/:id.png', async (req, res) => {
 // et Jellyfin Media Player qui l'affichent tel quel.
 const hasWeb = fs.existsSync(path.join(WEB_DIR, 'index.html'));
 app.locals.hasWeb = hasWeb;
+
+// App Emby Android TV : juste apres la connexion, elle lit /emby/web/manifest.json et, si le
+// texte contient "jellyf", affiche "Incompatible Server Version", repasse en connexion
+// manuelle et se ferme. On lui sert donc un manifeste neutre (sans le client web Jellyfin).
+app.get('/web/manifest.json', (req, res, next) => {
+  if (!req.embyPrefix) return next();
+  const name = config.get().settings.serverName;
+  res.json({ name, short_name: name, start_url: 'index.html', display: 'standalone', background_color: '#101010', theme_color: '#101010', icons: [] });
+});
 if (hasWeb) {
   // Page du client web : on y ajoute le theme (Abyss par defaut) et le script qui applique
   // le CSS du profil connecte (apres le theme, pour pouvoir le surcharger).
