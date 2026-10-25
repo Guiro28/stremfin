@@ -4,6 +4,8 @@ const http = require('http');
 const express = require('express');
 
 const config = require('./src/config');
+// Restauration demandee depuis l'interface : appliquee avant de lire la config et la base.
+require('./src/restore').applyPending(config.DATA_DIR);
 config.load();
 
 const stremio = require('./src/stremio');
@@ -152,4 +154,6 @@ server.listen(PORT, () => {
   for (const p of config.get().profiles) stremio.refreshManifests(p).catch(() => {});
   // Bibliotheques et rayons des plateformes prepares en arriere-plan (ouverture immediate).
   require('./src/jellyfin/library').startWarming();
+  // Sauvegarde automatique quotidienne.
+  require('./src/backup').start();
 });

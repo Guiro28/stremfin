@@ -61,6 +61,10 @@ function defaultSettings() {
     // Tri par defaut des bibliotheques dans les apps Emby (qui demandent toujours "par nom") :
     // "catalog" = ordre du catalogue (populaires, tendances...), "name" = par nom.
     embySort: 'catalog',
+    // Sauvegarde automatique quotidienne (data/backups) : heure (0-23) et retention en jours.
+    backupEnabled: true,
+    backupHour: 4,
+    backupRetention: 7,
     // Plateformes proposees comme bibliotheques (fournisseurs TMDB de la region choisie).
     providers: [
       { id: 8, name: 'Netflix' },
@@ -183,6 +187,10 @@ function updateSettings(patch) {
         mode: ['direct', 'socks', 'http'].includes(patch.upstream?.mode) ? patch.upstream.mode : 'direct',
         url: String(patch.upstream?.url || '').trim()
       };
+    } else if (k === 'backupHour') {
+      // Minuit (0) est une heure valable.
+      const n = Number(patch[k]);
+      if (Number.isInteger(n) && n >= 0 && n <= 23) s[k] = n;
     } else if (typeof s[k] === 'boolean') {
       s[k] = !!patch[k];
     } else if (typeof s[k] === 'number') {
@@ -197,6 +205,8 @@ function updateSettings(patch) {
   if (!['trending', 'resume'].includes(s.webSpotlightSource)) s.webSpotlightSource = 'trending';
   if (!['catalog', 'name'].includes(s.embySort)) s.embySort = 'catalog';
   if (!['fr', 'en', 'es', 'de', 'it'].includes(s.language)) s.language = 'fr';
+  s.backupHour = Math.min(23, Math.max(0, Math.round(Number(s.backupHour)) || 0));
+  s.backupRetention = Math.min(365, Math.max(1, Math.round(Number(s.backupRetention)) || 7));
   s.torrentServer = s.torrentServer.replace(/\/+$/, '');
   if (!['proxy', 'redirect'].includes(s.streamMode)) s.streamMode = 'proxy';
   save();

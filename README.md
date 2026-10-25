@@ -160,6 +160,12 @@ la racine : elles sont reconnues et envoyées directement sur `/web`.
 - **Réglages** : serveur, lecture et réseau, métadonnées, plateformes (logo, couleur de
   fond ou image personnalisée de la carte).
 - **Maintenance** : vider le cache, recharger les addons, réindexer TMDB.
+- **Sauvegardes** : une archive `.tar.gz` par jour dans `data/backups` (base de données sans
+  le cache, réglages, avatars, images des tuiles), à l'heure choisie, gardée 7 jours par
+  défaut. On peut aussi sauvegarder à la demande, télécharger, envoyer une archive et
+  restaurer : les données actuelles sont mises de côté dans `data/backups`, puis le serveur
+  redémarre (sous Docker, `restart: unless-stopped` le relance tout seul ; en local, relance
+  `npm start`).
 
 **Thème du client web** (*Réglages → Client web*) : le client web Jellyfin servi par Stremfin
 utilise par défaut le thème [Abyss](https://github.com/AumGupta/abyss-jellyfin) (MIT), avec

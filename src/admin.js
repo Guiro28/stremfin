@@ -14,6 +14,7 @@ const { st } = require('./db');
 const adminAuth = require('./adminAuth');
 const auth = require('./jellyfin/auth');
 const pkg = require('../package.json');
+const backup = require('./backup');
 const { verifyPassword } = require('./security');
 
 const router = express.Router();
@@ -27,6 +28,7 @@ router.use('/api/auth', express.json(), adminAuth.router);
 router.use('/api', adminAuth.requireApi);
 router.put('/api/profiles/:id/library-image', express.raw({ type: (req) => !String(req.headers['content-type'] || '').includes('json'), limit: avatars.MAX_BYTES + 1024 }));
 router.put('/api/profiles/:id/avatar', express.raw({ type: () => true, limit: avatars.MAX_BYTES + 1024 }));
+router.put('/api/backups/upload', express.raw({ type: () => true, limit: '1gb' }));
 router.use('/api', express.json({ limit: '2mb' }));
 
 const adminOnly = adminAuth.requireAdmin;
@@ -481,6 +483,46 @@ router.post('/api/maintenance/reindex-tmdb', adminOnly, (req, res) => {
   if (!tmdb.enabled()) return fail(res, 400, 'Aucune clé TMDB configurée');
   tmdb.warm(true);
   res.json({ ok: true });
+});
+
+// ---- Sauvegardes ----------------------------------------------------------------------------------
+
+router.get('/api/backups', adminOnly, (req, res) => {
+  const s = config.get().settings;
+  res.json({ backups: backup.list(), settings: { backupEnabled: s.backupEnabled !== false, backupHour: s.backupHour, backupRetention: s.backupRetention } });
+});
+
+router.post('/api/backups', adminOnly, async (req, res) => {
+  try {
+    res.json(await backup.create('manual'));
+  } catch (e) {
+    fail(res, 500, e.message);
+  }
+});
+
+router.put('/api/backups/upload', adminOnly, (req, res) => {
+  if (!Buffer.isBuffer(req.body) || !req.body.length) return fail(res, 400, 'Fichier vide');
+  const r = attempt(res, () => backup.importUpload(req.body));
+  if (r) res.json(r);
+});
+
+router.get('/api/backups/:name/download', adminOnly, (req, res) => {
+  const file = backup.file(req.params.name);
+  if (!file) return fail(res, 404, 'Sauvegarde introuvable');
+  res.download(file, req.params.name);
+});
+
+router.delete('/api/backups/:name', adminOnly, (req, res) => {
+  if (!backup.remove(req.params.name)) return fail(res, 404, 'Sauvegarde introuvable');
+  res.json({ ok: true });
+});
+
+// Restauration : preparee maintenant, appliquee au redemarrage (relance automatique sous
+// Docker avec "restart: unless-stopped").
+router.post('/api/backups/:name/restore', adminOnly, (req, res) => {
+  if (!attempt(res, () => (backup.prepareRestore(req.params.name), true))) return;
+  res.json({ ok: true, restarting: true });
+  setTimeout(() => process.exit(0), 800);
 });
 
 router.use('/api', (req, res) => fail(res, 404, 'Route inconnue'));

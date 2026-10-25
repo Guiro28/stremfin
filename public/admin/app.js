@@ -40,8 +40,22 @@ const ICONS = {
   alert: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
-  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>'
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+  archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  upload: '<path d="M12 20V9M7 14l5-5 5 5M5 4h14"/>',
+  restore: '<path d="M4 12a8 8 0 1 0 2.3-5.7"/><path d="M4 4v5h5"/>'
 };
+
+/** Taille lisible : "12,3 Mo". */
+function fmtSize(bytes) {
+  if (bytes >= 1e9) return t('{n} Go', { n: (bytes / 1e9).toLocaleString(UI.locale, { maximumFractionDigits: 1 }) });
+  if (bytes >= 1e6) return t('{n} Mo', { n: (bytes / 1e6).toLocaleString(UI.locale, { maximumFractionDigits: 1 }) });
+  return t('{n} Ko', { n: Math.max(1, Math.round(bytes / 1e3)) });
+}
+
+/** Date et heure dans la langue de l'interface. */
+const fmtDate = (ts) => new Date(ts).toLocaleString(UI.locale, { dateStyle: 'medium', timeStyle: 'short' });
 
 function icon(name, extra = '') {
   return `<svg class="icon ${extra}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
@@ -251,7 +265,7 @@ const NAV_ADMIN = [
       { id: 'settings/web', label: 'Client web', icon: 'globe' }
     ]
   },
-  { group: 'Système', items: [{ id: 'maintenance', label: 'Maintenance', icon: 'wrench' }, { id: 'security', label: 'Sécurité', icon: 'shield' }] }
+  { group: 'Système', items: [{ id: 'backups', label: 'Sauvegardes', icon: 'archive' }, { id: 'maintenance', label: 'Maintenance', icon: 'wrench' }, { id: 'security', label: 'Sécurité', icon: 'shield' }] }
 ];
 
 /** Un utilisateur ne voit que les onglets de son propre profil. */
@@ -1346,6 +1360,95 @@ PAGES.maintenance = async (main) => {
   };
   $('#mTmdb').onclick = (e) => busy(e.currentTarget, () => api('POST', '/maintenance/reindex-tmdb'), t('Réindexation lancée'));
 };
+
+// ---- Sauvegardes ------------------------------------------------------------------------------------
+
+const BACKUP_KIND = { auto: 'Automatique', manual: 'Manuelle', upload: 'Envoyée' };
+
+PAGES.backups = async (main) => {
+  const data = await api('GET', '/backups');
+  const s = data.settings;
+  main.innerHTML = `${head(t('Sauvegardes'), t("Base de données, réglages, avatars et images des tuiles. Le cache n'est pas sauvegardé : il se reconstruit tout seul."),
+    `<button class="btn" id="bUpload">${icon('upload')}${t('Envoyer une sauvegarde')}</button><button class="btn primary" id="bNow">${icon('archive')}${t('Sauvegarder maintenant')}</button>`)}
+    <input type="file" id="bFile" accept=".gz,.tar.gz,application/gzip" hidden>
+    <div class="grid backups-grid">
+      <form class="card" id="bSet">
+        <div class="card-head"><div><h2>${t('Sauvegarde automatique')}</h2><p>${t('Une par jour, gardée le nombre de jours choisi. Les sauvegardes manuelles et envoyées sont gardées jusqu\'à leur suppression.')}</p></div></div>
+        <div class="setting"><div class="text"><b>${t('Activée')}</b></div><div class="control">${toggle('name="enabled"', s.backupEnabled)}</div></div>
+        <div class="setting"><div class="text"><b>${t('Heure')}</b><span>${t('Heure du serveur.')}</span></div>
+          <div class="control"><select name="hour" style="width:auto">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === s.backupHour ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select></div></div>
+        <div class="setting"><div class="text"><b>${t('Garder')}</b></div>
+          <div class="control"><div class="row"><input name="keep" type="number" min="1" max="365" value="${s.backupRetention}" style="width:80px"><span class="muted">${t('jours')}</span></div></div></div>
+        <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
+      </form>
+      <div class="card">
+        <div class="card-head"><div><h2>${t('Sauvegardes disponibles')}</h2><p>${t('Dans le dossier data/backups du serveur.')}</p></div></div>
+        ${data.backups.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>${t('Date')}</th><th>${t('Type')}</th><th>${t('Taille')}</th><th></th></tr></thead><tbody>
+          ${data.backups.map((b) => `<tr><td class="nowrap"><b>${esc(fmtDate(b.createdAt))}</b><div class="small faint">${ago(b.createdAt)}</div></td>
+            <td><span class="badge ${b.kind === 'auto' ? '' : 'accent'}">${t(BACKUP_KIND[b.kind] || b.kind)}</span></td>
+            <td class="nowrap">${fmtSize(b.size)}</td>
+            <td class="actions"><a class="btn ghost icon-only" href="/stremfin/api/backups/${encodeURIComponent(b.name)}/download" download title="${esc(t('Télécharger'))}" aria-label="${esc(t('Télécharger'))}">${icon('download')}</a>
+              <button class="btn sm" data-restore="${esc(b.name)}">${icon('restore')}${t('Restaurer')}</button>
+              <button class="btn ghost icon-only" data-del="${esc(b.name)}" title="${esc(t('Supprimer'))}" aria-label="${esc(t('Supprimer'))}">${icon('trash')}</button></td></tr>`).join('')}
+          </tbody></table></div>`
+          : `<div class="empty">${icon('archive')}<p>${t('Aucune sauvegarde pour l\'instant.')}</p></div>`}
+      </div>
+    </div>`;
+
+  $('#bNow').onclick = async (e) => (await busy(e.currentTarget, () => api('POST', '/backups'), t('Sauvegarde créée'))) && render();
+  $('#bUpload').onclick = () => $('#bFile').click();
+  $('#bFile').onchange = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (await busy($('#bUpload'), () => api('PUT', '/backups/upload', file), t('Sauvegarde ajoutée à la liste'))) render();
+  };
+  $('#bSet').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const keep = Number(f.keep.value);
+    if (!(keep >= 1 && keep <= 365)) return toast(t('Entre 1 et 365 jours'), true);
+    if (await saveSettings($('button[type=submit]', f), { backupEnabled: f.enabled.checked, backupHour: Number(f.hour.value), backupRetention: keep })) render();
+  };
+  main.querySelector('.table')?.addEventListener('click', async (e) => {
+    const del = e.target.closest('[data-del]');
+    if (del) {
+      const b = data.backups.find((x) => x.name === del.dataset.del);
+      if (await confirmDialog(t('Supprimer cette sauvegarde ?'), esc(fmtDate(b.createdAt)), t('Supprimer'), true)) {
+        if (await busy(null, () => api('DELETE', `/backups/${encodeURIComponent(b.name)}`), t('Sauvegarde supprimée'))) render();
+      }
+      return;
+    }
+    const rest = e.target.closest('[data-restore]');
+    if (!rest) return;
+    const b = data.backups.find((x) => x.name === rest.dataset.restore);
+    const ok = await confirmDialog(
+      t('Restaurer la sauvegarde du {date} ?', { date: fmtDate(b.createdAt) }),
+      t('Profils, réglages, progression, avatars et images reviennent à cette date. Les données actuelles sont gardées dans data/backups. Le serveur redémarre : sous Docker, il revient seul en quelques secondes. Reconnecte-toi ensuite.'),
+      t('Restaurer'),
+      true
+    );
+    if (!ok || !(await busy(rest, () => api('POST', `/backups/${encodeURIComponent(b.name)}/restore`)))) return;
+    restartWait();
+  });
+};
+
+/** Attend le redemarrage du serveur apres une restauration, puis recharge la page. */
+function restartWait() {
+  const bd = document.createElement('div');
+  bd.className = 'backdrop';
+  bd.innerHTML = `<div class="modal" style="text-align:center"><h2>${t('Redémarrage du serveur…')}</h2><p class="lead">${t('La page se rechargera dès que le serveur répondra.')}</p><span class="spinner" style="display:inline-block;width:28px;height:28px;border:3px solid var(--accent);border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite"></span></div>`;
+  document.body.appendChild(bd);
+  const started = Date.now();
+  const poll = async () => {
+    try {
+      // Le serveur redemarre : on attend qu'il ait coupe (2 s) puis qu'il reponde.
+      if (Date.now() - started > 2000 && (await fetch('/System/Info/Public', { cache: 'no-store' })).ok) return location.reload();
+    } catch {}
+    setTimeout(poll, 1500);
+  };
+  setTimeout(poll, 1500);
+}
 
 // ---- Securite ---------------------------------------------------------------------------------------
 
