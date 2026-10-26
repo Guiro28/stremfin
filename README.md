@@ -340,6 +340,10 @@ exact, et les **tris et filtres des apps** s'appliquent à toute la liste (nom, 
 d'ajout dans la liste, aléatoire ; genres et années réellement présents dans la liste ; vus / non
 vus). Une liste pas encore indexée est lue à la demande, comme avant.
 
+Si un profil utilise **« Seulement ce qui est sorti »**, le scan vérifie aussi la date de sortie
+en VOD / DVD / TV de chaque titre (une fois par titre ; ceux pas encore sortis sont revus chaque
+jour) : le filtre se lit dans l'index, et le total affiché par les apps est exact dès la 1re page.
+
 ## Statistiques
 
 Page **Statistiques** (reprise de celle de Nuvio Manager), pour l'administrateur (tous les

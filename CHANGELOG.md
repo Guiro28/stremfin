@@ -16,6 +16,11 @@ tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et
   et les **tris et filtres des apps** s'appliquent à toute la liste : nom, année, note, date
   d'ajout dans la liste, aléatoire ; genres et années présents dans la liste ; vus / non vus.
 
+- **« Seulement ce qui est sorti » avec l'index** : si un profil utilise l'option, le scan vérifie
+  aussi la date de sortie en VOD / DVD / TV de chaque titre (une seule fois ; les titres pas encore
+  sortis sont revus chaque jour). Le filtre se lit alors dans l'index : total exact dès la 1re
+  page et défilement instantané, même au fond d'une liste de 5 000 titres.
+
 ### Changements
 - « Masquer les vus » et le filtre vu / pas vu des apps s'appliquent avant le découpage en pages
   (pages pleines, défilement juste).

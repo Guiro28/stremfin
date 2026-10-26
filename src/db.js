@@ -102,6 +102,13 @@ db.exec(`
     data    TEXT NOT NULL,
     updated INTEGER NOT NULL
   );
+  -- Date de sortie en VOD / DVD / TV de chaque titre (option "seulement ce qui est sorti"),
+  -- verifiee pendant le scan : at = date (ms), 0 = inconnu (disponible), 9e15 = sans date.
+  CREATE TABLE IF NOT EXISTS idx_avail (
+    id      TEXT PRIMARY KEY,
+    at      INTEGER NOT NULL,
+    checked INTEGER NOT NULL
+  );
 
   -- Sessions de l'interface d'administration (seul le hache du jeton est stocke).
   CREATE TABLE IF NOT EXISTS admin_sessions (
@@ -166,11 +173,20 @@ const st = {
   idxListDel: db.prepare('DELETE FROM idx_lists WHERE key = ?'),
   idxItems: db.prepare('SELECT id, added FROM idx_items WHERE list = ? ORDER BY pos'),
   // Toute une liste indexee (tris et filtres des apps).
-  idxRows: db.prepare(`SELECT i.id, i.pos, i.added, t.type, t.data FROM idx_items i JOIN idx_titles t ON t.id = i.id
-    WHERE i.list = ? ORDER BY i.pos`),
+  idxRows: db.prepare(`SELECT i.id, i.pos, i.added, t.type, t.data, a.at FROM idx_items i JOIN idx_titles t ON t.id = i.id
+    LEFT JOIN idx_avail a ON a.id = i.id WHERE i.list = ? ORDER BY i.pos`),
   // Une page d'une liste indexee (positions continues 0..n-1), avec l'apercu de chaque titre.
-  idxPage: db.prepare(`SELECT i.id, t.type, t.data FROM idx_items i JOIN idx_titles t ON t.id = i.id
-    WHERE i.list = ? AND i.pos >= ? ORDER BY i.pos LIMIT ?`),
+  idxPage: db.prepare(`SELECT i.id, t.type, t.data, a.at FROM idx_items i JOIN idx_titles t ON t.id = i.id
+    LEFT JOIN idx_avail a ON a.id = i.id WHERE i.list = ? AND i.pos >= ? ORDER BY i.pos LIMIT ?`),
+  // Titres dont la date de sortie est a verifier : jamais verifies, ou pas encore sortis et
+  // verifies avant `?` (un titre sorti ne change plus).
+  idxAvailDue: db.prepare(`SELECT t.id, t.type, t.data FROM idx_titles t LEFT JOIN idx_avail a ON a.id = t.id
+    WHERE a.id IS NULL OR (a.at > ? AND a.checked < ?)`),
+  idxAvailPut: db.prepare(`INSERT INTO idx_avail (id, at, checked) VALUES (?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET at = excluded.at, checked = excluded.checked`),
+  // Titres d'une liste dont la date de sortie n'est pas encore connue.
+  idxAvailMissing: db.prepare('SELECT COUNT(*) AS n FROM idx_items i LEFT JOIN idx_avail a ON a.id = i.id WHERE i.list = ? AND a.id IS NULL'),
+  idxAvailOrphan: db.prepare('DELETE FROM idx_avail WHERE id NOT IN (SELECT id FROM idx_titles)'),
   idxItemsDel: db.prepare('DELETE FROM idx_items WHERE list = ?'),
   idxItemPut: db.prepare('INSERT INTO idx_items (list, pos, id, added) VALUES (?, ?, ?, ?)'),
   idxTitlePut: db.prepare(`INSERT INTO idx_titles (id, type, data, updated) VALUES (?, ?, ?, ?)

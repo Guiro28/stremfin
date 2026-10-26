@@ -126,7 +126,8 @@ function lightDto(profile, entry) {
 /** Option du profil "seulement ce qui est sorti en VOD / DVD / TV". */
 function releasedFilter(profile) {
   if (!profile.onlyReleased || !tmdb.enabled()) return null;
-  return { key: 'released', fn: (m) => tmdb.released(m.type, m.id, m) };
+  // Titre d'une liste indexee : sa date de sortie est deja connue (verifiee pendant le scan).
+  return { key: 'released', fn: async (m) => (m._availableAt !== undefined ? m._availableAt <= Date.now() : tmdb.released(m.type, m.id, m)) };
 }
 
 async function keepReleased(profile, metas) {
@@ -353,6 +354,8 @@ function listFilter(profile, played) {
   return {
     // Sans "seulement sortis", le filtre ne depend que des vus : reponse immediate, total exact.
     sync: !rel,
+    // "Seulement sortis" : immediat aussi sur une liste indexee dont les dates sont connues.
+    released: !!rel,
     key: [rel?.key || '', hide ? 'hide' : '', played === undefined ? '' : `played:${played}`, usesPlayed ? `v${playedVersion.get(profile.id) || 0}` : ''].join('|'),
     fn: async (m) => {
       if (usesPlayed) {

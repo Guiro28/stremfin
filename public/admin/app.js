@@ -1796,8 +1796,8 @@ PAGES['settings/index'] = async (main) => {
     const r = data.running;
     const st = data.stats;
     $('#iState').innerHTML = `<div class="card-head"><div><h2>${t('État')}</h2>${data.enabled ? `<p class="connection-ok">● ${t('Activé')}</p>` : `<p>${t('Désactivé.')}</p>`}</div></div>
-      ${r ? `<div class="setting"><div class="text"><b>${r.mode === 'full' ? t('Relecture complète en cours') : t('Mise à jour rapide en cours')}</b>
-          <span>${t('{done} / {total} listes', { done: r.done, total: r.total })}${r.current.length ? ` · ${esc(r.current.join(', '))}` : ''}</span>
+      ${r ? `<div class="setting"><div class="text"><b>${r.phase === 'releases' ? t('Vérification des dates de sortie') : r.mode === 'full' ? t('Relecture complète en cours') : t('Mise à jour rapide en cours')}</b>
+          <span>${r.phase === 'releases' ? t('{done} / {total} titres (option « seulement ce qui est sorti »)', { done: r.done.toLocaleString(UI.locale), total: r.total.toLocaleString(UI.locale) }) : t('{done} / {total} listes', { done: r.done, total: r.total })}${r.current.length ? ` · ${esc(r.current.join(', '))}` : ''}</span>
           <div class="progress"><span style="width:${r.total ? Math.round((r.done / r.total) * 100) : 0}%"></span></div></div></div>` : ''}
       <div class="setting"><div class="text"><b>${t('Contenu')}</b><span>${t('{lists} listes · {items} titres dans les listes · {titles} titres différents', { lists: st.lists, items: st.items.toLocaleString(UI.locale), titles: st.titles.toLocaleString(UI.locale) })}</span></div>
         <div class="control"><b>≈ ${fmtSize(st.bytes)}</b></div></div>

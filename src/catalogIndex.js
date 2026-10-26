@@ -26,7 +26,8 @@ const PAGE_GUARD = 2000; // pages lues au plus pour une liste (securite)
 // (fr : apercu deja traduit par TMDB, qui ne doit pas ecraser ni etre ecrase par un apercu anglais.)
 const KEEP = ['name', 'poster', 'background', 'logo', 'releaseInfo', 'released', 'year', 'imdbRating', 'genres', 'genre', 'runtime', 'imdb_id', 'moviedb_id', 'certification', 'fr'];
 
-const run = { mode: null, startedAt: 0, done: 0, total: 0, current: [], errors: [], stop: false };
+// phase : "lists" (lecture des listes) puis "releases" (dates de sortie).
+const run = { mode: null, phase: null, startedAt: 0, done: 0, total: 0, current: [], errors: [], stop: false };
 let last = null; // dernier passage : { mode, at, duration, lists, errors }
 let timer = null;
 
@@ -141,13 +142,45 @@ function writeList(view, metas, { mode, complete, duration }) {
   });
 }
 
+/** Un profil actif utilise "seulement ce qui est sorti" : les dates de sortie sont a verifier. */
+const releasesNeeded = () => tmdb.enabled() && config.get().profiles.some((p) => !p.disabled && p.onlyReleased);
+
+/**
+ * Dates de sortie (VOD, DVD, TV) des titres indexes, pour l'option "seulement ce qui est sorti" :
+ * le filtre se lit alors dans l'index, et les apps recoivent un total exact des la 1re page.
+ * Une seule verification par titre ; ceux pas encore sortis sont revus une fois par jour.
+ */
+async function checkReleases() {
+  if (!releasesNeeded()) return;
+  const now = Date.now();
+  const due = st.idxAvailDue.all(now, now - 24 * 3600e3);
+  if (!due.length) return;
+  Object.assign(run, { phase: 'releases', done: 0, total: due.length, current: [] });
+  log(`verification des dates de sortie de ${due.length} titre(s)`);
+  const queue = [...due];
+  const worker = async () => {
+    while (queue.length && !run.stop) {
+      const t = queue.shift();
+      const at = await cache.withoutStore(() => tmdb.availableAt(t.type, t.id, JSON.parse(t.data))).catch(() => null);
+      if (at !== null) st.idxAvailPut.run(t.id, Math.round(at), Date.now());
+      run.done++;
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, worker));
+}
+
+/** Toutes les dates de sortie d'une liste sont connues (filtre "seulement sortis" lu dans l'index). */
+function releasesKnown(key) {
+  return st.idxAvailMissing.get(key).n === 0;
+}
+
 /** Un passage sur toutes les listes : "full" (relecture complete) ou "quick" (debut des listes). */
 async function scan(mode) {
   if (run.mode) return false;
   const s = settings();
   const lists = listsToIndex();
   const speed = SPEED[s.indexSpeed] || SPEED.normal;
-  Object.assign(run, { mode, startedAt: Date.now(), done: 0, total: lists.length, current: [], errors: [], stop: false });
+  Object.assign(run, { mode, phase: 'lists', startedAt: Date.now(), done: 0, total: lists.length, current: [], errors: [], stop: false });
   // Genres des catalogues TMDB : leurs noms doivent etre connus avant de lire les listes.
   await tmdb.ensureGenres().catch(() => {});
   log(`${mode === 'full' ? 'relecture complete' : 'mise a jour rapide'} de ${lists.length} liste(s)`);
@@ -187,11 +220,14 @@ async function scan(mode) {
         }
       });
       st.idxTitlesOrphan.run();
+      st.idxAvailOrphan.run();
     }
+    if (!run.stop) await checkReleases();
     last = { mode, at: Date.now(), duration: Date.now() - run.startedAt, lists: lists.length, errors: run.errors.length, stopped: run.stop };
     log(`${mode === 'full' ? 'relecture complete' : 'mise a jour rapide'} terminee en ${Math.round(last.duration / 1000)} s, ${run.errors.length} erreur(s)`);
   } finally {
     run.mode = null;
+    run.phase = null;
     run.current = [];
   }
   return true;
@@ -246,7 +282,7 @@ function scanNow(mode = 'full') {
 async function clear() {
   run.stop = true;
   while (run.mode) await sleep(200);
-  db.exec('DELETE FROM idx_items; DELETE FROM idx_titles; DELETE FROM idx_lists;');
+  db.exec('DELETE FROM idx_items; DELETE FROM idx_titles; DELETE FROM idx_lists; DELETE FROM idx_avail;');
   last = null;
   log('index vide');
 }
@@ -275,7 +311,7 @@ function rowsOf(key) {
   if (!info) return null;
   let m = loaded.get(key);
   if (!m || m.version !== info.version) {
-    const rows = st.idxRows.all(key).map((r) => ({ ...JSON.parse(r.data), id: r.id, type: r.type, _pos: r.pos, _added: r.added }));
+    const rows = st.idxRows.all(key).map((r) => ({ ...JSON.parse(r.data), id: r.id, type: r.type, _pos: r.pos, _added: r.added, _availableAt: r.at ?? undefined }));
     m = { version: info.version, rows, results: new Map() };
   }
   loaded.delete(key);
@@ -341,7 +377,7 @@ const hasOpts = (o) => !!(o && (o.sort || o.genre || o.years?.length));
 /** Titres d'une liste indexee, a partir de la position `skip` (dans l'ordre et le filtre demandes). */
 function page(key, skip, limit, opts) {
   if (hasOpts(opts)) return (query(key, opts) || []).slice(skip, skip + limit);
-  return st.idxPage.all(key, skip, limit).map((r) => ({ ...JSON.parse(r.data), id: r.id, type: r.type }));
+  return st.idxPage.all(key, skip, limit).map((r) => ({ ...JSON.parse(r.data), id: r.id, type: r.type, _availableAt: r.at ?? undefined }));
 }
 
 /** Nombre de titres d'une liste indexee avec ce filtre. */
@@ -372,7 +408,7 @@ function status() {
   const lists = st.idxListAll.all();
   return {
     enabled: s.indexEnabled,
-    running: run.mode ? { mode: run.mode, startedAt: run.startedAt, done: run.done, total: run.total, current: run.current, errors: run.errors.length } : null,
+    running: run.mode ? { mode: run.mode, phase: run.phase, startedAt: run.startedAt, done: run.done, total: run.total, current: run.current, errors: run.errors.length } : null,
     last,
     lastFull: full || null,
     lastQuick: quick || null,
@@ -384,4 +420,4 @@ function status() {
   };
 }
 
-module.exports = { start, scanNow, clear, status, listsToIndex, listInfo, page, count, facets };
+module.exports = { start, scanNow, clear, status, listsToIndex, listInfo, page, count, facets, releasesKnown };

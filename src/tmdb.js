@@ -286,21 +286,37 @@ const THEATRICAL_WINDOW = 180 * DAY;
  * Titre inconnu de TMDB : considere comme disponible (on ne masque pas a l'aveugle).
  */
 async function released(type, sid, preview = {}) {
-  const now = Date.now();
-  if (type === 'series' && preview.released) return Date.parse(preview.released) <= now;
-  if (!enabled()) return true;
+  return (await availableAt(type, sid, preview)) <= Date.now();
+}
+
+// Pas de date connue (titre annonce sans date) : jamais "sorti".
+const NEVER = 9e15;
+
+/**
+ * Date (ms) a partir de laquelle le titre est sorti en VOD, DVD ou a la TV (memes regles que
+ * released) : 0 si TMDB ne le connait pas (disponible), NEVER s'il n'a aucune date. Gardee par
+ * l'index des catalogues : la verification n'est faite qu'une fois par titre.
+ */
+async function availableAt(type, sid, preview = {}) {
+  if (type === 'series' && preview.released) return Date.parse(preview.released) || 0;
+  if (!enabled()) return 0;
   try {
     const r = await resolve(type, sid);
-    if (!r) return true;
+    if (!r) return 0;
     // Requete legere (dates seules, ~20 Ko) : verifiee pour chaque titre des bibliotheques,
     // la fiche complete (~230 Ko) rendrait l'ouverture d'une bibliotheque tres lente.
     const d = await get(`/${r.mediaType}/${r.id}`, r.mediaType === 'movie' ? { append_to_response: 'release_dates' } : {});
-    if (r.mediaType === 'tv') return !!d.first_air_date && Date.parse(d.first_air_date) <= now;
-    const dates = (d.release_dates?.results || []).flatMap((c) => c.release_dates || []);
-    if (dates.some((x) => HOME_RELEASE.includes(x.type) && Date.parse(x.release_date) <= now)) return true;
-    return !!d.release_date && Date.parse(d.release_date) <= now - THEATRICAL_WINDOW;
+    if (r.mediaType === 'tv') return Date.parse(d.first_air_date || '') || NEVER;
+    const home = (d.release_dates?.results || [])
+      .flatMap((c) => c.release_dates || [])
+      .filter((x) => HOME_RELEASE.includes(x.type))
+      .map((x) => Date.parse(x.release_date))
+      .filter(Number.isFinite);
+    const theatrical = Date.parse(d.release_date || '');
+    const candidates = [...home, Number.isFinite(theatrical) ? theatrical + THEATRICAL_WINDOW : NEVER];
+    return Math.min(...candidates);
   } catch {
-    return true;
+    return 0;
   }
 }
 
@@ -573,4 +589,4 @@ async function spotlight(limit = 10) {
   return metas.filter(Boolean);
 }
 
-module.exports = { ADDON_URL, enabled, ensureGenres, spotlight, collectionSource, checkKey, resolve, imdbIdOf, meta, previewMeta, released, collection, catalog, addons, warm };
+module.exports = { ADDON_URL, enabled, ensureGenres, availableAt, spotlight, collectionSource, checkKey, resolve, imdbIdOf, meta, previewMeta, released, collection, catalog, addons, warm };

@@ -240,14 +240,16 @@ async function slice(view, start = 0, limit = 50, genre, filter, sort, refine = 
     : null;
   if (!index) sort = addonSort(view, sort);
   const p = pagerFor(view, genre, filter, sort, local, index);
-  // Liste indexee avec un filtre immediat (vus) : filtree en entier, pour un total exact.
-  await fill(p, view, p.index && filter?.sync ? Infinity : start + limit, genre, filter, sort);
+  // Liste indexee avec un filtre immediat (vus, ou dates de sortie deja connues) : filtree en
+  // entier, pour un total exact des la 1re page.
+  const exact = !!p.index && !!filter && (filter.sync || (filter.released && require('./catalogIndex').releasesKnown(view.key)));
+  await fill(p, view, exact ? Infinity : start + limit, genre, filter, sort);
   // Anticipation : la tranche suivante se prepare pendant que l'app affiche celle-ci.
   if (!p.done) fill(p, view, start + limit + Math.min(limit, 100), genre, filter, sort).catch(() => {});
   const metas = p.metas.slice(start, start + limit);
   // Liste indexee sans filtre : total exact. Sinon, tant qu'on n'a pas tout charge, on annonce une
   // page de plus pour que l'app continue a defiler.
-  const total = p.index && filter?.sync ? p.metas.length : p.index && !filter ? require('./catalogIndex').count(view.key, p.local) : p.done ? p.metas.length : p.metas.length + (p.lastSize || limit);
+  const total = exact ? p.metas.length : p.index && !filter ? require('./catalogIndex').count(view.key, p.local) : p.done ? p.metas.length : p.metas.length + (p.lastSize || limit);
   return { metas, total };
 }
 
