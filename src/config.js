@@ -58,6 +58,8 @@ function defaultSettings() {
     traktClientId: '',
     traktClientSecret: '',
     simklClientId: '',
+    // Serveur Scrob (auto-heberge) : chaque profil y associe son compte par code.
+    scrobUrl: '',
     // Langue et pays des fiches TMDB (le pays sert aux sorties et classifications).
     metadataLanguage: 'fr-FR',
     // Boutons "Passer l'intro / le generique" (timestamps de TheIntroDB).
@@ -266,6 +268,7 @@ function updateSettings(patch) {
   s.backupHour = Math.min(23, Math.max(0, Math.round(Number(s.backupHour)) || 0));
   s.backupRetention = Math.min(365, Math.max(1, Math.round(Number(s.backupRetention)) || 7));
   s.torrentServer = s.torrentServer.replace(/\/+$/, '');
+  s.scrobUrl = s.scrobUrl.replace(/\/+$/, '');
   if (!MODES.includes(s.addonMode)) s.addonMode = 'direct';
   save();
   return s;

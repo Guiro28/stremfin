@@ -48,7 +48,7 @@ const relativeDate = (value) => {
 };
 // Lecture faite ici : nom de l'app ; historique importe : nom du service.
 const sourceLabel = (source, app) =>
-  app || ({ local: "Stremfin", nuvio: "Nuvio", trakt: "Trakt", simkl: "Simkl" })[source] || source;
+  app || ({ local: "Stremfin", nuvio: "Nuvio", trakt: "Trakt", simkl: "Simkl", scrob: "Scrob" })[source] || source;
 
 const playbackTime = (milliseconds) => {
   const totalSeconds = Math.max(0, Math.round(Number(milliseconds || 0) / 1000));
@@ -451,6 +451,7 @@ async function renderStatistics(container) {
   const sourceLogo = (source) => ({
     trakt: "/stremfin/ui/trakt.png",
     simkl: "/stremfin/ui/simkl.webp",
+    scrob: "/stremfin/ui/scrob.png",
   })[source] || "";
   const sourceCard = (sources) => {
     const first = sources[0], firstLogo = sourceLogo(first?.source);

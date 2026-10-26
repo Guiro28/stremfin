@@ -187,7 +187,7 @@ function nowPlaying(refs = null) {
 // (summarizeStatistics), alimentes par la table plays et les fiches de Stremfin.
 
 const DAY = 864e5;
-const SOURCE_NAMES = { trakt: 'Trakt', simkl: 'Simkl', nuvio: 'Nuvio' };
+const SOURCE_NAMES = { trakt: 'Trakt', simkl: 'Simkl', scrob: 'Scrob', nuvio: 'Nuvio' };
 
 /** Duree d'un element (ms), d'apres sa fiche ("42 min"...). */
 function runtimeOf(uuid) {

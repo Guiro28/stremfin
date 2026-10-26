@@ -3,6 +3,26 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
+## 0.2.5 — 2026-10-26
+
+### Ajouts
+- **Scrob** ([ellite/scrob](https://github.com/ellite/scrob), suivi auto-hébergé) comme source de
+  suivi, à côté de Trakt, Simkl et Nuvio. L'adresse du serveur se règle dans *Réglages → Suivi* ;
+  chaque profil associe son compte par code, validé sur la page `/link` de Scrob.
+  - Import de tout l'historique, chaque visionnage avec sa date : les films et épisodes vus
+    plusieurs fois comptent plusieurs fois dans les statistiques.
+  - Envoi des lectures en direct (début, pause, reprise, fin) et des titres vus ; « pas vu »
+    pour les films.
+  - Jeton renouvelé tout seul (un seul renouvellement à la fois).
+
+### Changements
+- *Profil → Source de suivi* : les quatre services côte à côte, en cartes compactes.
+- Simkl : plus d'emplacement pour un Client ID intégré, chaque serveur renseigne le sien.
+
+### Corrections
+- Statistiques : deux visionnages rapprochés (moins de 4 h) d'un même titre venant d'un même
+  service ne sont plus fusionnés ; seul un même visionnage vu par deux services l'est.
+
 ## 0.2.4 — 2026-10-26
 
 ### Changements

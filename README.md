@@ -277,7 +277,7 @@ chargement de la page ou au retour sur l'onglet. Les apps natives n'utilisent pa
   Stremfin garde l'ordre du catalogue (populaires, tendances…), réglable dans
   *Réglages → Serveur*. Les autres tris choisis dans l'app (date, note) sont respectés.
 
-## Suivi : Trakt, Simkl et historique Nuvio
+## Suivi : Trakt, Simkl, Scrob et historique Nuvio
 
 Onglet **Source de suivi** de chaque profil (aussi dans l'espace de l'utilisateur), une carte par
 service avec son logo, comme dans Nuvio Manager :
@@ -294,6 +294,19 @@ service avec son logo, comme dans Nuvio Manager :
   - *Envoyer* : la lecture en cours part vers Trakt (début, pause, fin ; Trakt marque vu
     au-delà de 80 %), les titres vus / « pas vus » vers Trakt et Simkl. Ce qui vient d'un
     import n'est jamais renvoyé.
+- **Scrob** ([ellite/scrob](https://github.com/ellite/scrob), suivi auto-hébergé) : l'adresse du
+  serveur se règle dans *Réglages → Suivi*, puis chaque profil associe son compte par code, à
+  valider sur la page `/link` du serveur Scrob (comme son extension Kodi). Scrob garde chaque
+  visionnage avec sa date : l'import reprend aussi les films et épisodes vus plusieurs fois.
+  L'envoi passe les lectures en direct (début, pause, reprise, fin ; Scrob marque vu à 90 %) et
+  les titres vus ; un « pas vu » n'est envoyé que pour les films. Pour retirer l'accès côté
+  Scrob, supprime l'appareil dans *Connections → Connected Apps*. Si Scrob envoie lui-même vers
+  Trakt ou Simkl, coupe l'envoi direct de Stremfin vers ces services pour éviter les doublons.
+  - L'interface web de Scrob ne relaie, pour un appareil, que les routes de son extension Kodi
+    (lectures en direct). Stremfin ajoute un en-tête `X-Api-Key` pour atteindre aussi
+    l'historique et les « vu / pas vu » ; c'est le serveur Scrob qui vérifie le jeton. Si une
+    version de Scrob refusait un jour cet en-tête, l'import l'indiquerait ; les lectures en
+    direct continueraient.
 - **Nuvio** : chaque profil associe **son propre compte Nuvio** (code, comme une TV, en
   lecture seule) et choisit le profil Nuvio dont il récupère l'historique : titres vus et
   lectures en cours (reprises entre 5 et 90 %).

@@ -1,7 +1,8 @@
-// Suivi par profil : Trakt et Simkl (associes par code, dans les deux sens) et historique Nuvio
+// Suivi par profil : Trakt, Simkl et Scrob (associes par code, dans les deux sens) et historique Nuvio
 // (compte Nuvio propre au profil, associe par code ; lecture seule). L'import marque les titres vus et reprend les lectures en cours de Nuvio, sans
 // ecraser une progression plus recente ; il ne renvoie rien vers Trakt / Simkl (pas de boucle).
-// L'envoi : lectures en direct vers Trakt (scrobble), titres vus / pas vus vers Trakt et Simkl.
+// L'envoi : lectures en direct vers Trakt et Scrob (scrobble), titres vus / pas vus vers Trakt, Simkl
+// et Scrob.
 const crypto = require('crypto');
 const config = require('./config');
 const ids = require('./ids');
@@ -12,16 +13,14 @@ const pkg = require('../package.json');
 
 const TRAKT = 'https://api.trakt.tv';
 const SIMKL = 'https://api.simkl.com';
-// Application Simkl AUTH V2 de Stremfin (type "TV, devices & command line" : code appareil, sans
-// secret). Un Client ID V2 est public : chaque appel aux donnees demande aussi le jeton du compte.
-// Le Client ID des reglages, s'il est renseigne, la remplace.
-const SIMKL_APP_ID = '';
+// Simkl AUTH V2 : chaque serveur utilise sa propre application Simkl (type "TV, devices & command
+// line" : code appareil, sans secret), dont l'administrateur renseigne le Client ID.
 const SIMKL_SCOPE = 'media:read media:write';
 // Jeton valable 7 jours : renouvele quand il en reste moins de 2.
 const SIMKL_REFRESH_BEFORE = 2 * 24 * 3600e3;
 const OOB = 'urn:ietf:wg:oauth:2.0:oob';
 const IMPORT_EVERY = 6 * 3600e3;
-const SERVICES = ['trakt', 'simkl', 'nuvio'];
+const SERVICES = ['trakt', 'simkl', 'scrob', 'nuvio'];
 
 function log(...args) {
   console.log(new Date().toISOString(), '[suivi]', ...args);
@@ -55,13 +54,16 @@ const settings = () => config.get().settings;
 function ready(service) {
   const s = settings();
   // Nuvio : rien a configurer, chaque profil associe son propre compte.
-  return service === 'trakt' ? !!(s.traktClientId && s.traktClientSecret) : service === 'simkl' ? !!simklClientId() : true;
+  if (service === 'trakt') return !!(s.traktClientId && s.traktClientSecret);
+  if (service === 'simkl') return !!simklClientId();
+  if (service === 'scrob') return !!s.scrobUrl;
+  return true;
 }
 
 const traktHeaders = (token) => ({ Authorization: `Bearer ${token}`, 'trakt-api-key': settings().traktClientId, 'trakt-api-version': '2' });
-/** Client ID Simkl : celui des reglages, sinon l'application de Stremfin. */
+/** Client ID de l'application Simkl renseignee dans les reglages. */
 function simklClientId() {
-  return settings().simklClientId || SIMKL_APP_ID;
+  return settings().simklClientId;
 }
 
 // Un compte associe garde le Client ID qui a delivre son jeton (le jeton n'est valable qu'avec lui).
@@ -80,19 +82,44 @@ function simklTokens(d) {
   return { accessToken: d.access_token, refreshToken: d.refresh_token, expiresAt: Date.now() + (Number(d.expires_in) || 7 * 24 * 3600) * 1000, scope: d.scope || SIMKL_SCOPE };
 }
 
-// ---- Association (code a valider sur trakt.tv / simkl.com) -----------------------------------
+// Scrob (github.com/ellite/scrob, auto-heberge) : association par code appareil, comme son extension
+// Kodi ; jeton valable 24 h, renouvele quand il reste moins d'une heure, refresh token change a
+// chaque renouvellement. L'interface web de Scrob relaie l'API sous /api/proxy mais, hors session,
+// ne laisse passer que les routes de l'extension Kodi... ou une requete portant un en-tete
+// X-Api-Key, quel qu'il soit : c'est ensuite le serveur Scrob qui verifie, et il accepte le jeton
+// d'appareil. L'en-tete ouvre donc l'historique date et les "vu" / "pas vu" ; si une version de
+// Scrob le refusait un jour, l'import le signalerait (les lectures en direct, routes Kodi, resteraient).
+// L'adresse est lue a chaque appel : la changer dans les reglages suffit.
+const SCROB_REFRESH_BEFORE = 3600e3;
+const scrobApi = (path) => `${String(settings().scrobUrl).replace(/\/+$/, '')}/api/proxy${path}`;
+const scrobHeaders = (token) => ({ Authorization: `Bearer ${token}`, 'X-Api-Key': 'stremfin' });
+
+function scrobTokens(d) {
+  return { accessToken: d.access_token, refreshToken: d.refresh_token, expiresAt: Date.now() + (Number(d.expires_in) || 24 * 3600) * 1000 };
+}
+
+// ---- Association (code a valider sur trakt.tv / simkl.com / le serveur Scrob) -----------------
 
 const pairings = new Map(); // id -> { service, profileId, userCode, deviceCode, expiresAt }
 
 async function pairStart(profile, service) {
   if (service === 'trakt' && !ready('trakt')) throw new Error("Renseigne d'abord l'application Trakt (Réglages → Suivi)");
   if (service === 'simkl' && !ready('simkl')) throw new Error("Renseigne d'abord l'application Simkl (Réglages → Suivi)");
+  if (service === 'scrob' && !ready('scrob')) throw new Error("Renseigne d'abord l'adresse du serveur Scrob (Réglages → Suivi)");
   const s = settings();
   let p;
   if (service === 'trakt') {
     const r = await request(`${TRAKT}/oauth/device/code`, { method: 'POST', body: { client_id: s.traktClientId } });
     if (!r.ok || !r.data?.device_code) throw new Error('Impossible de créer le code Trakt');
     p = { deviceCode: r.data.device_code, userCode: r.data.user_code, url: r.data.verification_url || 'https://trakt.tv/activate', expiresIn: r.data.expires_in };
+  } else if (service === 'scrob') {
+    const r = await request(scrobApi('/auth/device/code'), { method: 'POST', body: { client_name: `Stremfin · ${profile.name}`, scope: 'write' } }).catch(() => null);
+    if (!r?.ok || !r.data?.device_code) throw new Error('Serveur Scrob injoignable : vérifie son adresse (Réglages → Suivi)');
+    // Scrob construit ce lien avec son SERVER_URL (http://localhost:7330 s'il n'est pas regle) : on
+    // garde son chemin (/link?code=...) sur l'adresse saisie, celle qu'on ouvre dans le navigateur.
+    const link = new URL(r.data.verification_uri_complete || r.data.verification_uri || '/link', 'http://x');
+    const url = `${String(s.scrobUrl).replace(/\/+$/, '')}${link.pathname}${link.search}`;
+    p = { deviceCode: r.data.device_code, userCode: r.data.user_code, url, expiresIn: r.data.expires_in };
   } else {
     // AUTH V2 (OAuth 2.0, code appareil).
     const clientId = simklClientId();
@@ -128,6 +155,15 @@ async function pairPoll(profile, id) {
     link = traktTokens(r.data);
     const me = await request(`${TRAKT}/users/settings`, { headers: traktHeaders(link.accessToken) }).catch(() => null);
     link.user = me?.data?.user?.username || me?.data?.user?.name || '';
+  } else if (p.service === 'scrob') {
+    const r = await request(scrobApi('/auth/device/token'), { method: 'POST', form: { grant_type: 'urn:ietf:params:oauth:grant-type:device_code', device_code: p.deviceCode } });
+    const error = r.data?.error;
+    if (error === 'authorization_pending' || error === 'slow_down') return { status: 'pending' };
+    if (error === 'access_denied') throw new Error('Autorisation Scrob refusée');
+    if (error === 'expired_token') throw new Error('Code expiré, recommence');
+    if (!r.ok || !r.data?.access_token) throw new Error('Connexion Scrob impossible');
+    // Le jeton d'appareil ne donne pas acces au compte : on affiche le serveur a la place du nom.
+    link = { ...scrobTokens(r.data), user: new URL(s.scrobUrl).host };
   } else {
     const r = await request(`${SIMKL}/oauth2/token`, simklForm({ grant_type: 'urn:ietf:params:oauth:grant-type:device_code', client_id: p.clientId, device_code: p.deviceCode }));
     const error = r.data?.error;
@@ -157,7 +193,13 @@ function unlink(profile, service) {
   }
 }
 
-const simklRefreshing = new Map(); // profil -> renouvellement en cours (un seul a la fois)
+const refreshing = new Map(); // "service|profil" -> renouvellement en cours (un seul a la fois)
+
+/** Un seul renouvellement a la fois par service et profil : les demandes simultanees l'attendent. */
+function once(key, job) {
+  if (!refreshing.has(key)) refreshing.set(key, job().finally(() => refreshing.delete(key)));
+  return refreshing.get(key);
+}
 
 /**
  * Jeton Simkl valable, renouvele 2 jours avant expiration. Un renouvellement invalide le jeton
@@ -167,8 +209,7 @@ async function simklToken(profile) {
   const t = profile.simkl;
   if (!t?.refreshToken) throw new Error("Simkl n'est pas associé");
   if ((t.expiresAt || 0) - Date.now() > SIMKL_REFRESH_BEFORE) return t.accessToken;
-  if (simklRefreshing.has(profile.id)) return simklRefreshing.get(profile.id);
-  const job = (async () => {
+  return once(`simkl|${profile.id}`, async () => {
     const r = await request(`${SIMKL}/oauth2/token`, simklForm({ grant_type: 'refresh_token', client_id: simklIdOf(t), refresh_token: t.refreshToken }));
     if (r.ok && r.data?.access_token) {
       // Simkl renvoie le meme refresh token (il ne change pas) ; on garde l'ancien s'il manque.
@@ -180,9 +221,28 @@ async function simklToken(profile) {
     // Panne passagere : le jeton actuel sert encore tant qu'il n'a pas expire.
     if ((t.expiresAt || 0) > Date.now()) return t.accessToken;
     throw new Error(`Simkl : erreur ${r.status}`);
-  })().finally(() => simklRefreshing.delete(profile.id));
-  simklRefreshing.set(profile.id, job);
-  return job;
+  });
+}
+
+/**
+ * Jeton Scrob valable. Le refresh token change a chaque renouvellement et Scrob coupe l'acces si
+ * l'ancien resservait : il est enregistre aussitot, et jamais deux renouvellements a la fois.
+ */
+async function scrobToken(profile) {
+  const t = profile.scrob;
+  if (!t?.refreshToken) throw new Error("Scrob n'est pas associé");
+  if ((t.expiresAt || 0) - Date.now() > SCROB_REFRESH_BEFORE) return t.accessToken;
+  return once(`scrob|${profile.id}`, async () => {
+    const r = await request(scrobApi('/auth/device/token'), { method: 'POST', form: { grant_type: 'refresh_token', refresh_token: t.refreshToken } });
+    if (r.ok && r.data?.access_token) {
+      Object.assign(t, scrobTokens(r.data));
+      config.save();
+      return t.accessToken;
+    }
+    if (r.status === 400 || r.status === 401) throw new Error('Le lien avec Scrob a expiré : associe à nouveau le compte');
+    if ((t.expiresAt || 0) > Date.now()) return t.accessToken;
+    throw new Error(`Scrob : erreur ${r.status}`);
+  });
 }
 
 /** Jeton Trakt valide (renouvele un jour avant expiration). */
@@ -268,6 +328,48 @@ async function simklEvents(profile) {
     }
   }
   return { events, commit: () => (t.lastSync = startedAt) };
+}
+
+/**
+ * Historique Scrob, du plus recent au plus ancien, jusqu'au dernier import (tout la premiere fois).
+ * Scrob garde chaque visionnage avec sa date : un film vu deux fois compte deux fois. Ce que
+ * Stremfin y a envoye lui-meme (source "stremfin") n'est pas repris.
+ */
+async function scrobEvents(profile) {
+  const t = profile.scrob;
+  const token = await scrobToken(profile);
+  const events = [];
+  let newest = t.lastAt || 0;
+  for (let page = 1; page <= 1000; page++) {
+    const r = await request(scrobApi(`/history?page=${page}&page_size=100`), { headers: scrobHeaders(token) }).catch(() => null);
+    // 302 (redirection vers /login) : cette version de Scrob ne laisse plus passer l'en-tete.
+    if (!r || r.status === 302) throw new Error("Scrob ne donne pas accès à l'historique avec le code appareil");
+    if (r.status === 401) throw new Error('Le lien avec Scrob a expiré : associe à nouveau le compte');
+    if (!r.ok || !Array.isArray(r.data?.results)) throw new Error('Historique Scrob indisponible');
+    let done = false;
+    for (const ev of r.data.results) {
+      const at = Date.parse(ev.watched_at) || 0;
+      if (t.lastAt && at <= t.lastAt) {
+        done = true;
+        break;
+      }
+      newest = Math.max(newest, at);
+      if (ev.source === 'stremfin') continue;
+      const m = ev.media || {};
+      // Plusieurs visionnages groupes dans un evenement (ex. compteur Kodi) : une ligne chacun.
+      const times = Math.min(20, Math.max(1, Number(ev.play_count) || 1));
+      for (let i = 0; i < times; i++) {
+        const when = at ? at - i * 1000 : 0;
+        if (m.type === 'movie' && (m.imdb_id || m.tmdb_id)) {
+          events.push({ kind: 'movie', imdb: m.imdb_id || undefined, tmdb: m.tmdb_id || undefined, title: m.title, at: when, minutes: minutesOf(m.runtime) });
+        } else if (m.type === 'episode' && m.show_tmdb_id && m.season_number != null && m.episode_number != null) {
+          events.push({ kind: 'episode', tmdb: m.show_tmdb_id, title: m.show_title, season: m.season_number, episode: m.episode_number, at: when, minutes: minutesOf(m.runtime) });
+        }
+      }
+    }
+    if (done || page >= (Number(r.data.total_pages) || 1)) break;
+  }
+  return { events, commit: () => (t.lastAt = newest) };
 }
 
 /** Vus et lectures en cours du profil Nuvio choisi (lecture seule). */
@@ -398,11 +500,12 @@ async function apply(profile, events, source) {
         continue;
       }
       if (uuids.map((u) => markWatched(profile, u, ev.at)).some(Boolean)) watched++;
-      // Historique (statistiques) : une ligne par visionnage, sans doublon.
+      // Historique (statistiques) : une ligne par visionnage date, sans doublon.
+      if (!ev.at) continue;
       const label = x.kind === 'movie' ? x.title : `${x.title || ''} S${String(ev.season).padStart(2, '0')}E${String(ev.episode).padStart(2, '0')}`;
       const ms = (ev.minutes || 0) * 60e3;
       // Deja la (lecture faite ici puis envoyee a Trakt, ou vue via Nuvio et Trakt) : pas de doublon.
-      if (st.playNear.get(profile.id, uuids[0], uuids[1] || uuids[0], ev.at - 4 * 3600e3, ev.at + 4 * 3600e3)) continue;
+      if (st.playNear.get(profile.id, uuids[0], uuids[1] || uuids[0], ev.at - 4 * 3600e3, ev.at + 4 * 3600e3, source)) continue;
       st.playImport.run(profile.id, uuids[0], x.kind, label || null, x.kind === 'movie' ? null : x.title || null, ev.at, ev.at, ms, ms, source);
     }
   }
@@ -411,7 +514,7 @@ async function apply(profile, events, source) {
 
 // ---- Import --------------------------------------------------------------------------------------
 
-const FETCH = { trakt: traktEvents, simkl: simklEvents, nuvio: nuvioEvents };
+const FETCH = { trakt: traktEvents, simkl: simklEvents, scrob: scrobEvents, nuvio: nuvioEvents };
 const running = new Map();
 
 /** Etat d'un service pour un profil : { linked, active } (active = import a faire). */
@@ -421,7 +524,7 @@ function serviceState(profile, service) {
     const linked = !!profile.nuvio?.refreshToken;
     return { linked, active: linked && n?.profile != null && n.import !== false };
   }
-  const linked = !!profile[service]?.[service === 'simkl' ? 'refreshToken' : 'accessToken'] && ready(service);
+  const linked = !!profile[service]?.[{ trakt: 'accessToken', simkl: 'refreshToken', scrob: 'refreshToken' }[service]] && ready(service);
   return { linked, active: linked && profile[service].import !== false };
 }
 
@@ -458,7 +561,7 @@ async function importAll() {
     await importProfile(p);
     // Simkl sans import : le jeton est quand meme renouvele (un refresh token inutilise 180 jours expire).
     if (serviceState(p, 'simkl').linked) await simklToken(p).catch((e) => log(`${p.name} : renouvellement Simkl KO : ${e.message}`));
-  }
+    if (serviceState(p, 'scrob').linked) await scrobToken(p).catch((e) => log(`${p.name} : renouvellement Scrob KO : ${e.message}`));  }
 }
 
 let timer = null;
@@ -476,7 +579,7 @@ function start() {
   timer.unref();
 }
 
-// ---- Envoi vers Trakt et Simkl -----------------------------------------------------------------
+// ---- Envoi vers Trakt, Simkl et Scrob ----------------------------------------------------------
 
 function idsOf(d) {
   const out = {};
@@ -520,6 +623,62 @@ async function simkl(profile, path, body) {
   if (!r.ok) throw new Error(`Simkl : erreur ${r.status}`);
 }
 
+async function scrob(profile, path, { method = 'POST', body } = {}) {
+  const r = await request(scrobApi(path), { method, headers: scrobHeaders(await scrobToken(profile)), body });
+  // 409 : deja note dans la fenetre anti-doublon de Scrob, sans gravite.
+  if (!r.ok && r.status !== 409) throw new Error(`Scrob : erreur ${r.status}`);
+}
+
+/** Element au format de l'extension Kodi de Scrob (episode : identifiants de la serie). */
+// Scrob reconnait un film par son id TMDB (sinon il le cherche par titre, et un titre traduit peut
+// tomber sur un autre film) : l'id est retrouve avant l'envoi.
+async function scrobItem(entry, media) {
+  if (media.movie) {
+    const tmdbId = await tmdbIdOf('movie', media.movie.ids);
+    return { type: 'movie', title: entry.data.name || '', year: Number(String(entry.data.releaseInfo || '').match(/\d{4}/)?.[0]) || undefined, uniqueid: { ...media.movie.ids, tmdb: tmdbId || undefined } };
+  }
+  const show = ids.get(entry.data.seriesUuid)?.data || {};
+  const tmdbId = await tmdbIdOf('series', media.show.ids);
+  return { type: 'episode', title: entry.data.name || '', showtitle: show.name || '', season: media.episode.season, episode: media.episode.number, uniqueid: { ...media.show.ids, tmdb: tmdbId || undefined } };
+}
+
+const KODI_EVENT = { start: 'playback_started', resume: 'playback_resumed', pause: 'playback_paused', stop: 'playback_stopped' };
+const scrobQueue = new Map(); // lecture -> envois en cours, faits dans l'ordre (debut avant arret)
+
+function scrobLive(profile, key, entry, media, action, position, ticks) {
+  const send = async () => {
+    const body = { event: KODI_EVENT[action], source: 'stremfin', session_id: key, item: await scrobItem(entry, media), position_seconds: Math.round((position || 0) / 1e7), total_seconds: Math.round(ticks / 1e7) };
+    await scrob(profile, '/webhooks/kodi', { body });
+  };
+  const next = (scrobQueue.get(key) || Promise.resolve()).then(send).catch((e) => failed(profile, 'scrob', e));
+  scrobQueue.set(key, next);
+  next.finally(() => scrobQueue.get(key) === next && scrobQueue.delete(key));
+}
+
+/** Identifiant TMDB d'un film ou d'une serie (Scrob en a besoin pour "vu" / "pas vu"). */
+async function tmdbIdOf(kind, i) {
+  if (i?.tmdb) return i.tmdb;
+  if (!i?.imdb || !tmdb.enabled()) return null;
+  return (await tmdb.resolve(kind, i.imdb).catch(() => null))?.id || null;
+}
+
+/** "Vu" / "pas vu" vers Scrob, titre par titre. Un episode "pas vu" n'y est pas retire. */
+async function scrobPlayed(profile, entries, played) {
+  for (const e of entries) {
+    const m = mediaOf(e);
+    if (!m) continue;
+    if (m.movie) {
+      const id = await tmdbIdOf('movie', m.movie.ids);
+      if (!id) continue;
+      if (played) await scrob(profile, '/history', { body: { media_type: 'movie', tmdb_id: id, source: 'stremfin' } });
+      else await scrob(profile, `/history/item?tmdb_id=${id}&media_type=movie`, { method: 'DELETE' });
+    } else if (played) {
+      const id = await tmdbIdOf('series', m.show.ids);
+      if (id) await scrob(profile, '/history', { body: { media_type: 'episode', series_tmdb_id: id, season_number: m.episode.season, episode_number: m.episode.number, source: 'stremfin' } });
+    }
+  }
+}
+
 /** Corps "historique" (films + series regroupees par saison) pour /sync/history. */
 function historyBody(entries, at) {
   const movies = [];
@@ -546,13 +705,15 @@ function historyBody(entries, at) {
 const live = new Map(); // "profil|uuid" -> { paused, at }
 
 /**
- * Rapport de lecture d'une app : lecture en direct vers Trakt (start / pause / stop ; Trakt
- * marque vu au-dela de 80 %), et titre devenu vu vers Simkl.
+ * Rapport de lecture d'une app : lecture en direct vers Trakt et Scrob (debut / pause / reprise /
+ * arret ; Trakt marque vu au-dela de 80 %, Scrob a 90 %), et titre devenu vu vers Simkl.
  */
 function onReport(profile, entry, stage, { position, ticks, paused, watched }) {
   const media = mediaOf(entry);
   if (!media) return;
-  if (exporting(profile, 'trakt') && ticks) {
+  const toTrakt = exporting(profile, 'trakt');
+  const toScrob = exporting(profile, 'scrob');
+  if ((toTrakt || toScrob) && ticks) {
     for (const [k, v] of live) if (Date.now() - v.at > 6 * 3600e3) live.delete(k);
     const key = `${profile.id}|${entry.uuid}`;
     const prev = live.get(key);
@@ -564,18 +725,19 @@ function onReport(profile, entry, stage, { position, ticks, paused, watched }) {
       action = paused ? 'pause' : 'start';
       live.set(key, { paused: !!paused, at: Date.now() });
     } else if (!!paused !== prev.paused) {
-      action = paused ? 'pause' : 'start';
+      action = paused ? 'pause' : 'resume';
       Object.assign(prev, { paused: !!paused, at: Date.now() });
     } else {
       prev.at = Date.now();
     }
     const progress = Math.round(Math.min(100, Math.max(0, (position / ticks) * 100)) * 100) / 100;
-    if (action) trakt(profile, `/scrobble/${action}`, { ...media, progress, app_version: pkg.version }).catch((e) => failed(profile, 'trakt', e));
+    if (action && toTrakt) trakt(profile, `/scrobble/${action === 'resume' ? 'start' : action}`, { ...media, progress, app_version: pkg.version }).catch((e) => failed(profile, 'trakt', e));
+    if (action && toScrob) scrobLive(profile, key, entry, media, action, position, ticks);
   }
   if (watched && exporting(profile, 'simkl')) simkl(profile, '/sync/history', historyBody([entry], Date.now())).catch((e) => failed(profile, 'simkl', e));
 }
 
-/** "Vu" / "pas vu" choisi dans une app : envoye a Trakt et Simkl. */
+/** "Vu" / "pas vu" choisi dans une app : envoye a Trakt, Simkl et Scrob. */
 function onPlayed(profile, entries, played) {
   const at = played ? Date.now() : null;
   const body = historyBody(entries, at);
@@ -583,6 +745,7 @@ function onPlayed(profile, entries, played) {
   const path = played ? '/sync/history' : '/sync/history/remove';
   if (exporting(profile, 'trakt')) trakt(profile, path, body).catch((e) => failed(profile, 'trakt', e));
   if (exporting(profile, 'simkl')) simkl(profile, path, body).catch((e) => failed(profile, 'simkl', e));
+  if (exporting(profile, 'scrob')) scrobPlayed(profile, entries, played).catch((e) => failed(profile, 'scrob', e));
 }
 
 // ---- Pour l'interface ----------------------------------------------------------------------------
@@ -601,12 +764,12 @@ function describe(profile) {
       lastResult: h.lastResult || null
     };
   };
-  return { trakt: view('trakt'), simkl: view('simkl'), nuvio: { ...view('nuvio'), profile: profile.nuvioHistory?.profile ?? null } };
+  return { trakt: view('trakt'), simkl: view('simkl'), scrob: view('scrob'), nuvio: { ...view('nuvio'), profile: profile.nuvioHistory?.profile ?? null } };
 }
 
-/** Options : { trakt: { import, export }, simkl: { import, export }, nuvio: { profile, import } }. */
+/** Options : { trakt | simkl | scrob: { import, export }, nuvio: { profile, import } }. */
 function update(profile, patch) {
-  for (const service of ['trakt', 'simkl']) {
+  for (const service of ['trakt', 'simkl', 'scrob']) {
     const p = patch?.[service];
     if (!p || !profile[service]) continue;
     if (typeof p.import === 'boolean') profile[service].import = p.import;

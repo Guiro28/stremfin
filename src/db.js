@@ -124,8 +124,10 @@ const st = {
   playImport: db.prepare(`INSERT OR IGNORE INTO plays (profile, uuid, kind, title, series, started, ended, watched, duration, source)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
   playDelProfile: db.prepare('DELETE FROM plays WHERE profile = ?'),
-  // Meme titre (une de ses deux versions) deja dans l'historique a quelques heures pres.
-  playNear: db.prepare('SELECT 1 FROM plays WHERE profile = ? AND uuid IN (?, ?) AND started BETWEEN ? AND ? LIMIT 1'),
+  // Meme titre (une de ses deux versions) deja dans l'historique a quelques heures pres, venu d'une
+  // autre source (meme lecture vue par deux services). Une meme source ne se double pas : deux
+  // visionnages rapproches qu'elle donne sont bien deux visionnages.
+  playNear: db.prepare('SELECT 1 FROM plays WHERE profile = ? AND uuid IN (?, ?) AND started BETWEEN ? AND ? AND source != ? LIMIT 1'),
   udCount: db.prepare('SELECT COUNT(*) AS n FROM userdata WHERE profile = ? AND (played = 1 OR position > 0)'),
   cacheCount: db.prepare('SELECT COUNT(*) AS n FROM cache'),
   idsCount: db.prepare('SELECT COUNT(*) AS n FROM ids'),

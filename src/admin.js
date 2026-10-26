@@ -336,6 +336,7 @@ router.put('/api/settings', adminOnly, async (req, res) => {
   }
   if (patch.publicUrl && !/^https?:\/\/[^\s]+$/i.test(String(patch.publicUrl).trim())) return fail(res, 400, 'URL publique invalide');
   if (patch.torrentServer && !/^https?:\/\/[^\s]+$/i.test(String(patch.torrentServer).trim())) return fail(res, 400, 'URL du serveur de streaming invalide');
+  if (patch.scrobUrl && !/^https?:\/\/[^\s]+$/i.test(String(patch.scrobUrl).trim())) return fail(res, 400, 'Adresse du serveur Scrob invalide');
   if (patch.upstream?.url && patch.upstream.mode !== 'direct' && !/^(socks5h?|socks4|https?):\/\/[^\s]+$/i.test(patch.upstream.url.trim())) {
     return fail(res, 400, 'URL du proxy de sortie invalide');
   }
@@ -346,7 +347,7 @@ router.put('/api/settings', adminOnly, async (req, res) => {
   res.json(publicSettings(s));
 });
 
-// ---- Suivi (Trakt, Simkl, historique Nuvio) d'un profil ----------------------------------------
+// ---- Suivi (Trakt, Simkl, Scrob, historique Nuvio) d'un profil ----------------------------------------
 
 // Compte Nuvio du profil (lecture seule) : appairage par code, profils du compte, retrait.
 router.post('/api/profiles/:id/tracking/nuvio/pair', async (req, res) => {
@@ -389,7 +390,7 @@ router.delete('/api/profiles/:id/tracking/nuvio', (req, res) => {
 router.post('/api/profiles/:id/tracking/:service/pair', async (req, res) => {
   const p = profileOr404(req, res);
   if (!p) return;
-  if (!['trakt', 'simkl'].includes(req.params.service)) return fail(res, 404, 'Service inconnu');
+  if (!['trakt', 'simkl', 'scrob'].includes(req.params.service)) return fail(res, 404, 'Service inconnu');
   try {
     res.json(await tracking.pairStart(p, req.params.service));
   } catch (e) {
@@ -410,7 +411,7 @@ router.post('/api/profiles/:id/tracking/pair/:pairId', async (req, res) => {
 router.delete('/api/profiles/:id/tracking/:service', (req, res) => {
   const p = profileOr404(req, res);
   if (!p) return;
-  if (!['trakt', 'simkl'].includes(req.params.service)) return fail(res, 404, 'Service inconnu');
+  if (!['trakt', 'simkl', 'scrob'].includes(req.params.service)) return fail(res, 404, 'Service inconnu');
   tracking.unlink(p, req.params.service);
   res.json(profileDetail(p));
 });

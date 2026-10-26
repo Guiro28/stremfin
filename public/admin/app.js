@@ -1293,11 +1293,16 @@ function bindRevoke(root, after) {
   });
 }
 
-// ---- Suivi (Trakt, Simkl, historique Nuvio) ----------------------------------------------------
+// ---- Suivi (Trakt, Simkl, Scrob, historique Nuvio) ---------------------------------------------
 
-const TRACKERS = { trakt: 'Trakt', simkl: 'Simkl' };
-// Logos des services de suivi (memes images que Nuvio Manager).
-const TRACKER_LOGO = { trakt: '/stremfin/ui/trakt.png', simkl: '/stremfin/ui/simkl.webp', nuvio: '/stremfin/ui/nuvio.png' };
+const TRACKERS = { trakt: 'Trakt', simkl: 'Simkl', scrob: 'Scrob' };
+// Logos des services de suivi (memes images que Nuvio Manager ; Scrob : icone de son projet).
+const TRACKER_LOGO = { trakt: '/stremfin/ui/trakt.png', simkl: '/stremfin/ui/simkl.webp', scrob: '/stremfin/ui/scrob.png', nuvio: '/stremfin/ui/nuvio.png' };
+const EXPORT_TEXT = {
+  trakt: () => t('Lectures en cours, titres vus et « pas vus » envoyés à Trakt.'),
+  simkl: () => t('Titres vus et « pas vus » envoyés à Simkl.'),
+  scrob: () => t('Lectures en cours et titres vus envoyés à Scrob (films « pas vus » aussi).')
+};
 
 function tabTracking(el, p) {
   const tr = p.tracking;
@@ -1310,7 +1315,7 @@ function tabTracking(el, p) {
   };
   const toggles = (service, x, exp = true) => `
     <div class="setting"><div class="text"><b>${t('Importer')}</b><span>${t('Les titres vus là-bas sont marqués vus ici (toutes les 6 h).')}</span></div><div class="control">${toggle(`data-opt="${service}.import"`, x.import)}</div></div>
-    ${exp ? `<div class="setting"><div class="text"><b>${t('Envoyer')}</b><span>${service === 'trakt' ? t('Lectures en cours, titres vus et « pas vus » envoyés à Trakt.') : t('Titres vus et « pas vus » envoyés à Simkl.')}</span></div><div class="control">${toggle(`data-opt="${service}.export"`, x.export)}</div></div>` : ''}`;
+    ${exp ? `<div class="setting"><div class="text"><b>${t('Envoyer')}</b><span>${EXPORT_TEXT[service]()}</span></div><div class="control">${toggle(`data-opt="${service}.export"`, x.export)}</div></div>` : ''}`;
   // Etat du compte, comme les cartes de Nuvio Manager : "● Associé" en vert, sinon "Pas associé".
   const linkedLine = (x) => (x.linked ? `<p class="connection-ok">● ${t('Associé : {user}.', { user: esc(x.user || '—') })}</p>` : `<p>${t('Pas associé.')}</p>`);
   const tracker = (service) => {
@@ -1319,7 +1324,7 @@ function tabTracking(el, p) {
     return `<article class="card connection-card"><img class="connection-logo" src="${TRACKER_LOGO[service]}" alt="${esc(t('Logo {name}', { name }))}"><div>
       <div class="card-head"><div><h2>${name}</h2>${linkedLine(x)}</div>
         <div class="row">${x.linked ? `<button class="btn danger sm" data-unlink="${service}">${t('Dissocier')}</button>` : `<button class="btn primary sm" data-pair="${service}" ${x.ready ? '' : 'disabled'}>${icon('link')}${t('Associer')}</button>`}</div></div>
-      ${x.ready ? '' : `<p class="small faint">${admin ? t("Renseigne d'abord l'application {name} dans Réglages → Suivi.", { name }) : t("L'administrateur doit d'abord configurer {name}.", { name })}</p>`}
+      ${x.ready ? '' : `<p class="small faint">${admin ? (service === 'scrob' ? t("Renseigne d'abord l'adresse du serveur Scrob dans Réglages → Suivi.") : t("Renseigne d'abord l'application {name} dans Réglages → Suivi.", { name })) : t("L'administrateur doit d'abord configurer {name}.", { name })}</p>`}
       ${x.linked ? toggles(service, x) : ''}${last(x)}</div></article>`;
   };
   const n = tr.nuvio;
@@ -1332,10 +1337,10 @@ function tabTracking(el, p) {
         ? `<div class="setting"><div class="text"><b>${t('Profil Nuvio')}</b><span>${t("Profil dont l'historique est récupéré.")}</span></div><div class="control"><select id="nuvioProfile" style="width:auto"><option value="">${t('Aucun')}</option></select></div></div>
           ${n.profile != null ? toggles('nuvio', n, false) : ''}${last(n)}`
         : ''}</div></article>`;
-  const any = tr.trakt.linked || tr.simkl.linked || (n.linked && n.profile != null);
-  el.innerHTML = `<div class="card" style="margin-bottom:16px"><div class="setting" style="border:0;padding:0"><div class="text"><b>${t('Sources de suivi')}</b><span>${t("Associe Trakt ou Simkl pour que ce profil retrouve ce que tu as vu ailleurs, et y envoie ce que tu regardes ici. Un titre vu là-bas n'écrase jamais une lecture plus récente ici.")}</span></div>
+  const any = tr.trakt.linked || tr.simkl.linked || tr.scrob.linked || (n.linked && n.profile != null);
+  el.innerHTML = `<div class="card" style="margin-bottom:16px"><div class="setting" style="border:0;padding:0"><div class="text"><b>${t('Sources de suivi')}</b><span>${t("Associe Trakt, Simkl ou Scrob pour que ce profil retrouve ce que tu as vu ailleurs, et y envoie ce que tu regardes ici. Un titre vu là-bas n'écrase jamais une lecture plus récente ici.")}</span></div>
       <div class="control"><button class="btn" id="trackImport" ${any ? '' : 'disabled'}>${icon('refresh')}${t('Importer maintenant')}</button></div></div></div>
-    <div class="grid grid-3">${tracker('trakt')}${tracker('simkl')}${nuvioCard}</div>`;
+    <div class="grid grid-4 tracker-grid">${tracker('trakt')}${tracker('simkl')}${tracker('scrob')}${nuvioCard}</div>`;
 
   const apply = (r) => {
     Object.assign(p, r);
@@ -1385,7 +1390,7 @@ function tabTracking(el, p) {
   }
 }
 
-/** Association Trakt / Simkl : code a saisir sur leur site ; la fenetre se ferme toute seule. */
+/** Association Trakt / Simkl / Scrob : code a saisir sur leur site ; la fenetre se ferme toute seule. */
 async function pairTracker(p, service) {
   const name = TRACKERS[service];
   const pair = await busy(null, () => api('POST', `/profiles/${p.id}/tracking/${service}/pair`));
@@ -1715,7 +1720,7 @@ PAGES['settings/metadata'] = async (main) => {
 PAGES['settings/tracking'] = async (main) => {
   const s = state.settings;
   const link = (url, label) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`;
-  main.innerHTML = `${head(t('Suivi'), t("Applications Trakt et Simkl du serveur : elles servent à associer les profils (onglet Source de suivi de chaque profil) et à lire les listes Trakt des collections."))}
+  main.innerHTML = `${head(t('Suivi'), t("Applications Trakt et Simkl et serveur Scrob : ils servent à associer les profils (onglet Source de suivi de chaque profil) et à lire les listes Trakt des collections."))}
     <div class="stack">
     <form class="card connection-card" id="fTrakt"><img class="connection-logo" src="${TRACKER_LOGO.trakt}" alt="${esc(t('Logo {name}', { name: 'Trakt' }))}"><div>
       <div class="card-head"><div><h2>Trakt</h2>${s.traktClientId && s.traktClientSecret ? `<p class="connection-ok">● ${t('Configuré')}</p>` : `<p>${t('Pas configuré.')}</p>`}</div></div>
@@ -1731,6 +1736,12 @@ PAGES['settings/tracking'] = async (main) => {
         <div class="control wide"><input name="simklId" type="text" autocomplete="off" spellcheck="false" value="${esc(s.simklClientId || '')}"></div></div>
       <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
     </div></form>
+    <form class="card connection-card" id="fScrob"><img class="connection-logo" src="${TRACKER_LOGO.scrob}" alt="${esc(t('Logo {name}', { name: 'Scrob' }))}"><div>
+      <div class="card-head"><div><h2>Scrob</h2>${s.scrobUrl ? `<p class="connection-ok">● ${t('Configuré')}</p>` : `<p>${t('Pas configuré.')}</p>`}</div></div>
+      <div class="setting"><div class="text"><b>${t('Adresse du serveur')}</b><span>${t("Ton serveur {link} (suivi auto-hébergé), tel que tu l'ouvres dans le navigateur. Chaque profil y associe ensuite son compte par code.", { link: link('https://github.com/ellite/scrob', 'Scrob') })}</span></div>
+        <div class="control wide"><input name="scrobUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://scrob.exemple.fr" value="${esc(s.scrobUrl || '')}"></div></div>
+      <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
+    </div></form>
     </div>`;
   // Chaque service s'enregistre a part ; la page est redessinee pour mettre a jour son etat.
   const saveService = (f, patch) => async (e) => {
@@ -1742,6 +1753,8 @@ PAGES['settings/tracking'] = async (main) => {
   const fs = $('#fSimkl');
   ft.onsubmit = saveService(ft, (f) => ({ traktClientId: f.traktId.value.trim(), traktClientSecret: f.traktSecret.value.trim() }));
   fs.onsubmit = saveService(fs, (f) => ({ simklClientId: f.simklId.value.trim() }));
+  const fc = $('#fScrob');
+  fc.onsubmit = saveService(fc, (f) => ({ scrobUrl: f.scrobUrl.value.trim() }));
 };
 
 PAGES['settings/web'] = async (main) => {

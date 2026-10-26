@@ -425,6 +425,14 @@ code { font-family: var(--mono); font-size: 12.5px; background: var(--input); pa
 .connection-logo { width: 52px; height: 52px; border-radius: 13px; display: block; object-fit: cover; background: var(--input); border: 1px solid var(--line); }
 .connection-logo.contain { object-fit: contain; padding: 7px; }
 .connection-ok { color: var(--ok); font-weight: 650; }
+/* Sources de suivi d'un profil : 4 cartes cote a cote, plus compactes. Le logo flotte a cote du
+   nom et du bouton ; les reglages passent dessous, sur toute la largeur de la carte. */
+.tracker-grid .connection-card { display: block; }
+.tracker-grid .connection-logo { float: left; margin-right: 12px; width: 40px; height: 40px; border-radius: 10px; }
+.tracker-grid .connection-card .setting { clear: both; }
+.tracker-grid .connection-logo.contain { padding: 5px; }
+.tracker-grid .card-head { flex-direction: column; align-items: flex-start; gap: 10px; }
+@media (max-width: 520px) { .tracker-grid { grid-template-columns: 1fr; } }
 
 /* ---- Clip "aucune source disponible" (Reglages -> Lecture et reseau) ---- */
 .ns-body { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 16px; align-items: start; }
