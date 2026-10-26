@@ -3,7 +3,7 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
-## En développement (branche `dev`, image `ghcr.io/guiro28/stremfin:dev`)
+## 0.2.10-dev — en développement (branche `dev`, image `ghcr.io/guiro28/stremfin:dev`)
 
 ### Ajouts
 - **Index des catalogues** (*Réglages → Index des catalogues*, désactivé par défaut) : chaque liste
