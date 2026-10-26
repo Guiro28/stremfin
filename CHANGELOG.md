@@ -3,6 +3,13 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
+## 0.2.8 — 2026-10-26
+
+### Changements
+- **Sélecteur de version** : le nom de l'addon qui fournit la release s'affiche juste après la
+  qualité (« 4K · StreamFusionReborn · 13,0 Go · release »), en mode « releases » comme pour
+  la release lancée en mode « qualités ».
+
 ## 0.2.7 — 2026-10-26
 
 ### Corrections

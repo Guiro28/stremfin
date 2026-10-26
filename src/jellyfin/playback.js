@@ -102,9 +102,11 @@ function releaseName(s) {
   return lines.find((l) => /^[\w-]+(\.[\w-]+){3,}$/.test(l)) || null;
 }
 
-/** Libelle d'une version : qualite · taille · nom de la release (ou description de l'addon). */
+/** Libelle d'une version : qualite · addon · taille · nom de la release (ou description de l'addon). */
 function versionLabel(quality, src) {
-  return [quality, sizeLabel(src.size), src.release || src.name].filter(Boolean).join(' · ');
+  // Sans nom de release, le nom affiche est souvent celui de l'addon : pas deux fois.
+  const release = src.release || (src.name !== src.addon ? src.name : null);
+  return [quality, src.addon, sizeLabel(src.size), release].filter(Boolean).join(' · ');
 }
 
 function containerOf(s, url) {
