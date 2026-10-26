@@ -1727,7 +1727,7 @@ PAGES['settings/tracking'] = async (main) => {
     </div></form>
     <form class="card connection-card" id="fSimkl"><img class="connection-logo" src="${TRACKER_LOGO.simkl}" alt="${esc(t('Logo {name}', { name: 'Simkl' }))}"><div>
       <div class="card-head"><div><h2>Simkl</h2>${s.simklClientId ? `<p class="connection-ok">● ${t('Configuré')}</p>` : `<p>${t('Pas configuré.')}</p>`}</div></div>
-      <div class="setting"><div class="text"><b>${t('Client ID')}</b><span>${t("Crée une application sur {link}, avec l'adresse de redirection {uri}, puis copie son Client ID.", { link: link('https://simkl.com/settings/developer/new/', 'simkl.com'), uri: '<code>urn:ietf:wg:oauth:2.0:oob</code>' })}</span></div>
+      <div class="setting"><div class="text"><b>${t('Client ID')}</b><span>${t("Crée une application AUTH V2 sur {link}, de type {type} (connexion par code, sans secret), puis copie son Client ID.", { link: link('https://simkl.com/settings/developer/new/', 'simkl.com'), type: '<b>TV, devices &amp; command line</b>' })}</span></div>
         <div class="control wide"><input name="simklId" type="text" autocomplete="off" spellcheck="false" value="${esc(s.simklClientId || '')}"></div></div>
       <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
     </div></form>

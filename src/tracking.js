@@ -12,6 +12,13 @@ const pkg = require('../package.json');
 
 const TRAKT = 'https://api.trakt.tv';
 const SIMKL = 'https://api.simkl.com';
+// Application Simkl AUTH V2 de Stremfin (type "TV, devices & command line" : code appareil, sans
+// secret). Un Client ID V2 est public : chaque appel aux donnees demande aussi le jeton du compte.
+// Le Client ID des reglages, s'il est renseigne, la remplace.
+const SIMKL_APP_ID = '';
+const SIMKL_SCOPE = 'media:read media:write';
+// Jeton valable 7 jours : renouvele quand il en reste moins de 2.
+const SIMKL_REFRESH_BEFORE = 2 * 24 * 3600e3;
 const OOB = 'urn:ietf:wg:oauth:2.0:oob';
 const IMPORT_EVERY = 6 * 3600e3;
 const SERVICES = ['trakt', 'simkl', 'nuvio'];
@@ -20,7 +27,7 @@ function log(...args) {
   console.log(new Date().toISOString(), '[suivi]', ...args);
 }
 
-async function request(url, { method = 'GET', headers = {}, body } = {}) {
+async function request(url, { method = 'GET', headers = {}, body, form } = {}) {
   let r;
   try {
     r = await fetch(url, {
@@ -28,7 +35,8 @@ async function request(url, { method = 'GET', headers = {}, body } = {}) {
       redirect: 'error',
       signal: AbortSignal.timeout(20000),
       headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
-      body: body ? JSON.stringify(body) : undefined
+      // form : corps application/x-www-form-urlencoded (OAuth 2.0 de Simkl).
+      body: form ? new URLSearchParams(form) : body ? JSON.stringify(body) : undefined
     });
   } catch (e) {
     throw new Error(`Service injoignable : ${e.message}`);
@@ -47,16 +55,29 @@ const settings = () => config.get().settings;
 function ready(service) {
   const s = settings();
   // Nuvio : rien a configurer, chaque profil associe son propre compte.
-  return service === 'trakt' ? !!(s.traktClientId && s.traktClientSecret) : service === 'simkl' ? !!s.simklClientId : true;
+  return service === 'trakt' ? !!(s.traktClientId && s.traktClientSecret) : service === 'simkl' ? !!simklClientId() : true;
 }
 
 const traktHeaders = (token) => ({ Authorization: `Bearer ${token}`, 'trakt-api-key': settings().traktClientId, 'trakt-api-version': '2' });
-const simklHeaders = (token) => ({ Authorization: `Bearer ${token}`, 'simkl-api-key': settings().simklClientId });
+/** Client ID Simkl : celui des reglages, sinon l'application de Stremfin. */
+function simklClientId() {
+  return settings().simklClientId || SIMKL_APP_ID;
+}
 
-function simklUrl(path, params = {}) {
+// Un compte associe garde le Client ID qui a delivre son jeton (le jeton n'est valable qu'avec lui).
+const simklIdOf = (link) => link?.clientId || simklClientId();
+const simklHeaders = (token, clientId) => ({ Authorization: `Bearer ${token}`, 'simkl-api-key': clientId });
+
+function simklUrl(path, params, clientId) {
   const u = new URL(SIMKL + path);
-  for (const [k, v] of Object.entries({ client_id: settings().simklClientId, 'app-name': 'stremfin', 'app-version': pkg.version, ...params })) u.searchParams.set(k, v);
+  for (const [k, v] of Object.entries({ client_id: clientId, 'app-name': 'stremfin', 'app-version': pkg.version, ...params })) u.searchParams.set(k, v);
   return u;
+}
+
+const simklForm = (form) => ({ method: 'POST', headers: { 'User-Agent': `stremfin/${pkg.version}` }, form });
+
+function simklTokens(d) {
+  return { accessToken: d.access_token, refreshToken: d.refresh_token, expiresAt: Date.now() + (Number(d.expires_in) || 7 * 24 * 3600) * 1000, scope: d.scope || SIMKL_SCOPE };
 }
 
 // ---- Association (code a valider sur trakt.tv / simkl.com) -----------------------------------
@@ -73,9 +94,12 @@ async function pairStart(profile, service) {
     if (!r.ok || !r.data?.device_code) throw new Error('Impossible de créer le code Trakt');
     p = { deviceCode: r.data.device_code, userCode: r.data.user_code, url: r.data.verification_url || 'https://trakt.tv/activate', expiresIn: r.data.expires_in };
   } else {
-    const r = await request(simklUrl('/oauth/pin', { redirect_uri: OOB }));
-    if (!r.ok || !r.data?.user_code) throw new Error('Impossible de créer le code Simkl');
-    p = { userCode: r.data.user_code, url: r.data.verification_url || 'https://simkl.com/pin', expiresIn: r.data.expires_in };
+    // AUTH V2 (OAuth 2.0, code appareil).
+    const clientId = simklClientId();
+    const r = await request(`${SIMKL}/oauth2/device`, simklForm({ client_id: clientId, scope: SIMKL_SCOPE }));
+    if (r.status === 401 && r.data?.error === 'invalid_client') throw new Error("Ce Client ID n'est pas une application Simkl AUTH V2 (Réglages → Suivi)");
+    if (!r.ok || !r.data?.device_code) throw new Error('Impossible de créer le code Simkl');
+    p = { clientId, deviceCode: r.data.device_code, userCode: r.data.user_code, url: r.data.verification_uri_complete || r.data.verification_uri || 'https://simkl.com/pin', expiresIn: r.data.expires_in };
   }
   for (const [k, x] of pairings) if (x.expiresAt < Date.now()) pairings.delete(k);
   const id = crypto.randomUUID();
@@ -105,11 +129,14 @@ async function pairPoll(profile, id) {
     const me = await request(`${TRAKT}/users/settings`, { headers: traktHeaders(link.accessToken) }).catch(() => null);
     link.user = me?.data?.user?.username || me?.data?.user?.name || '';
   } else {
-    const r = await request(simklUrl(`/oauth/pin/${encodeURIComponent(p.userCode)}`));
-    if (!r.ok) throw new Error('Connexion Simkl impossible');
-    if (r.data?.result !== 'OK' || !r.data?.access_token) return { status: 'pending' };
-    link = { accessToken: r.data.access_token };
-    const me = await request(simklUrl('/users/settings'), { method: 'POST', headers: simklHeaders(link.accessToken) }).catch(() => null);
+    const r = await request(`${SIMKL}/oauth2/token`, simklForm({ grant_type: 'urn:ietf:params:oauth:grant-type:device_code', client_id: p.clientId, device_code: p.deviceCode }));
+    const error = r.data?.error;
+    if (error === 'authorization_pending' || error === 'slow_down') return { status: 'pending' };
+    if (error === 'access_denied') throw new Error('Autorisation Simkl refusée');
+    if (error === 'expired_token') throw new Error('Code expiré, recommence');
+    if (!r.ok || !r.data?.access_token) throw new Error('Connexion Simkl impossible');
+    link = { ...simklTokens(r.data), clientId: p.clientId };
+    const me = await request(simklUrl('/users/settings', {}, p.clientId), { method: 'POST', headers: simklHeaders(link.accessToken, p.clientId) }).catch(() => null);
     link.user = me?.data?.user?.name || me?.data?.account?.name || '';
   }
   pairings.delete(id);
@@ -121,8 +148,41 @@ async function pairPoll(profile, id) {
 }
 
 function unlink(profile, service) {
+  const link = profile[service];
   delete profile[service];
   config.save();
+  // Simkl : l'autorisation est aussi revoquee chez Simkl (au mieux, sans attendre).
+  if (service === 'simkl' && link?.refreshToken) {
+    request(`${SIMKL}/oauth2/revoke`, simklForm({ client_id: simklIdOf(link), token: link.refreshToken })).catch(() => {});
+  }
+}
+
+const simklRefreshing = new Map(); // profil -> renouvellement en cours (un seul a la fois)
+
+/**
+ * Jeton Simkl valable, renouvele 2 jours avant expiration. Un renouvellement invalide le jeton
+ * precedent : deux demandes simultanees attendent donc le meme.
+ */
+async function simklToken(profile) {
+  const t = profile.simkl;
+  if (!t?.refreshToken) throw new Error("Simkl n'est pas associé");
+  if ((t.expiresAt || 0) - Date.now() > SIMKL_REFRESH_BEFORE) return t.accessToken;
+  if (simklRefreshing.has(profile.id)) return simklRefreshing.get(profile.id);
+  const job = (async () => {
+    const r = await request(`${SIMKL}/oauth2/token`, simklForm({ grant_type: 'refresh_token', client_id: simklIdOf(t), refresh_token: t.refreshToken }));
+    if (r.ok && r.data?.access_token) {
+      // Simkl renvoie le meme refresh token (il ne change pas) ; on garde l'ancien s'il manque.
+      Object.assign(t, simklTokens({ refresh_token: t.refreshToken, ...r.data }));
+      config.save();
+      return t.accessToken;
+    }
+    if (r.status === 400 || r.status === 401) throw new Error('Le lien avec Simkl a expiré : associe à nouveau le compte');
+    // Panne passagere : le jeton actuel sert encore tant qu'il n'a pas expire.
+    if ((t.expiresAt || 0) > Date.now()) return t.accessToken;
+    throw new Error(`Simkl : erreur ${r.status}`);
+  })().finally(() => simklRefreshing.delete(profile.id));
+  simklRefreshing.set(profile.id, job);
+  return job;
 }
 
 /** Jeton Trakt valide (renouvele un jour avant expiration). */
@@ -181,12 +241,13 @@ async function traktEvents(profile) {
 /** Historique Simkl : tout la premiere fois, ensuite ce qui a change depuis le dernier import. */
 async function simklEvents(profile) {
   const t = profile.simkl;
+  const token = await simklToken(profile);
   const startedAt = Date.now();
   const events = [];
   for (const type of ['movies', 'shows', 'anime']) {
     const params = { extended: 'full', episode_watched_at: 'yes' };
     if (t.lastSync) params.date_from = new Date(t.lastSync - 60e3).toISOString();
-    const r = await request(simklUrl(`/sync/all-items/${type}`, params), { headers: simklHeaders(t.accessToken) });
+    const r = await request(simklUrl(`/sync/all-items/${type}`, params, simklIdOf(t)), { headers: simklHeaders(token, simklIdOf(t)) });
     if (r.status === 401) throw new Error('Le lien avec Simkl a expiré : associe à nouveau le compte');
     if (!r.ok) throw new Error('Historique Simkl indisponible');
     const rows = Array.isArray(r.data) ? r.data : r.data?.[type] || [];
@@ -360,7 +421,7 @@ function serviceState(profile, service) {
     const linked = !!profile.nuvio?.refreshToken;
     return { linked, active: linked && n?.profile != null && n.import !== false };
   }
-  const linked = !!profile[service]?.accessToken && ready(service);
+  const linked = !!profile[service]?.[service === 'simkl' ? 'refreshToken' : 'accessToken'] && ready(service);
   return { linked, active: linked && profile[service].import !== false };
 }
 
@@ -393,7 +454,11 @@ function importProfile(profile) {
 }
 
 async function importAll() {
-  for (const p of config.get().profiles.filter((x) => !x.disabled)) await importProfile(p);
+  for (const p of config.get().profiles.filter((x) => !x.disabled)) {
+    await importProfile(p);
+    // Simkl sans import : le jeton est quand meme renouvele (un refresh token inutilise 180 jours expire).
+    if (serviceState(p, 'simkl').linked) await simklToken(p).catch((e) => log(`${p.name} : renouvellement Simkl KO : ${e.message}`));
+  }
 }
 
 let timer = null;
@@ -441,7 +506,7 @@ function failed(profile, service, e) {
   log(`${profile.name} : envoi ${service} KO : ${e.message}`);
 }
 
-const exporting = (profile, service) => !!profile[service]?.accessToken && profile[service].export !== false && ready(service);
+const exporting = (profile, service) => serviceState(profile, service).linked && profile[service].export !== false;
 
 async function trakt(profile, path, body) {
   const r = await request(TRAKT + path, { method: 'POST', headers: traktHeaders(await traktToken(profile)), body });
@@ -450,7 +515,8 @@ async function trakt(profile, path, body) {
 }
 
 async function simkl(profile, path, body) {
-  const r = await request(simklUrl(path), { method: 'POST', headers: simklHeaders(profile.simkl.accessToken), body });
+  const id = simklIdOf(profile.simkl);
+  const r = await request(simklUrl(path, {}, id), { method: 'POST', headers: simklHeaders(await simklToken(profile), id), body });
   if (!r.ok) throw new Error(`Simkl : erreur ${r.status}`);
 }
 

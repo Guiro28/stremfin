@@ -284,7 +284,11 @@ service avec son logo, comme dans Nuvio Manager :
 
 - **Trakt** et **Simkl** : association par code, à saisir sur trakt.tv / simkl.com. Il faut
   d'abord une application de chaque service, créée une fois par l'administrateur
-  (*Réglages → Suivi* ; adresse de redirection `urn:ietf:wg:oauth:2.0:oob`).
+  (*Réglages → Suivi*) :
+  - Trakt : adresse de redirection `urn:ietf:wg:oauth:2.0:oob`, Client ID et Client Secret ;
+  - Simkl : application **AUTH V2** (OAuth 2.0) de type *TV, devices & command line*, Client ID
+    seul. Le jeton de chaque profil (7 jours) est renouvelé tout seul, et l'autorisation est
+    révoquée chez Simkl quand on dissocie le compte.
   - *Importer* : l'historique (tout la première fois, puis ce qui est nouveau, toutes les 6 h
     ou avec *Importer maintenant*) marque les titres vus.
   - *Envoyer* : la lecture en cours part vers Trakt (début, pause, fin ; Trakt marque vu

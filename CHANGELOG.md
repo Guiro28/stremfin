@@ -3,6 +3,16 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
+## 0.2.4 — 2026-10-26
+
+### Changements
+- **Simkl en AUTH V2** (OAuth 2.0, code appareil) à la place de l'ancien code PIN (AUTH V1), que
+  Simkl prévoit d'arrêter. Il faut une application Simkl de type *TV, devices & command line*
+  (Client ID seul, *Réglages → Suivi*). Le jeton de chaque profil (7 jours) est renouvelé tout
+  seul, une seule fois même si plusieurs envois arrivent en même temps, et l'autorisation est
+  révoquée chez Simkl quand on dissocie le compte.
+- Les comptes Simkl associés en V1 ne sont plus pris en charge : il faut les associer de nouveau.
+
 ## 0.2.3 — 2026-10-26
 
 ### Corrections
