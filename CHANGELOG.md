@@ -3,6 +3,16 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
+## 0.4.1 — 2026-10-26
+
+### Changements
+- **Icône de Stremfin** (les flux des addons arrivent dans le bouton lecture) : logo de
+  l'interface et de Quick Connect, favicon, icônes d'écran d'accueil (PNG), README.
+- **Disposition reprise de Nuvio Manager** : barre du haut avec fil d'Ariane, menu des langues
+  (drapeaux), bouton mode clair / sombre et déconnexion ; en bas de la barre latérale, liens
+  Discord et GitHub et numéro de version (lien vers le commit, fourni par la CI dans l'image
+  Docker).
+
 ## 0.4.0 — 2026-10-26
 
 ### Ajouts

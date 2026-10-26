@@ -33,6 +33,30 @@ const STARTED = Date.now();
 router.use('/ui', express.static(path.join(__dirname, '..', 'public', 'admin'), { index: false, maxAge: 0 }));
 
 router.use('/api/auth', express.json(), adminAuth.router);
+
+/**
+ * Version et commit (public : affiches en bas de la barre laterale, comme Nuvio Manager).
+ * GIT_SHA / BUILD_DATE sont fournis par l'image Docker (CI) ; en local, le commit est lu dans .git.
+ */
+const VERSION = (() => {
+  let sha = process.env.GIT_SHA || '';
+  if (!sha) {
+    try {
+      const git = path.join(__dirname, '..', '.git');
+      const head = require('fs').readFileSync(path.join(git, 'HEAD'), 'utf8').trim();
+      if (!head.startsWith('ref: ')) sha = head;
+      else {
+        const ref = head.slice(5);
+        const file = path.join(git, ref);
+        sha = require('fs').existsSync(file)
+          ? require('fs').readFileSync(file, 'utf8').trim()
+          : (require('fs').readFileSync(path.join(git, 'packed-refs'), 'utf8').split('\n').find((l) => l.endsWith(' ' + ref)) || '').split(' ')[0];
+      }
+    } catch {}
+  }
+  return { version: pkg.version, sha: /^[0-9a-f]{7,40}$/.test(sha) ? sha : '', date: process.env.BUILD_DATE || '', repoUrl: 'https://github.com/Guiro28/stremfin' };
+})();
+router.get('/api/version', (req, res) => res.json(VERSION));
 router.use('/api', adminAuth.requireApi);
 router.put('/api/profiles/:id/library-image', express.raw({ type: (req) => !String(req.headers['content-type'] || '').includes('json'), limit: avatars.MAX_BYTES + 1024 }));
 router.put('/api/profiles/:id/avatar', express.raw({ type: () => true, limit: avatars.MAX_BYTES + 1024 }));

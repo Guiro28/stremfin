@@ -31,6 +31,10 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
     && mkdir -p /app/data \
     && chown node:node /app/data
 
+# Commit et date de construction (fournis par la CI) : version affichee dans l'interface.
+ARG GIT_SHA=""
+ARG BUILD_DATE=""
+ENV GIT_SHA=$GIT_SHA BUILD_DATE=$BUILD_DATE
 ENV PORT=8096
 ENV DATA_DIR=/app/data
 EXPOSE 8096

@@ -1,4 +1,8 @@
+<p align="center"><img src="public/admin/icon.svg" width="112" alt="Stremfin"></p>
+
 # Stremfin
+
+<p align="center"><a href="https://discordapp.com/invite/ZhWvKVmTuh">Discord</a> · <a href="https://github.com/Guiro28/stremfin">GitHub</a></p>
 
 Un serveur auto-hébergé **compatible Jellyfin** qui sert tes **addons Stremio / Nuvio**.
 Tu ajoutes tes addons (catalogues, fiches, sources débridées) dans l'admin. Ensuite,

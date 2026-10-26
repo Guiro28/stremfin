@@ -69,6 +69,7 @@ app.use('/stremfin', admin);
 
 // Page Quick Connect.
 const slash = (base) => (req, res, next) => (req.originalUrl.split('?')[0] === base ? res.redirect(301, base + '/' + (req.originalUrl.split('?')[1] ? '?' + req.originalUrl.split('?')[1] : '')) : next());
+app.get('/favicon.ico', (req, res) => res.type('png').sendFile(path.join(__dirname, 'public', 'admin', 'icon-192.png'), { maxAge: '7d' }));
 app.use('/pin', slash('/pin'), express.static(path.join(__dirname, 'public', 'pin')));
 
 // Images des tuiles "Mes medias" envoyees depuis l'admin.
