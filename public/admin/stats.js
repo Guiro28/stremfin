@@ -917,8 +917,11 @@ async function renderStatistics(container) {
     pos.textContent = item.position == null ? "—" : `${estimated ? "≈ " : ""}${playbackTime(item.position)}`;
     pos.title = estimated ? t("Position estimée par le relais") : "";
     element.querySelector("[data-np-dur]").textContent = item.duration > 0 ? playbackTime(item.duration) : "";
-    element.querySelector("[data-np-rate]").textContent = bitRate(item.rate);
-    element.querySelector("[data-np-total]").textContent = t("{size} transférés", { size: fileSize(item.transferred) });
+    // Sans proxy : debit moyen du fichier et quantite lue, estimes (rien ne passe par le serveur).
+    const bw = element.querySelector(".np-bw");
+    bw.title = item.rateEstimated ? t("Lecture sans proxy : débit moyen du fichier et quantité lue, estimés d’après sa taille et la progression.") : "";
+    element.querySelector("[data-np-rate]").textContent = `${item.rateEstimated ? "≈ " : ""}${bitRate(item.rate)}`;
+    element.querySelector("[data-np-total]").textContent = item.rateEstimated ? t("≈ {size} lus", { size: fileSize(item.transferred) }) : t("{size} transférés", { size: fileSize(item.transferred) });
     const series = item.series || [];
     const peak = Math.max(1, ...series);
     element.querySelector("[data-np-spark]").setAttribute(

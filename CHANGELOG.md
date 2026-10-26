@@ -3,6 +3,16 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
+## 0.2.3 — 2026-10-26
+
+### Corrections
+- **Mise à jour en direct des apps** : après l'arrêt d'une lecture, « Reprendre » et les
+  indicateurs vu / pas vu se mettent à jour dans les apps Jellyfin et Emby et le client web,
+  sans relancer l'app ni recharger la page (notification `UserDataChanged`). Vaut aussi pour les
+  titres importés de Trakt, Simkl ou Nuvio.
+- **Statistiques → Lecture en cours** : sans proxy, le débit et la quantité lue ne restent plus à
+  zéro ; ils sont estimés d'après la taille du fichier et la progression (affichés avec « ≈ »).
+
 ## 0.2.2 — 2026-10-26
 
 Regroupe les versions publiées un temps sous les numéros 0.3.0, 0.4.0 et 0.4.1 (retirées).

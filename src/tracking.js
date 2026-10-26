@@ -244,6 +244,8 @@ function current(profile, uuid) {
 
 function save(profile, uuid, row) {
   st.udPut.run(profile.id, uuid, Math.max(0, Math.round(row.position || 0)), row.played ? 1 : 0, row.favorite ? 1 : 0, row.likes ?? null, row.play_count || 0, row.last_played || null);
+  // Titres importes (Trakt, Simkl, Nuvio) : les apps connectees sont prevenues.
+  require('./jellyfin/playback').notifyUserData(profile, uuid);
 }
 
 /** Vu a la date `at`, sauf si une lecture plus recente est en cours ici. */

@@ -870,6 +870,14 @@ async function subtitle(req, res) {
 function saveUd(profile, uuid, row) {
   st.udPut.run(profile.id, uuid, Math.max(0, Math.round(row.position || 0)), row.played ? 1 : 0, row.favorite ? 1 : 0,
     row.likes === undefined ? null : row.likes, row.play_count || 0, row.last_played || null);
+  // Apps connectees prevenues : "Reprendre", vu / pas vu et favoris se mettent a jour tout de suite.
+  notifyUserData(profile, uuid);
+}
+
+/** Annonce aux apps du profil (WebSocket) les donnees de lecture d'un element. */
+function notifyUserData(profile, uuid) {
+  const row = st.udGet.get(profile.id, uuid);
+  if (row) require('./socket').userDataChanged(profile.id, uuid, dto.userData(uuid, row, runtimeOf(ids.get(uuid))));
 }
 
 function current(profile, uuid) {
@@ -962,6 +970,7 @@ function updateUserData(profile, id, body) {
 }
 
 module.exports = {
+  notifyUserData,
   sourcesFor,
   playbackInfo,
   placeholderSource,

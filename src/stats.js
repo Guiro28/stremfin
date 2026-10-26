@@ -166,9 +166,16 @@ function nowPlaying(refs = null) {
         position,
         duration: s.duration,
         exact: true,
-        rate: s.rate,
-        transferred: s.transferred,
-        series: s.series,
+        // Sans proxy (l'app lit la source directement), rien ne passe par le serveur : debit moyen
+        // du fichier (taille / duree) et quantite lue (taille x progression), signales comme estimes.
+        ...(s.transferred || !s.size || !s.duration
+          ? { rate: s.rate, transferred: s.transferred, series: s.series, rateEstimated: false }
+          : {
+              rate: s.state === 'playing' ? Math.round((s.size * 8) / (s.duration / 1000)) : 0,
+              transferred: Math.round(s.size * Math.min(1, position / s.duration)),
+              series: [],
+              rateEstimated: true
+            }),
         startedAt: s.startedAt,
         sources: [s.client || 'Stremfin']
       };
