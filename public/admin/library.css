@@ -176,5 +176,3 @@
   .nm-lib .library-addon .actions { flex: 1 1 100%; justify-content: flex-start; }
 }
 
-/* Onglet Addons du profil : mode de connexion de chaque addon. */
-.mode-select { width: auto; padding: 5px 8px; font-size: 13px; }

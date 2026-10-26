@@ -300,16 +300,17 @@ async function pickForProfile(p) {
   }
   const { done, root } = openDialog({
     title: t("Depuis la bibliothèque"),
-    body: `<div class="form"><label>${esc(t("Mode de connexion"))}<select name="mode">${modeOptions(lib.defaultMode)}</select></label><div class="lib-pick-head"><span class="muted">${esc(t("Addons à ajouter"))}</span><button type="button" id="pick-all" class="btn sm ghost">${esc(t("Tout sélectionner"))}</button></div><div class="lib-picklist">${addonChecklist(available)}</div><p class="muted">${esc(t("Glissez les addons pour définir leur ordre d’ajout."))}</p>${externalNote(lib)}</div>`,
+    body: `<div class="form"><div class="lib-pick-head"><span class="muted">${esc(t("Addons à ajouter"))}</span><button type="button" id="pick-all" class="btn sm ghost">${esc(t("Tout sélectionner"))}</button></div><div class="lib-picklist">${addonChecklist(available)}</div><p class="muted">${esc(t("Glissez les addons pour définir leur ordre d’ajout."))}</p></div>`,
     okLabel: t("Ajouter"),
     wide: true,
-    onOk: (f) => {
+    onOk: () => {
       const ids = boxes().filter((b) => b.checked).map((b) => b.value);
       if (!ids.length) {
         toast(t("Sélectionne au moins un addon."), true);
         return false;
       }
-      return api("POST", `/profiles/${p.id}/addons`, { ids, mode: f.mode.value });
+      // Mode de connexion : celui des Reglages ; il se change ensuite depuis la page Addons.
+      return api("POST", `/profiles/${p.id}/addons`, { ids });
     },
   });
   const boxes = () => [...root.querySelectorAll(".lib-picklist input[type=checkbox]")];

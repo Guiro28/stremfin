@@ -3,26 +3,9 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
-## 0.4.1 — 2026-10-26
+## 0.2.2 — 2026-10-26
 
-### Changements
-- **Icône de Stremfin** (les flux des addons arrivent dans le bouton lecture) : logo de
-  l'interface et de Quick Connect, favicon, icônes d'écran d'accueil (PNG), README.
-- **Disposition reprise de Nuvio Manager** : barre du haut avec fil d'Ariane, menu des langues
-  (drapeaux), bouton mode clair / sombre et déconnexion ; en bas de la barre latérale, liens
-  Discord et GitHub et numéro de version (lien vers le commit, fourni par la CI dans l'image
-  Docker).
-
-## 0.4.0 — 2026-10-26
-
-### Ajouts
-- **Clip « aucune source disponible »** : quand aucun addon ne fournit la vidéo, la lecture lance
-  un court clip au lieu d'une erreur (activable dans *Réglages → Lecture et réseau*). Un clip de
-  10 s est fourni ; on peut envoyer sa propre vidéo (MP4, WebM, MKV) ou en créer une depuis une
-  image, directement dans le navigateur (sans ffmpeg). Le clip ne compte jamais comme une
-  lecture (statistiques, suivi, titres vus).
-
-## 0.3.0 — 2026-10-26
+Regroupe les versions publiées un temps sous les numéros 0.3.0, 0.4.0 et 0.4.1 (retirées).
 
 ### Ajouts
 - **Pistes audio et sous-titres intégrés** : Stremfin lit l'en-tête des fichiers MKV (sans les
@@ -32,11 +15,24 @@ tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et
 - **Préférences de lecture** par profil : langue audio, langue des sous-titres et sous-titres au
   lancement (Par défaut, Intelligent, Toujours, Seulement les forcés, Aucun). Réglables dans
   l'onglet *Préférences* et dans les paramètres des apps Jellyfin et Emby, qui les enregistrent
-  maintenant sur le serveur ; la liste des langues leur est fournie.
-- **Aucune source** : le sélecteur de version affiche « 😕 Aucune source disponible » quand aucun
-  addon ne fournit la vidéo.
+  sur le serveur ; la liste des langues leur est fournie.
+- **Aucune source** : le sélecteur de version affiche « 😕 Aucune source disponible », et la
+  lecture lance un court clip au lieu d'une erreur (activable dans *Réglages → Lecture et
+  réseau*). Un clip de 10 s est fourni ; on peut envoyer sa propre vidéo (MP4, WebM, MKV) ou en
+  créer une depuis une image, dans le navigateur. Le clip ne compte jamais comme une lecture.
+- **Thème ElegantFin** (lscambo13, GPL-2.0) pour le client web, au choix avec Abyss : fichier et
+  polices servis par Stremfin (`vendor/elegantfin`), sans appel externe.
+- **Icône de Stremfin** (les flux des addons arrivent dans le bouton lecture) : logo de
+  l'interface et de Quick Connect, favicon, icônes d'écran d'accueil, README.
 
 ### Changements
+- **Disposition reprise de Nuvio Manager** : barre du haut avec fil d'Ariane, menu des langues
+  (drapeaux), bouton mode clair / sombre et déconnexion ; en bas de la barre latérale, liens
+  Discord et GitHub et numéro de version (lien vers le commit, fourni par la CI dans l'image
+  Docker).
+- Le mode de connexion des addons (proxy) ne se règle plus que sur la page *Addons*, plus depuis
+  la page d'un profil.
+- *Réglages → Client web* : les réglages de Spotlight n'apparaissent qu'avec le thème Abyss.
 - Sous-titres des addons (OpenSubtitles…) : langues du profil en premier, noms de langue lisibles.
 - Une seule recherche de sources pour la fiche, son préchargement et la lecture ; activer ou
   couper un addon la relance.

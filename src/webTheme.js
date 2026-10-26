@@ -75,10 +75,13 @@ function enabled() {
 
 /** Balises a ajouter a la page du client web selon les reglages. */
 function inject(html) {
-  if (!enabled()) return html;
+  const theme = config.get().settings.webTheme;
+  if (theme !== 'abyss' && theme !== 'elegantfin') return html;
   // En fin de page : Jellyfin ajoute ses feuilles (dont themes/dark/theme.css) dans <head>
   // pendant le chargement ; dans <body>, le theme passe toujours apres elles, comme le CSS
-  // personnalise de Jellyfin pour lequel Abyss est concu.
+  // personnalise de Jellyfin pour lequel Abyss et ElegantFin sont concus.
+  // ElegantFin : src/elegantfin.js (vendor/elegantfin), sans Spotlight (propre a Abyss).
+  if (theme === 'elegantfin') return html.replace('</body>', '<link rel="stylesheet" href="/stremfin/elegantfin/elegantfin.css"></body>');
   let tags = '<link rel="stylesheet" href="/stremfin/abyss/abyss.css">';
   if (config.get().settings.webSpotlight !== false) {
     tags += '<script src="/stremfin/abyss/spotlight-loader.js" data-abyss-spotlight></script>';

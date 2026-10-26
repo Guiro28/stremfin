@@ -621,14 +621,14 @@ router.put('/api/profiles/:id/libraries/order', (req, res) => {
 
 /**
  * Ajout d'addons au profil : { url } (l'addon rejoint aussi la bibliotheque du serveur) ou,
- * pour l'admin, { ids } pris dans la bibliotheque. Mode : celui choisi, sinon celui des Reglages.
+ * pour l'admin, { ids } pris dans la bibliotheque. Mode de connexion : toujours celui des Reglages
+ * (il ne se change que depuis la page Addons).
  */
 router.post('/api/profiles/:id/addons', async (req, res) => {
   const p = profileOr404(req, res);
   if (!p) return;
-  const mode = req.body?.mode || config.get().settings.addonMode;
+  const mode = config.get().settings.addonMode;
   try {
-    addons.checkMode(mode);
     if (Array.isArray(req.body?.ids)) {
       if (req.role !== 'admin') return fail(res, 403, 'Accès refusé');
       addons.assignMany(p.id, req.body.ids, mode);
@@ -660,10 +660,6 @@ router.patch('/api/profiles/:id/addons/:idx', (req, res) => {
   if (typeof req.body?.enabled === 'boolean') a.enabled = req.body.enabled;
   // Addon utilise seulement pour ses sources / fiches : ses catalogues ne sont plus proposes.
   if (typeof req.body?.catalogsHidden === 'boolean') a.catalogsHidden = req.body.catalogsHidden;
-  if (req.body?.mode !== undefined) {
-    if (!config.MODES.includes(req.body.mode)) return fail(res, 400, 'Mode de connexion invalide');
-    a.mode = req.body.mode;
-  }
   config.save();
   res.json(profileDetail(p));
 });

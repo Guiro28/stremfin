@@ -184,8 +184,8 @@ la racine : elles sont reconnues et envoyées directement sur `/web`.
   `SameSite=Strict`, protection CSRF, blocage de 15 min après 10 échecs.
 - **Profils** (un onglet par sujet) : *Connexion*, *Préférences* (langues, qualité,
   versions proposées, vus masqués, seulement ce qui est sorti, CSS du client web), *Accueil*, *Addons* (choix dans la bibliothèque,
-  activation, ordre, mode de connexion, catalogues affichés ou masqués, copie depuis un autre
-  profil), *Bibliothèques* (activation,
+  activation, ordre, catalogues affichés ou masqués, copie depuis un autre profil ; le mode de
+  connexion se règle seulement sur la page *Addons*), *Bibliothèques* (activation,
   renommage, ordre), *Appareils*.
 - **Addons** : bibliothèque d'addons du serveur, reprise de Nuvio Manager. Chaque addon est
   ajouté une fois (URL du manifest, nom facultatif), avec les profils qui l'utilisent ; on
@@ -219,6 +219,11 @@ utilise par défaut le thème [Abyss](https://github.com/AumGupta/abyss-jellyfin
 sa bannière Spotlight en haut de l'accueil. Fichiers et polices sont servis par Stremfin
 (`vendor/abyss`), sans appel à Google Fonts, jsDelivr ni GitHub. On peut revenir au thème
 d'origine de Jellyfin ou couper Spotlight.
+
+Autre choix : [ElegantFin](https://github.com/lscambo13/ElegantFin) de lscambo13 (GPL-2.0),
+thème sombre élégant inspiré de Jellyseerr. Fichier et polices servis par Stremfin
+(`vendor/elegantfin`, licence et crédits dans le dossier), sans appel externe. Spotlight reste
+propre à Abyss.
 
 Par défaut, Spotlight présente les **films tendance du jour sur TMDB**, même absents des
 bibliothèques : logo, image, année, note et résumé. Le bouton « i » ouvre la fiche Stremfin

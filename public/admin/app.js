@@ -1093,13 +1093,6 @@ function tabHome(el, p) {
   draw();
 }
 
-// Aide des modes de connexion (infobulle du choix dans l'onglet Addons).
-const MODE_HELP = {
-  none: "L'app lit la vidéo directement à la source.",
-  direct: 'La vidéo passe par le serveur, avec son IP.',
-  warp: 'La vidéo passe par le serveur et le proxy externe.'
-};
-
 function tabAddons(el, p) {
   el.innerHTML = `<div class="card">
     <div class="card-head"><div><h2>${t('Addons Stremio')}</h2><p>${t("L'ordre compte : pour une fiche, le premier addon capable de la fournir est utilisé (après TMDB).")} ${p.self ? '' : t('Un addon ajouté ici rejoint aussi la bibliothèque du serveur (page Addons).')}</p></div>
@@ -1113,13 +1106,11 @@ function tabAddons(el, p) {
           <div class="meta">${a.resources.map((r) => `<span class="badge">${esc(r)}</span>`).join('')}${a.description ? `<span class="small">${esc(a.description.slice(0, 120))}</span>` : ''}</div></div>
         <div class="actions">
           ${a.catalogCount ? `<button class="btn sm ${a.catalogsHidden ? '' : 'ghost'}" data-cats="${a.index}" title="${esc(a.catalogsHidden ? t('Ses catalogues ne sont pas proposés comme bibliothèques') : t('Ses catalogues sont proposés dans Bibliothèques'))}">${icon('layers')}${a.catalogsHidden ? t('Catalogues masqués') : t('{n} catalogue(s)', { n: a.catalogCount })}</button>` : ''}
-          <select class="sm mode-select" data-mode="${a.index}" aria-label="${esc(t('Mode de connexion'))}" title="${esc(t(MODE_HELP[a.mode] || ''))}">${window.StremfinLibrary.MODES.map(([m, label]) => `<option value="${m}" ${a.mode === m ? 'selected' : ''}>${esc(t(label))}</option>`).join('')}</select>
           ${a.configureUrl ? `<a class="btn ghost icon-only" href="${esc(a.configureUrl)}" target="_blank" rel="noopener noreferrer" title="${esc(t("Configurer l'addon"))}">${icon('settings')}</a>` : ''}
           ${toggle(`data-enable="${a.index}" aria-label="${esc(t('Activer'))}"`, a.enabled)}
           <button class="btn ghost icon-only" data-del="${a.index}" title="${esc(t('Retirer'))}">${icon('trash')}</button>
         </div></div>`).join('')}</div>
-      <p class="small faint" style="margin-top:10px">${t("« Catalogues » : cliquer pour garder l'addon seulement pour ses sources et ses fiches, sans proposer ses catalogues.")}</p>
-      <p class="small faint">${t('Mode de connexion : « Sans proxy », l’app lit la vidéo à la source ; « Proxy interne », la vidéo passe par le serveur (son IP) ; « Proxy externe », par le serveur et le proxy externe (Réglages → Lecture et réseau).')}</p>`
+      <p class="small faint" style="margin-top:10px">${t("« Catalogues » : cliquer pour garder l'addon seulement pour ses sources et ses fiches, sans proposer ses catalogues.")}</p>`
       : `<div class="empty">${icon('puzzle')}<p>${t('Aucun addon. Ajoute au moins un addon de sources pour pouvoir lire.')}</p></div>`}
   </div>`;
 
@@ -1155,14 +1146,6 @@ function tabAddons(el, p) {
   const addonUrl = (idx) => `/profiles/${p.id}/addons/${idx}?url=${encodeURIComponent(p.addons[Number(idx)].url)}`;
   sortable(list, async (urls) => refresh(await busy(null, () => api('PUT', `/profiles/${p.id}/addons/order`, { urls }), t('Ordre enregistré'))));
   list.addEventListener('change', async (e) => {
-    const m = e.target.dataset.mode;
-    if (m !== undefined) {
-      const before = p.addons[Number(m)].mode;
-      const r = await busy(null, () => api('PATCH', addonUrl(m), { mode: e.target.value }), t('Mode de connexion enregistré'));
-      if (r) refresh(r);
-      else e.target.value = before;
-      return;
-    }
     const idx = e.target.dataset.enable;
     if (idx === undefined) return;
     const r = await busy(null, () => api('PATCH', addonUrl(idx), { enabled: e.target.checked }), e.target.checked ? t('Addon activé') : t('Addon désactivé'));
@@ -1763,25 +1746,29 @@ PAGES['settings/tracking'] = async (main) => {
 
 PAGES['settings/web'] = async (main) => {
   const s = state.settings;
-  let theme = s.webTheme === 'none' ? 'none' : 'abyss';
+  let theme = s.webTheme === 'none' || s.webTheme === 'elegantfin' ? s.webTheme : 'abyss';
   let source = s.webSpotlightSource === 'resume' ? 'resume' : 'trending';
   main.innerHTML = `${head(t('Client web'), t('Apparence de Jellyfin web servi par Stremfin (navigateur, Jellyfin Media Player, app Android pour téléphone).'))}
     <form class="card" id="f">
-      <div class="setting"><div class="text"><b>${t('Thème')}</b><span>${t('<b>Abyss</b> : thème sombre minimaliste, surfaces en verre dépoli, police Google Sans ({link}, licence MIT). Polices et fichiers servis par Stremfin, sans appel externe.', { link: '<a href="https://github.com/AumGupta/abyss-jellyfin" target="_blank" rel="noopener noreferrer">AumGupta/abyss-jellyfin</a>' })}</span></div>
-        <div class="control"><div class="segmented" id="theme"><button type="button" data-v="abyss" class="${theme === 'abyss' ? 'on' : ''}">Abyss</button><button type="button" data-v="none" class="${theme === 'none' ? 'on' : ''}">${t("Jellyfin d'origine")}</button></div></div></div>
-      <div class="setting"><div class="text"><b>${t('Bannière Spotlight')}</b><span>${t("Grande bannière en haut de l'accueil, qui défile toute seule. Avec le thème Abyss seulement.")}</span></div>
+      <div class="setting"><div class="text"><b>${t('Thème')}</b><span>${t('<b>Abyss</b> : thème sombre minimaliste, surfaces en verre dépoli, police Google Sans ({link}, licence MIT). Polices et fichiers servis par Stremfin, sans appel externe.', { link: '<a href="https://github.com/AumGupta/abyss-jellyfin" target="_blank" rel="noopener noreferrer">AumGupta/abyss-jellyfin</a>' })}<br>${t('<b>ElegantFin</b> : thème sombre élégant inspiré de Jellyseerr, nombreuses retouches de l’interface ({link}, licence GPL-2.0). Fichiers et polices servis par Stremfin, sans appel externe.', { link: '<a href="https://github.com/lscambo13/ElegantFin" target="_blank" rel="noopener noreferrer">lscambo13/ElegantFin</a>' })}</span></div>
+        <div class="control"><div class="segmented" id="theme"><button type="button" data-v="abyss" class="${theme === 'abyss' ? 'on' : ''}">Abyss</button><button type="button" data-v="elegantfin" class="${theme === 'elegantfin' ? 'on' : ''}">ElegantFin</button><button type="button" data-v="none" class="${theme === 'none' ? 'on' : ''}">${t("Jellyfin d'origine")}</button></div></div></div>
+      <div class="setting spotlight-opt"><div class="text"><b>${t('Bannière Spotlight')}</b><span>${t("Grande bannière en haut de l'accueil, qui défile toute seule. Avec le thème Abyss seulement.")}</span></div>
         <div class="control">${toggle('name="spotlight"', s.webSpotlight !== false)}</div></div>
-      <div class="setting"><div class="text"><b>${t('Contenu de Spotlight')}</b><span>${t('<b>Films tendance</b> : tendances du jour sur TMDB, même hors de tes bibliothèques, avec année et note. <b>Mes reprises</b> : reprises en cours, épisodes à suivre, puis derniers ajouts.')}${state.info?.tmdb ? '' : ` ${t('Les films tendance nécessitent une clé TMDB.')}`}</span></div>
+      <div class="setting spotlight-opt"><div class="text"><b>${t('Contenu de Spotlight')}</b><span>${t('<b>Films tendance</b> : tendances du jour sur TMDB, même hors de tes bibliothèques, avec année et note. <b>Mes reprises</b> : reprises en cours, épisodes à suivre, puis derniers ajouts.')}${state.info?.tmdb ? '' : ` ${t('Les films tendance nécessitent une clé TMDB.')}`}</span></div>
         <div class="control"><div class="segmented" id="source"><button type="button" data-v="trending" class="${source === 'trending' ? 'on' : ''}">${t('Films tendance')}</button><button type="button" data-v="resume" class="${source === 'resume' ? 'on' : ''}">${t('Mes reprises')}</button></div></div></div>
       <p class="small faint">${t("Chaque profil peut ajouter son propre CSS (onglet Préférences du profil) : il s'applique après le thème. Les changements s'appliquent au prochain chargement de Jellyfin web.")}</p>
       <div class="row end" style="margin-top:8px">${state.web ? `<a class="btn ghost" href="/web/" target="_blank" rel="noopener">${icon('play')}${t('Ouvrir Jellyfin web')}</a>` : ''}<button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
     </form>`;
   const f = $('#f');
+  // Reglages de Spotlight : seulement avec le theme Abyss (la banniere lui est propre).
+  const syncSpotlight = () => $$('.spotlight-opt', f).forEach((x) => x.classList.toggle('hidden', theme !== 'abyss'));
+  syncSpotlight();
   $('#theme').onclick = (e) => {
     const b = e.target.closest('[data-v]');
     if (!b) return;
     theme = b.dataset.v;
     $$('#theme button').forEach((x) => x.classList.toggle('on', x === b));
+    syncSpotlight();
   };
   $('#source').onclick = (e) => {
     const b = e.target.closest('[data-v]');

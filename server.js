@@ -102,6 +102,7 @@ if (hasWeb) {
     res.setHeader('Cache-Control', 'no-cache');
     res.type('html').send(webTheme.inject(webIndex));
   });
+  app.get('/stremfin/elegantfin/*file', (req, res) => require('./src/elegantfin').serve([].concat(req.params.file).join('/'), res));
   app.get('/stremfin/abyss/*file', (req, res) => webTheme.serve([].concat(req.params.file).join('/'), res));
   app.get('/stremfin/web-css.js', (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');

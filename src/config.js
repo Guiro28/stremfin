@@ -151,6 +151,8 @@ function load() {
   state.settings.upstream = { ...defaultSettings().upstream, ...(state.settings.upstream || {}) };
   migratePlatforms();
   migrateStreamMode();
+  // Theme GlassFin retire : ElegantFin, dont il derive, prend sa place.
+  if (state.settings.webTheme === 'glassfin') state.settings.webTheme = 'elegantfin';
   // Premier lancement en Docker : compte admin cree depuis AUTH_USER / AUTH_PASS.
   if (!state.admin && process.env.AUTH_USER && process.env.AUTH_PASS) {
     state.admin = { username: process.env.AUTH_USER.trim(), passwordHash: hashPassword(process.env.AUTH_PASS) };
@@ -257,7 +259,7 @@ function updateSettings(patch) {
     }
   }
   s.publicUrl = s.publicUrl.replace(/\/+$/, '');
-  if (!['abyss', 'none'].includes(s.webTheme)) s.webTheme = 'abyss';
+  if (!['abyss', 'elegantfin', 'none'].includes(s.webTheme)) s.webTheme = 'abyss';
   if (!['trending', 'resume'].includes(s.webSpotlightSource)) s.webSpotlightSource = 'trending';
   if (!['catalog', 'name'].includes(s.embySort)) s.embySort = 'catalog';
   if (!['fr', 'en', 'es', 'de', 'it'].includes(s.language)) s.language = 'fr';
