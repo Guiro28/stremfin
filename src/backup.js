@@ -88,10 +88,11 @@ function create(kind = 'manual') {
     const tmpDb = path.join(DIR, `.tmp-${process.pid}-${t0}.db`);
     const tmpTar = path.join(DIR, `.tmp-${process.pid}-${t0}.tar.gz`);
     try {
-      // Copie coherente de la base a chaud, puis sans le cache (reconstructible).
+      // Copie coherente de la base a chaud, puis sans le cache ni l'index des catalogues
+      // (reconstructibles).
       db.exec(`VACUUM INTO '${tmpDb.replace(/'/g, "''")}'`);
       const copy = new DatabaseSync(tmpDb);
-      copy.exec("DELETE FROM cache WHERE key NOT LIKE 'dp|%'; VACUUM;");
+      copy.exec("DELETE FROM cache WHERE key NOT LIKE 'dp|%'; DELETE FROM idx_items; DELETE FROM idx_titles; DELETE FROM idx_lists; VACUUM;");
       copy.close();
 
       const entries = [{ name: 'stremfin.db', file: tmpDb }, { name: 'config.json', file: path.join(DATA_DIR, 'config.json') }];

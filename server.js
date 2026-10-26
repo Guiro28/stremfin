@@ -144,6 +144,8 @@ server.listen(PORT, () => {
   require('./src/jellyfin/library').startWarming();
   // Sauvegarde automatique quotidienne.
   require('./src/backup').start();
+  // Index des catalogues (s'il est active dans les reglages).
+  require('./src/catalogIndex').start();
   // Collections mises a jour depuis Nuvio toutes les 6 h.
   require('./src/collections').start();
   // Historiques Trakt / Simkl / Nuvio importes toutes les 6 h.

@@ -317,6 +317,29 @@ Un titre vu ailleurs n'écrase jamais une lecture plus récente ici. Un même ti
 en version IMDb (addons) et TMDB (catalogues TMDB) : les deux sont marqués, et il n'apparaît
 qu'une fois dans « Reprendre » et « À suivre ». Les jetons restent dans `data/config.json`.
 
+## Index des catalogues
+
+*Réglages → Index des catalogues* (désactivé par défaut). Chaque liste active des profils
+(bibliothèques, dossiers des collections) est lue en entier en arrière-plan et rangée dans la base
+du serveur : un aperçu par titre (nom, affiche, année, note, genres) et l'ordre de chaque liste.
+Une seule règle pour toutes les listes, quelle que soit leur source :
+
+- **mise à jour rapide** : les 3, 5 ou 10 premières pages de chaque liste, toutes les 1 à 6 h
+  (nouveaux titres, changements de classement) ;
+- **relecture complète** : chaque nuit ou chaque semaine, à l'heure choisie ;
+- **titres maximum par liste** : 2 000, 5 000, 10 000 ou sans limite ;
+- **vitesse** : prudente (une liste à la fois, pause entre les pages), normale ou rapide.
+
+La page montre l'état (passage en cours, listes, titres, place prise, erreurs) et permet de
+scanner tout de suite ou de vider l'index. La lecture ne remplit pas le cache général, et l'index
+n'est pas mis dans les sauvegardes (il se reconstruit). Une liste en erreur garde son dernier
+contenu.
+
+Dans les apps, une liste indexée est servie par l'index : plus de plafond de 2 000 titres, total
+exact, et les **tris et filtres des apps** s'appliquent à toute la liste (nom, année, note, date
+d'ajout dans la liste, aléatoire ; genres et années réellement présents dans la liste ; vus / non
+vus). Une liste pas encore indexée est lue à la demande, comme avant.
+
 ## Statistiques
 
 Page **Statistiques** (reprise de celle de Nuvio Manager), pour l'administrateur (tous les

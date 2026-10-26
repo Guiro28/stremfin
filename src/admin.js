@@ -22,6 +22,7 @@ const stats = require('./stats');
 const addons = require('./addons');
 const xperience = require('./xperience');
 const noSource = require('./noSource');
+const catalogIndex = require('./catalogIndex');
 const { request, readAll } = require('./http');
 const { verifyPassword } = require('./security');
 
@@ -242,6 +243,21 @@ router.get('/api/overview', adminOnly, (req, res) => {
 });
 
 // ---- Clip "aucune source disponible" (Reglages -> Lecture et reseau) -----------------------------
+
+// ---- Index des catalogues ----------------------------------------------------------------
+
+router.get('/api/index', adminOnly, (req, res) => res.json(catalogIndex.status()));
+
+router.post('/api/index/scan', adminOnly, (req, res) => {
+  const mode = req.body?.mode === 'quick' ? 'quick' : 'full';
+  if (!catalogIndex.scanNow(mode)) return fail(res, 409, 'Un passage est déjà en cours');
+  res.json(catalogIndex.status());
+});
+
+router.delete('/api/index', adminOnly, async (req, res) => {
+  await catalogIndex.clear();
+  res.json(catalogIndex.status());
+});
 
 router.get('/api/no-source', adminOnly, (req, res) => res.json(noSource.describe()));
 router.get('/api/no-source/video', adminOnly, (req, res) => {

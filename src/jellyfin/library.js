@@ -231,9 +231,13 @@ const episodeSeriesKey = (data) => String(data?.vid || '').replace(/:\d+:\d+$/, 
 // Episodes vus de chaque profil, par serie : "saison:episode". Relus apres chaque changement.
 const playedCache = new Map();
 
+// Version des vus de chaque profil : les listes filtrees par vu / pas vu se refont quand elle change.
+const playedVersion = new Map();
+
 function forgetPlayed(profileId) {
   playedCache.delete(profileId);
   nextUpMemo.delete(profileId);
+  playedVersion.set(profileId, (playedVersion.get(profileId) || 0) + 1);
 }
 
 function playedBySeries(profileId) {
@@ -327,10 +331,43 @@ function viewByUuid(profile, uuid) {
   return catalog.views(profile).find((v) => v.uuid === ids.norm(uuid)) || null;
 }
 
-async function viewItems(profile, view, { start = 0, limit = 50, genre, sort } = {}) {
-  const { metas, total } = await catalog.slice(view, start, limit, genre, releasedFilter(profile), sort);
-  let items = metasToDtos(profile, metas);
-  if (profile.hideWatched) items = items.filter((i) => !(i.Type === 'Movie' && i.UserData.Played));
+/** Film ou serie vu par le profil (film : l'une de ses deux versions ; serie : tous ses episodes sortis). */
+function isPlayed(profile, type, sid) {
+  const uuid = ids.uuidOf(itemKey(type, sid));
+  const e = ids.get(uuid);
+  if (type === 'series') return !!(e && seriesUserData(profile, e, { UserData: {} }).UserData.Played);
+  if (udRow(profile, uuid)?.played) return true;
+  return !!(e?.data.twin && udRow(profile, e.data.twin)?.played);
+}
+
+/**
+ * Filtre d'une liste pour un profil : "seulement sortis", "masquer les vus" (films) et filtre
+ * vu / pas vu demande par l'app (`played`). Applique avant le decoupage en pages : les pages
+ * restent pleines et le total juste. La cle change avec les vus du profil (liste a refaire).
+ */
+function listFilter(profile, played) {
+  const rel = releasedFilter(profile);
+  const hide = !!profile.hideWatched;
+  if (!rel && !hide && played === undefined) return null;
+  const usesPlayed = hide || played !== undefined;
+  return {
+    // Sans "seulement sortis", le filtre ne depend que des vus : reponse immediate, total exact.
+    sync: !rel,
+    key: [rel?.key || '', hide ? 'hide' : '', played === undefined ? '' : `played:${played}`, usesPlayed ? `v${playedVersion.get(profile.id) || 0}` : ''].join('|'),
+    fn: async (m) => {
+      if (usesPlayed) {
+        const seen = isPlayed(profile, m.type, m.id);
+        if (hide && m.type === 'movie' && seen) return false;
+        if (played !== undefined && seen !== played) return false;
+      }
+      return rel ? rel.fn(m) : true;
+    }
+  };
+}
+
+async function viewItems(profile, view, { start = 0, limit = 50, genre, sort, years, played } = {}) {
+  const { metas, total } = await catalog.slice(view, start, limit, genre, listFilter(profile, played), sort, { years });
+  const items = metasToDtos(profile, metas);
   // Image de la bibliotheque = fond du premier element (les apps l'affichent dans "Mes medias"),
   // sauf image propre (fond d'une collection).
   if (start === 0 && metas[0] && !view.image) ids.register(`view|${profile.id}|${view.key}`, 'view', { image: metas[0].background || metas[0].poster });
@@ -612,7 +649,7 @@ async function warmLibraries() {
     const profiles = config.get().profiles.filter((p) => !p.disabled);
     const shelves = [];
     for (const profile of profiles) {
-      const filter = releasedFilter(profile);
+      const filter = listFilter(profile);
       for (const view of catalog.views(profile)) {
         await warmOne(view, filter);
         if (view.type !== 'nuviocol') continue;

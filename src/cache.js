@@ -1,4 +1,8 @@
+const { AsyncLocalStorage } = require('node:async_hooks');
 const { st } = require('./db');
+
+// Appels faits sous withoutStore() : lus dans le cache, jamais ecrits.
+const noStore = new AsyncLocalStorage();
 
 // Cache a deux niveaux : memoire (rapide) + SQLite (survit aux redemarrages).
 const mem = new Map();
@@ -39,6 +43,8 @@ async function cached(key, ttl, fn, { stale = 0 } = {}) {
   const hit = peek(key);
   const now = Date.now();
   if (hit && hit.exp > now) return hit.v;
+  // Lecture en masse (index des catalogues) : ce qui est deja en cache sert, rien n'y est ajoute.
+  if (noStore.getStore()) return fn();
   const staleFor = hit && typeof stale === 'function' ? stale(hit.v) : stale;
   if (hit && staleFor && hit.exp + staleFor > now) {
     refresh(key, ttl, fn).catch(() => {});
@@ -71,4 +77,9 @@ function clear() {
   require('./db').db.exec("DELETE FROM cache WHERE key NOT LIKE 'dp|%'");
 }
 
-module.exports = { cached, peek, put, clear };
+/** Execute `fn` sans rien ajouter au cache (les valeurs encore fraiches servent quand meme). */
+function withoutStore(fn) {
+  return noStore.run(true, fn);
+}
+
+module.exports = { cached, peek, put, clear, withoutStore };

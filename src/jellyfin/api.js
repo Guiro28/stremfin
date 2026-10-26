@@ -137,8 +137,11 @@ function sortOf(q) {
   if (!by) return undefined;
   const dir = String(q.sortorder || '').toLowerCase().startsWith('desc') ? 'desc' : 'asc';
   if (['sortname', 'name'].includes(by)) return `name.${dir}`;
-  if (['premieredate', 'productionyear', 'datecreated', 'dateadded'].includes(by)) return `date.${dir}`;
+  if (['premieredate', 'productionyear'].includes(by)) return `date.${dir}`;
+  // Date d'ajout : date d'apparition dans la liste (index des catalogues), sinon date de sortie.
+  if (['datecreated', 'dateadded'].includes(by)) return `added.${dir}`;
   if (['communityrating', 'criticrating'].includes(by)) return `rating.${dir}`;
+  if (by === 'random') return 'random';
   return 'popularity.desc';
 }
 
@@ -388,13 +391,20 @@ router.get(['/Users/:u/Items/Resume', '/UserItems/Resume'], (req, res) => {
   res.json(dto.queryResult(decorate(items, q, req.profile)));
 });
 
+/** Genres et annees proposes dans les filtres d'une bibliotheque : ceux de l'index si elle y est. */
+function facetsOf(profile, parentId) {
+  const v = library.viewByUuid(profile, parentId);
+  const f = v && require('../catalogIndex').facets(v.key);
+  return { view: v, genres: f?.genres || v?.genres || [], years: f?.years || [] };
+}
+
 router.get('/Items/Filters', (req, res) => {
-  const v = library.viewByUuid(req.profile, lq(req).parentid);
-  res.json({ Genres: v?.genres || [], Tags: [], OfficialRatings: [], Years: [] });
+  const f = facetsOf(req.profile, lq(req).parentid);
+  res.json({ Genres: f.genres, Tags: [], OfficialRatings: [], Years: f.years });
 });
 router.get('/Items/Filters2', (req, res) => {
-  const v = library.viewByUuid(req.profile, lq(req).parentid);
-  res.json({ Genres: (v?.genres || []).map((g) => ({ Name: g, Id: ids.uuidOf(`genre|${g}`) })), Tags: [] });
+  const f = facetsOf(req.profile, lq(req).parentid);
+  res.json({ Genres: f.genres.map((g) => ({ Name: g, Id: ids.uuidOf(`genre|${g}`) })), Tags: [] });
 });
 router.get('/Items/Counts', (req, res) =>
   res.json({ MovieCount: 0, SeriesCount: 0, EpisodeCount: 0, ArtistCount: 0, ProgramCount: 0, TrailerCount: 0, SongCount: 0, AlbumCount: 0, MusicVideoCount: 0, BoxSetCount: 0, BookCount: 0, ItemCount: 0 })
@@ -402,8 +412,8 @@ router.get('/Items/Counts', (req, res) =>
 
 router.get('/Genres', (req, res) => {
   const q = lq(req);
-  const v = library.viewByUuid(req.profile, q.parentid);
-  const items = (v?.genres || []).map((g) => dto.genreItem(g, v.uuid));
+  const { view: v, genres } = facetsOf(req.profile, q.parentid);
+  const items = genres.map((g) => dto.genreItem(g, v.uuid));
   const start = int(q.startindex, 0);
   const limit = int(q.limit, 0);
   res.json(dto.queryResult(limit ? items.slice(start, start + limit) : items.slice(start), items.length, start));
@@ -465,7 +475,10 @@ router.get(['/Users/:u/Items', '/Items'], async (req, res) => {
   else if (q.genreids) genre = ids.get(list(q.genreids)[0])?.data?.name;
 
   const wantEpisodes = types.some((t) => t.toLowerCase() === 'episode') && q.recursive === 'true';
-  const { items, total } = await library.children(p, parentId, { start, limit: limit || 100, genre, episodes: wantEpisodes, sort: librarySort(req, q) });
+  // Annees et vu / pas vu choisis dans l'app (appliques avant le decoupage en pages).
+  const years = list(q.years).map(Number).filter((y) => y > 1800);
+  const played = q.isplayed === 'true' || filters.includes('isplayed') ? true : q.isplayed === 'false' || filters.includes('isunplayed') ? false : undefined;
+  const { items, total } = await library.children(p, parentId, { start, limit: limit || 100, genre, episodes: wantEpisodes, sort: librarySort(req, q), years, played });
   const parent = ids.get(parentId);
   // Collection (dossiers) et dossier de collection (films et series melanges) : pas de filtre de type.
   const loose = ['colfolder', 'colcat'].includes(parent?.kind) || (parent?.kind === 'view' && parent.data.type === 'nuviocol');

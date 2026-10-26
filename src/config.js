@@ -76,7 +76,20 @@ function defaultSettings() {
     // Sauvegarde automatique quotidienne (data/backups) : heure (0-23) et retention en jours.
     backupEnabled: true,
     backupHour: 4,
-    backupRetention: 7
+    backupRetention: 7,
+    // Index des catalogues (catalogIndex.js) : chaque liste active lue en entier en arriere-plan.
+    indexEnabled: false,
+    // Titres gardes par liste (0 = sans limite).
+    indexMaxItems: 5000,
+    // Mise a jour rapide : les N premieres pages de chaque liste, toutes les X heures.
+    indexQuickPages: 3,
+    indexQuickEvery: 2,
+    // Relecture complete : "daily" ou "weekly" (jour 0-6, 0 = dimanche), a l'heure choisie.
+    indexFullFrequency: 'daily',
+    indexFullDay: 0,
+    indexFullHour: 3,
+    // Vitesse de lecture : "gentle" (prudente), "normal" ou "fast".
+    indexSpeed: 'normal'
   };
 }
 
@@ -249,6 +262,10 @@ function updateSettings(patch) {
         mode: ['direct', 'socks', 'http'].includes(patch.upstream?.mode) ? patch.upstream.mode : 'direct',
         url: String(patch.upstream?.url || '').trim()
       };
+    } else if (['indexMaxItems', 'indexFullDay', 'indexFullHour'].includes(k)) {
+      // Zero est une valeur valable (sans limite, dimanche, minuit).
+      const n = Number(patch[k]);
+      if (Number.isInteger(n) && n >= 0) s[k] = n;
     } else if (k === 'backupHour') {
       // Minuit (0) est une heure valable.
       const n = Number(patch[k]);
@@ -269,6 +286,13 @@ function updateSettings(patch) {
   if (!['fr', 'en', 'es', 'de', 'it'].includes(s.language)) s.language = 'fr';
   s.backupHour = Math.min(23, Math.max(0, Math.round(Number(s.backupHour)) || 0));
   s.backupRetention = Math.min(365, Math.max(1, Math.round(Number(s.backupRetention)) || 7));
+  if (![0, 2000, 5000, 10000].includes(s.indexMaxItems)) s.indexMaxItems = 5000;
+  if (![3, 5, 10].includes(s.indexQuickPages)) s.indexQuickPages = 3;
+  if (![1, 2, 4, 6].includes(s.indexQuickEvery)) s.indexQuickEvery = 2;
+  if (!['daily', 'weekly'].includes(s.indexFullFrequency)) s.indexFullFrequency = 'daily';
+  s.indexFullDay = Math.min(6, Math.max(0, Math.round(Number(s.indexFullDay)) || 0));
+  s.indexFullHour = Math.min(23, Math.max(0, Math.round(Number(s.indexFullHour)) || 0));
+  if (!['gentle', 'normal', 'fast'].includes(s.indexSpeed)) s.indexSpeed = 'normal';
   s.torrentServer = s.torrentServer.replace(/\/+$/, '');
   s.scrobUrl = s.scrobUrl.replace(/\/+$/, '');
   if (!MODES.includes(s.addonMode)) s.addonMode = 'direct';

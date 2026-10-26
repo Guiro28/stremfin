@@ -544,6 +544,11 @@ async function warm(force = false) {
   }
 }
 
+/** Noms des genres charges (sinon : nouvel essai). Les apercus des catalogues en ont besoin. */
+async function ensureGenres() {
+  if (enabled() && !Object.keys(genreNames.movie).length) await warm();
+}
+
 // ---- Bandeau Spotlight du client web -------------------------------------------------
 
 /**
@@ -568,4 +573,4 @@ async function spotlight(limit = 10) {
   return metas.filter(Boolean);
 }
 
-module.exports = { ADDON_URL, enabled, spotlight, collectionSource, checkKey, resolve, imdbIdOf, meta, previewMeta, released, collection, catalog, addons, warm };
+module.exports = { ADDON_URL, enabled, ensureGenres, spotlight, collectionSource, checkKey, resolve, imdbIdOf, meta, previewMeta, released, collection, catalog, addons, warm };

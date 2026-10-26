@@ -74,6 +74,35 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS plays_unique ON plays (profile, uuid, source, started);
   CREATE INDEX IF NOT EXISTS plays_profile ON plays (profile, started);
 
+  -- Index des catalogues : listes lues en entier en arriere-plan (catalogIndex.js).
+  -- Une ligne par liste, une par titre de chaque liste (dans l'ordre du catalogue), et l'apercu
+  -- de chaque titre une seule fois (nom, affiche, annee, note, genres...).
+  CREATE TABLE IF NOT EXISTS idx_lists (
+    key      TEXT PRIMARY KEY,
+    name     TEXT,
+    type     TEXT,
+    source   TEXT,
+    count    INTEGER NOT NULL DEFAULT 0,
+    complete INTEGER NOT NULL DEFAULT 0,
+    full_at  INTEGER,
+    quick_at INTEGER,
+    duration INTEGER,
+    error    TEXT
+  );
+  CREATE TABLE IF NOT EXISTS idx_items (
+    list  TEXT NOT NULL,
+    pos   INTEGER NOT NULL,
+    id    TEXT NOT NULL,
+    added INTEGER NOT NULL,
+    PRIMARY KEY (list, pos)
+  ) WITHOUT ROWID;
+  CREATE TABLE IF NOT EXISTS idx_titles (
+    id      TEXT PRIMARY KEY,
+    type    TEXT,
+    data    TEXT NOT NULL,
+    updated INTEGER NOT NULL
+  );
+
   -- Sessions de l'interface d'administration (seul le hache du jeton est stocke).
   CREATE TABLE IF NOT EXISTS admin_sessions (
     token_hash TEXT PRIMARY KEY,
@@ -126,6 +155,30 @@ const st = {
   udTmdbVidEpisodes: db.prepare(`SELECT u.*, i.data FROM userdata u JOIN ids i ON i.uuid = u.uuid
     WHERE i.kind = 'episode' AND i.data LIKE '%"vid":"tmdb:%'`),
   udDel: db.prepare('DELETE FROM userdata WHERE profile = ? AND uuid = ?'),
+  // Index des catalogues.
+  idxListGet: db.prepare('SELECT * FROM idx_lists WHERE key = ?'),
+  idxListAll: db.prepare('SELECT * FROM idx_lists ORDER BY name'),
+  idxListPut: db.prepare(`INSERT INTO idx_lists (key, name, type, source, count, complete, full_at, quick_at, duration, error)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET name = excluded.name, type = excluded.type, source = excluded.source, count = excluded.count,
+      complete = excluded.complete, full_at = excluded.full_at, quick_at = excluded.quick_at, duration = excluded.duration, error = excluded.error`),
+  idxListError: db.prepare('UPDATE idx_lists SET error = ? WHERE key = ?'),
+  idxListDel: db.prepare('DELETE FROM idx_lists WHERE key = ?'),
+  idxItems: db.prepare('SELECT id, added FROM idx_items WHERE list = ? ORDER BY pos'),
+  // Toute une liste indexee (tris et filtres des apps).
+  idxRows: db.prepare(`SELECT i.id, i.pos, i.added, t.type, t.data FROM idx_items i JOIN idx_titles t ON t.id = i.id
+    WHERE i.list = ? ORDER BY i.pos`),
+  // Une page d'une liste indexee (positions continues 0..n-1), avec l'apercu de chaque titre.
+  idxPage: db.prepare(`SELECT i.id, t.type, t.data FROM idx_items i JOIN idx_titles t ON t.id = i.id
+    WHERE i.list = ? AND i.pos >= ? ORDER BY i.pos LIMIT ?`),
+  idxItemsDel: db.prepare('DELETE FROM idx_items WHERE list = ?'),
+  idxItemPut: db.prepare('INSERT INTO idx_items (list, pos, id, added) VALUES (?, ?, ?, ?)'),
+  idxTitlePut: db.prepare(`INSERT INTO idx_titles (id, type, data, updated) VALUES (?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET type = excluded.type, data = excluded.data, updated = excluded.updated`),
+  // Apercus qui ne figurent plus dans aucune liste.
+  idxTitlesOrphan: db.prepare('DELETE FROM idx_titles WHERE id NOT IN (SELECT DISTINCT id FROM idx_items)'),
+  idxStats: db.prepare(`SELECT (SELECT COUNT(*) FROM idx_lists) AS lists, (SELECT COUNT(*) FROM idx_items) AS items,
+    (SELECT COUNT(*) FROM idx_titles) AS titles, (SELECT COALESCE(SUM(LENGTH(data)), 0) FROM idx_titles) AS bytes`),
   // Episodes vus (pastille "episodes restants" et coche des series).
   udPlayedEpisodes: db.prepare(`SELECT i.data FROM userdata u JOIN ids i ON i.uuid = u.uuid
     WHERE u.profile = ? AND i.kind = 'episode' AND u.played = 1`),

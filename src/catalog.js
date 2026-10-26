@@ -121,17 +121,30 @@ function views(profile) {
 
 const pagers = new Map();
 const PARALLEL_PAGES = 6;
+const INDEX_PAGE = 100; // titres lus par page dans l'index des catalogues
 
 // `filter` (optionnel) : { key, fn: async (meta) => bool } applique a chaque page chargee,
 // pour que la pagination reste juste quand on masque des titres (ex: pas encore sortis).
-function pagerFor(view, genre, filter, sort) {
-  const key = `${view.key}|${genre || ''}|${filter?.key || ''}|${sort || ''}`;
+// Liste lue en entier par l'index des catalogues (`index`) : ses pages viennent de l'index, sans
+// plafond de titres, triees et filtrees localement (`local` : tri, genre, annees) ; la liste repart
+// de zero a chaque mise a jour de l'index.
+function pagerFor(view, genre, filter, sort, local, index) {
+  const key = `${view.key}|${genre || ''}|${filter?.key || ''}|${sort || ''}|${local ? JSON.stringify(local) : ''}`;
   let p = pagers.get(key);
-  if (!p || Date.now() - p.at > PAGER_TTL) {
-    p = { metas: [], seen: new Set(), raw: 0, lastSize: 0, pageSize: 0, done: false, at: Date.now(), loading: null };
+  if (!p || Date.now() - p.at > PAGER_TTL || p.index?.version !== index?.version) {
+    p = { metas: [], seen: new Set(), raw: 0, lastSize: 0, pageSize: 0, done: false, at: Date.now(), loading: null, index, local };
+    pagers.delete(key);
     pagers.set(key, p);
+    // Les plus anciennes listes en memoire sont oubliees (chaque tri / filtre en cree une).
+    while (pagers.size > 400) pagers.delete(pagers.keys().next().value);
   }
   return p;
+}
+
+/** Tri transmis a l'addon : seulement les catalogues TMDB integres bases sur /discover. */
+function addonSort(view, sort) {
+  if (!view.sortable || !sort || sort === 'random') return undefined;
+  return sort.startsWith('added.') ? `date.${sort.split('.')[1]}` : sort;
 }
 
 /** Charge `count` pages a partir de la position courante (en parallele), dans l'ordre. */
@@ -141,6 +154,7 @@ function loadPages(p, view, count, genre, filter, sort) {
     const base = p.raw;
     const step = p.pageSize;
     const fetchPage = (skip) => {
+      if (p.index) return Promise.resolve({ metas: require('./catalogIndex').page(view.key, skip, INDEX_PAGE, p.local) });
       const extra = {};
       if (genre) extra.genre = genre;
       if (sort) extra.sort = sort;
@@ -177,7 +191,7 @@ function loadPages(p, view, count, genre, filter, sort) {
       }
       // Page vide, page deja vue (addon qui ignore skip) ou catalogue sans pagination : fin.
       // Les pages suivantes du lot sont ignorees.
-      if (!added || !view.hasSkip || p.raw >= MAX_ITEMS) {
+      if (!added || (!view.hasSkip && !p.index) || (!p.index && p.raw >= MAX_ITEMS)) {
         p.done = true;
         break;
       }
@@ -185,7 +199,7 @@ function loadPages(p, view, count, genre, filter, sort) {
     // Filtre (ex: titres sortis) applique a tout le lot en une fois.
     const keep = filter ? await Promise.all(fresh.map((m) => filter.fn(m).catch(() => true))) : null;
     p.metas.push(...fresh.filter((m, i) => !keep || keep[i]));
-    if (p.metas.length >= MAX_ITEMS) p.done = true;
+    if (!p.index && p.metas.length >= MAX_ITEMS) p.done = true;
     // Liste vide : on retentera dans 2 minutes (addon qui prepare encore sa liste).
     if (p.done && !p.metas.length) p.at = Math.min(p.at, Date.now() - PAGER_TTL + 2 * 60e3);
   })().finally(() => {
@@ -203,23 +217,37 @@ async function fill(p, view, want, genre, filter, sort) {
     }
     // Taille des pages inconnue (1re page) : une seule page ; ensuite, un lot.
     const missing = want - p.metas.length;
-    const count = p.pageSize && view.hasSkip ? Math.min(PARALLEL_PAGES, Math.max(1, Math.ceil(missing / p.pageSize))) : 1;
+    const count = p.pageSize && (view.hasSkip || p.index) ? Math.min(PARALLEL_PAGES, Math.max(1, Math.ceil(missing / p.pageSize))) : 1;
     await loadPages(p, view, count, genre, filter, sort);
   }
 }
 
-/** Renvoie { metas, total } pour la tranche [start, start+limit[ d'un catalogue. */
-async function slice(view, start = 0, limit = 50, genre, filter, sort) {
+/**
+ * Renvoie { metas, total } pour la tranche [start, start+limit[ d'un catalogue.
+ * `sort` : "name.asc", "date.desc", "rating.desc", "added.desc", "random"... ; `refine.years` :
+ * annees demandees. Liste indexee : tri, genre et annees appliques localement, sur toute la liste.
+ * Sinon : tri seulement pour les catalogues TMDB integres, genre transmis a l'addon.
+ */
+async function slice(view, start = 0, limit = 50, genre, filter, sort, refine = {}) {
   genre = genre || view.defaultGenre;
-  // Le tri n'a de sens que pour les catalogues TMDB integres bases sur /discover.
-  if (!view.sortable) sort = undefined;
-  const p = pagerFor(view, genre, filter, sort);
-  await fill(p, view, start + limit, genre, filter, sort);
+  const index = require('./catalogIndex').listInfo(view.key);
+  const local = index
+    ? {
+        sort: sort && !sort.startsWith('popularity') ? sort : undefined,
+        genre: genre !== view.defaultGenre ? genre : undefined,
+        years: refine.years?.length ? refine.years : undefined
+      }
+    : null;
+  if (!index) sort = addonSort(view, sort);
+  const p = pagerFor(view, genre, filter, sort, local, index);
+  // Liste indexee avec un filtre immediat (vus) : filtree en entier, pour un total exact.
+  await fill(p, view, p.index && filter?.sync ? Infinity : start + limit, genre, filter, sort);
   // Anticipation : la tranche suivante se prepare pendant que l'app affiche celle-ci.
   if (!p.done) fill(p, view, start + limit + Math.min(limit, 100), genre, filter, sort).catch(() => {});
   const metas = p.metas.slice(start, start + limit);
-  // Tant qu'on n'a pas tout charge, on annonce une page de plus pour que l'app continue a defiler.
-  const total = p.done ? p.metas.length : p.metas.length + (p.lastSize || limit);
+  // Liste indexee sans filtre : total exact. Sinon, tant qu'on n'a pas tout charge, on annonce une
+  // page de plus pour que l'app continue a defiler.
+  const total = p.index && filter?.sync ? p.metas.length : p.index && !filter ? require('./catalogIndex').count(view.key, p.local) : p.done ? p.metas.length : p.metas.length + (p.lastSize || limit);
   return { metas, total };
 }
 

@@ -484,6 +484,20 @@ function sourceViewOf(colId, folderId, index) {
 }
 
 /** Listes a preparer en arriere-plan pour une collection (dossiers ou leurs sous-dossiers). */
+/**
+ * Listes d'une collection pour l'index des catalogues : memes listes que le prechauffage, avec un
+ * nom lisible ("Collection › Dossier", plus la source s'il y en a plusieurs) au lieu de leur cle
+ * (qui contient l'adresse de l'addon, parfois avec un jeton personnel).
+ */
+function indexViews(c) {
+  return (c.data.folders || []).flatMap((f) => {
+    const list = folderCatalogs(c, fid(f));
+    const base = `${c.title} › ${f.title || fid(f)}`;
+    if (list.length === 1) return [{ ...folderView(c.id, fid(f)), name: base }];
+    return list.map((x) => ({ ...x.view, name: `${base} › ${catalogName(c, x.src)}` }));
+  });
+}
+
 function warmViews(c) {
   return (c.data.folders || []).flatMap((f) => {
     const list = folderCatalogs(c, fid(f));
@@ -597,4 +611,4 @@ function imageTarget(c, target) {
   return index === undefined || (list.length > 1 && list.some((x) => x.index === Number(index)));
 }
 
-module.exports = { ADDON_URL, imageTarget, list, preview, importFrom, refresh, remove, assign, start, addon, folderView, subfolders, sourceViewOf, warmViews, catalog, byId };
+module.exports = { ADDON_URL, imageTarget, list, preview, importFrom, refresh, remove, assign, start, addon, folderView, subfolders, sourceViewOf, warmViews, indexViews, catalog, byId };

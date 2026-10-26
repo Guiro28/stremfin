@@ -157,6 +157,8 @@ button, input, select, textarea, .card, .item, .stat, .nav-item { transition: bo
 .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .backups-grid { grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr); align-items: start; }
+/* Index des catalogues : reglages (plus larges) et etat cote a cote. */
+.index-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .row.end { justify-content: flex-end; }
@@ -377,7 +379,7 @@ code { font-family: var(--mono); font-size: 12.5px; background: var(--input); pa
 
 /* ---- Telephone / tablette ---- */
 @media (max-width: 1100px) {
-  .backups-grid { grid-template-columns: 1fr; }
+  .backups-grid, .index-grid { grid-template-columns: 1fr; }
   .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

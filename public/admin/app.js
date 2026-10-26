@@ -273,7 +273,8 @@ const NAV_ADMIN = [
       { id: 'settings/playback', label: 'Lecture et réseau', icon: 'play' },
       { id: 'settings/metadata', label: 'Métadonnées', icon: 'film' },
       { id: 'settings/tracking', label: 'Suivi', icon: 'refresh' },
-      { id: 'settings/web', label: 'Client web', icon: 'globe' }
+      { id: 'settings/web', label: 'Client web', icon: 'globe' },
+      { id: 'settings/index', label: 'Index des catalogues', icon: 'layers' }
     ]
   },
   { group: 'Système', items: [{ id: 'backups', label: 'Sauvegardes', icon: 'archive' }, { id: 'maintenance', label: 'Maintenance', icon: 'wrench' }, { id: 'security', label: 'Sécurité', icon: 'shield' }] }
@@ -1755,6 +1756,126 @@ PAGES['settings/tracking'] = async (main) => {
   fs.onsubmit = saveService(fs, (f) => ({ simklClientId: f.simklId.value.trim() }));
   const fc = $('#fScrob');
   fc.onsubmit = saveService(fc, (f) => ({ scrobUrl: f.scrobUrl.value.trim() }));
+};
+
+// ---- Index des catalogues ---------------------------------------------------------------------
+
+const INDEX_DAYS = () => [t('dimanche'), t('lundi'), t('mardi'), t('mercredi'), t('jeudi'), t('vendredi'), t('samedi')];
+
+PAGES['settings/index'] = async (main) => {
+  const s = state.settings;
+  let data = await api('GET', '/index');
+  const opt = (list, cur) => list.map(([v, l]) => `<option value="${v}" ${String(v) === String(cur) ? 'selected' : ''}>${l}</option>`).join('');
+  const seg = (id, list, cur) => `<div class="segmented" id="${id}">${list.map(([v, l]) => `<button type="button" data-v="${v}" class="${v === cur ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  main.innerHTML = `${head(t('Index des catalogues'), t('Chaque liste active des profils (bibliothèques, dossiers des collections) est lue en entier en arrière-plan et rangée sur le serveur. Une seule règle pour toutes les listes : le début de chaque liste est relu souvent, la liste entière la nuit ou la semaine.'),
+    `<button class="btn danger" id="iClear">${icon('trash')}${t("Vider l'index")}</button><button class="btn primary" id="iScan">${icon('refresh')}${t('Scanner maintenant')}</button>`)}
+    <div class="grid index-grid">
+      <form class="card" id="iSet">
+        <div class="card-head"><div><h2>${t('Réglages')}</h2><p>${t('Désactivé, Stremfin lit les catalogues à la demande, comme avant.')}</p></div></div>
+        <div class="setting"><div class="text"><b>${t('Index des catalogues')}</b></div><div class="control">${toggle('name="enabled"', s.indexEnabled)}</div></div>
+        <div class="setting"><div class="text"><b>${t('Titres maximum par liste')}</b><span>${t('Au-delà, la fin des listes très longues est ignorée.')}</span></div>
+          <div class="control"><select name="max" style="width:auto">${opt([[2000, '2 000'], [5000, '5 000'], [10000, '10 000'], [0, t('Sans limite')]], s.indexMaxItems)}</select></div></div>
+        <div class="setting"><div class="text"><b>${t('Mise à jour rapide')}</b><span>${t('Relit le début de chaque liste : nouveaux titres et changements de classement.')}</span></div>
+          <div class="control"><div class="row"><select name="pages" style="width:auto">${opt([3, 5, 10].map((n) => [n, t('{n} pages', { n })]), s.indexQuickPages)}</select>
+            <select name="every" style="width:auto">${opt([1, 2, 4, 6].map((n) => [n, t('toutes les {n} h', { n })]), s.indexQuickEvery)}</select></div></div></div>
+        <div class="setting"><div class="text"><b>${t('Relecture complète')}</b><span>${t('Toutes les listes en entier, à l’heure du serveur.')}</span></div>
+          <div class="control"><div class="row">${seg('iFreq', [['daily', t('Chaque nuit')], ['weekly', t('Chaque semaine')]], s.indexFullFrequency)}
+            <select name="day" style="width:auto" ${s.indexFullFrequency === 'weekly' ? '' : 'hidden'}>${opt(INDEX_DAYS().map((d, i) => [i, d]), s.indexFullDay)}</select>
+            <select name="hour" style="width:auto">${opt(Array.from({ length: 24 }, (_, h) => [h, `${String(h).padStart(2, '0')}:00`]), s.indexFullHour)}</select></div></div></div>
+        <div class="setting"><div class="text"><b>${t('Vitesse de lecture')}</b><span>${t('Prudente : une liste à la fois, avec une pause entre les pages, pour ménager les addons.')}</span></div>
+          <div class="control">${seg('iSpeed', [['gentle', t('Prudente')], ['normal', t('Normale')], ['fast', t('Rapide')]], s.indexSpeed)}</div></div>
+        <div class="row end" style="margin-top:8px"><button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
+      </form>
+      <div class="card" id="iState"></div>
+    </div>
+    <div class="card" id="iLists" style="margin-top:16px"></div>`;
+
+  const when = (ts) => (ts ? `${esc(fmtDate(ts))} <span class="faint">(${ago(ts)})</span>` : t('jamais'));
+  const soon = (ts) => (ts ? esc(fmtDate(ts)) : '—');
+  const drawState = () => {
+    const r = data.running;
+    const st = data.stats;
+    $('#iState').innerHTML = `<div class="card-head"><div><h2>${t('État')}</h2>${data.enabled ? `<p class="connection-ok">● ${t('Activé')}</p>` : `<p>${t('Désactivé.')}</p>`}</div></div>
+      ${r ? `<div class="setting"><div class="text"><b>${r.mode === 'full' ? t('Relecture complète en cours') : t('Mise à jour rapide en cours')}</b>
+          <span>${t('{done} / {total} listes', { done: r.done, total: r.total })}${r.current.length ? ` · ${esc(r.current.join(', '))}` : ''}</span>
+          <div class="progress"><span style="width:${r.total ? Math.round((r.done / r.total) * 100) : 0}%"></span></div></div></div>` : ''}
+      <div class="setting"><div class="text"><b>${t('Contenu')}</b><span>${t('{lists} listes · {items} titres dans les listes · {titles} titres différents', { lists: st.lists, items: st.items.toLocaleString(UI.locale), titles: st.titles.toLocaleString(UI.locale) })}</span></div>
+        <div class="control"><b>≈ ${fmtSize(st.bytes)}</b></div></div>
+      <div class="setting"><div class="text"><b>${t('Dernière relecture complète')}</b><span>${when(data.lastFull)}${data.nextFull ? ` · ${t('prochaine : {date}', { date: soon(data.nextFull) })}` : ''}</span></div></div>
+      <div class="setting"><div class="text"><b>${t('Dernière mise à jour rapide')}</b><span>${when(data.lastQuick)}${data.nextQuick ? ` · ${t('prochaine : {date}', { date: soon(data.nextQuick) })}` : ''}</span></div></div>
+      ${data.last ? `<div class="setting"><div class="text"><b>${t('Dernier passage')}</b><span>${t('{n} listes en {d}', { n: data.last.lists, d: duration(data.last.duration) })}${data.last.errors ? ` · <span style="color:var(--bad)">${t('{n} erreur(s)', { n: data.last.errors })}</span>` : ''}</span></div></div>` : ''}`;
+    // Pas de scan tant que l'index est desactive (ou pendant un passage).
+    $('#iScan').disabled = !!r || !data.enabled;
+    const rows = data.lists;
+    $('#iLists').innerHTML = `<div class="card-head"><div><h2>${t('Listes indexées')}</h2><p>${t('Une liste en erreur garde son dernier contenu ; elle sera relue au prochain passage.')}</p></div></div>
+      ${rows.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>${t('Liste')}</th><th>${t('Source')}</th><th>${t('Titres')}</th><th>${t('Dernière lecture')}</th></tr></thead><tbody>
+        ${rows.map((l) => `<tr><td><b>${esc(l.name)}</b>${l.error ? `<div class="small" style="color:var(--bad)">${esc(l.error)}</div>` : ''}</td>
+          <td class="nowrap">${esc(l.source)}</td>
+          <td class="nowrap">${l.count.toLocaleString(UI.locale)}${l.complete ? '' : ` <span class="faint small">${t('(début)')}</span>`}</td>
+          <td class="nowrap small">${ago(Math.max(l.fullAt || 0, l.quickAt || 0) || null)}</td></tr>`).join('')}
+        </tbody></table></div>` : `<div class="empty">${icon('layers')}<p>${t("L'index est vide.")}</p></div>`}`;
+  };
+  drawState();
+
+  // Etat relu toutes les 3 s pendant un passage, toutes les 30 s sinon, tant que la page est ouverte.
+  const poll = async () => {
+    if (!$('#iState')?.isConnected) return;
+    try {
+      data = await api('GET', '/index');
+      drawState();
+    } catch {}
+    setTimeout(poll, data.running ? 3000 : 30000);
+  };
+  setTimeout(poll, data.running ? 3000 : 30000);
+
+  let freq = s.indexFullFrequency;
+  let speed = s.indexSpeed;
+  $('#iFreq').onclick = (e) => {
+    const b = e.target.closest('[data-v]');
+    if (!b) return;
+    freq = b.dataset.v;
+    $$('#iFreq button').forEach((x) => x.classList.toggle('on', x === b));
+    $('#iSet').day.hidden = freq !== 'weekly';
+  };
+  $('#iSpeed').onclick = (e) => {
+    const b = e.target.closest('[data-v]');
+    if (!b) return;
+    speed = b.dataset.v;
+    $$('#iSpeed button').forEach((x) => x.classList.toggle('on', x === b));
+  };
+  $('#iSet').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const ok = await saveSettings($('button[type=submit]', f), {
+      indexEnabled: f.enabled.checked,
+      indexMaxItems: Number(f.max.value),
+      indexQuickPages: Number(f.pages.value),
+      indexQuickEvery: Number(f.every.value),
+      indexFullFrequency: freq,
+      indexFullDay: Number(f.day.value),
+      indexFullHour: Number(f.hour.value),
+      indexSpeed: speed
+    });
+    if (ok) {
+      data = await api('GET', '/index');
+      drawState();
+    }
+  };
+  $('#iScan').onclick = async (e) => {
+    const r = await busy(e.currentTarget, () => api('POST', '/index/scan', { mode: 'full' }), t('Relecture complète lancée'));
+    if (r) {
+      data = r;
+      drawState();
+    }
+  };
+  $('#iClear').onclick = async () => {
+    if (!(await confirmDialog(t("Vider l'index ?"), t('Toutes les listes indexées sont effacées. Elles seront relues au prochain passage si l’index est activé.'), t('Vider'), true))) return;
+    const r = await busy($('#iClear'), () => api('DELETE', '/index'), t('Index vidé'));
+    if (r) {
+      data = r;
+      drawState();
+    }
+  };
 };
 
 PAGES['settings/web'] = async (main) => {
