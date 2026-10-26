@@ -117,6 +117,13 @@ async function resolve(type, sid) {
   return null;
 }
 
+/** Id IMDb (tt...) d'un film ou d'une serie TMDB, ou null. */
+async function imdbIdOf(type, id) {
+  const mediaType = type === 'series' ? 'tv' : 'movie';
+  const r = await get(`/${mediaType}/${Number(id)}/external_ids`, {}, { ttl: 30 * DAY, stale: 90 * DAY });
+  return /^tt\d+$/.test(r?.imdb_id || '') ? r.imdb_id : null;
+}
+
 // ---- Fiches -------------------------------------------------------------------
 
 function details(mediaType, id) {
@@ -561,4 +568,4 @@ async function spotlight(limit = 10) {
   return metas.filter(Boolean);
 }
 
-module.exports = { ADDON_URL, enabled, spotlight, collectionSource, checkKey, resolve, meta, previewMeta, released, collection, catalog, addons, warm };
+module.exports = { ADDON_URL, enabled, spotlight, collectionSource, checkKey, resolve, imdbIdOf, meta, previewMeta, released, collection, catalog, addons, warm };

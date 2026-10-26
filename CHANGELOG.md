@@ -3,6 +3,18 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
+## 0.2.6 — 2026-10-26
+
+### Corrections
+- **Statistiques sans doublons entre sources de suivi** : un même visionnage importé de plusieurs
+  sources (Trakt, Simkl, Scrob, Nuvio) ou lu dans Stremfin puis importé ne compte qu'une fois.
+  Un titre a désormais la même identité quelle que soit la source (l'id IMDb ou TMDB manquant est
+  retrouvé sur TMDB) ; les revisionnages venant d'une même source restent comptés. Les doublons
+  déjà enregistrés sont retirés au démarrage.
+- **Scrob** : ses heures (UTC sans fuseau) étaient lues comme des heures locales, avec 1 à 2 h
+  de décalage. Elles sont lues en UTC ; les lignes déjà importées sont corrigées une fois
+  (réimport pour un profil encore associé, remise à l'heure sinon).
+
 ## 0.2.5 — 2026-10-26
 
 ### Ajouts

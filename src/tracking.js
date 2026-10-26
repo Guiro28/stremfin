@@ -8,7 +8,7 @@ const config = require('./config');
 const ids = require('./ids');
 const nuvio = require('./nuvio');
 const tmdb = require('./tmdb');
-const { st } = require('./db');
+const { st, db, transaction } = require('./db');
 const pkg = require('../package.json');
 
 const TRAKT = 'https://api.trakt.tv';
@@ -20,6 +20,8 @@ const SIMKL_SCOPE = 'media:read media:write';
 const SIMKL_REFRESH_BEFORE = 2 * 24 * 3600e3;
 const OOB = 'urn:ietf:wg:oauth:2.0:oob';
 const IMPORT_EVERY = 6 * 3600e3;
+// Un meme titre vu a moins de 4 h d'ecart par deux sources : un seul visionnage.
+const PLAY_NEAR = 4 * 3600e3;
 const SERVICES = ['trakt', 'simkl', 'scrob', 'nuvio'];
 
 function log(...args) {
@@ -348,7 +350,10 @@ async function scrobEvents(profile) {
     if (!r.ok || !Array.isArray(r.data?.results)) throw new Error('Historique Scrob indisponible');
     let done = false;
     for (const ev of r.data.results) {
-      const at = Date.parse(ev.watched_at) || 0;
+      // Scrob donne l'heure UTC sans fuseau ("2026-10-23T21:19:22") : sans "Z", elle serait lue
+      // comme une heure locale.
+      const iso = String(ev.watched_at || '');
+      const at = Date.parse(/T.*(Z|[+-]\d\d:?\d\d)$/i.test(iso) || !iso ? iso : `${iso}Z`) || 0;
       if (t.lastAt && at <= t.lastAt) {
         done = true;
         break;
@@ -437,14 +442,19 @@ function markProgress(profile, uuid, at, positionMs) {
 /**
  * Identifiants Stremfin d'un titre : la version IMDb (tt...) et la version TMDB (tmdb:...)
  * sont deux elements differents selon le catalogue d'ou vient le titre ; on marque les deux.
+ * L'id manquant est retrouve sur TMDB : un titre a ainsi la meme identite quelle que soit la
+ * source (Scrob ne donne que l'id TMDB d'une serie, Simkl et Trakt aussi l'IMDb), et un meme
+ * visionnage importe de deux sources n'est compte qu'une fois.
  */
 async function sidsOf(kind, imdb, tmdbId) {
+  const type = kind === 'movie' ? 'movie' : 'series';
+  let t = Number(tmdbId) || null;
+  if (!t && imdb && tmdb.enabled()) t = (await tmdb.resolve(type, imdb).catch(() => null))?.id || null;
+  if (!imdb && t && tmdb.enabled()) imdb = (await tmdb.imdbIdOf(type, t).catch(() => null)) || undefined;
   const out = [];
   if (imdb) out.push(imdb);
-  let t = Number(tmdbId) || null;
-  if (!t && imdb && tmdb.enabled()) t = (await tmdb.resolve(kind === 'movie' ? 'movie' : 'series', imdb).catch(() => null))?.id || null;
   if (t) out.push(`tmdb:${t}`);
-  return { sids: out, tmdbId: t };
+  return { sids: out, tmdbId: t, imdb };
 }
 
 /** Applique des evenements a un profil. Renvoie { watched, progress }. */
@@ -505,7 +515,7 @@ async function apply(profile, events, source) {
       const label = x.kind === 'movie' ? x.title : `${x.title || ''} S${String(ev.season).padStart(2, '0')}E${String(ev.episode).padStart(2, '0')}`;
       const ms = (ev.minutes || 0) * 60e3;
       // Deja la (lecture faite ici puis envoyee a Trakt, ou vue via Nuvio et Trakt) : pas de doublon.
-      if (st.playNear.get(profile.id, uuids[0], uuids[1] || uuids[0], ev.at - 4 * 3600e3, ev.at + 4 * 3600e3, source)) continue;
+      if (st.playNear.get(profile.id, uuids[0], uuids[1] || uuids[0], ev.at - PLAY_NEAR, ev.at + PLAY_NEAR, source)) continue;
       st.playImport.run(profile.id, uuids[0], x.kind, label || null, x.kind === 'movie' ? null : x.title || null, ev.at, ev.at, ms, ms, source);
     }
   }
@@ -565,8 +575,90 @@ async function importAll() {
 }
 
 let timer = null;
+
+/**
+ * Doublons deja dans les statistiques : un meme visionnage importe de deux sources (ou lu ici puis
+ * importe), a moins de 4 h d'ecart, avant que les titres soient reconnus quelle que soit leur
+ * version. Chaque titre est ramene a son id TMDB ; on garde la lecture faite ici, sinon la premiere
+ * enregistree. Renvoie le nombre de lignes retirees.
+ */
+async function dedupePlays() {
+  const rows = db.prepare('SELECT id, profile, uuid, source, started FROM plays ORDER BY profile, started, id').all();
+  const resolved = new Map(); // "type|tt..." -> "tmdb:N" (ou l'id d'origine)
+  const norm = async (type, sid) => {
+    if (!/^tt\d+$/.test(sid || '') || !tmdb.enabled()) return sid;
+    const k = `${type}|${sid}`;
+    if (!resolved.has(k)) resolved.set(k, (await tmdb.resolve(type, sid).catch(() => null))?.id);
+    return resolved.get(k) ? `tmdb:${resolved.get(k)}` : sid;
+  };
+  const keyOf = new Map(); // uuid -> identite du titre
+  for (const r of rows) {
+    if (keyOf.has(r.uuid)) continue;
+    const e = ids.get(r.uuid);
+    const movie = e?.key.match(/^item\|movie\|(.+)$/);
+    let key = null;
+    if (movie) key = `movie|${await norm('movie', movie[1])}`;
+    else if (e?.kind === 'episode') key = `ep|${await norm('series', e.data.seriesSid || e.key.split('|')[1])}|${e.data.season}|${e.data.episode}`;
+    keyOf.set(r.uuid, key);
+  }
+  const groups = new Map(); // "profil|titre" -> visionnages gardes
+  const drop = [];
+  for (const r of rows) {
+    const key = keyOf.get(r.uuid);
+    if (!key) continue;
+    const g = groups.get(`${r.profile}|${key}`) || [];
+    groups.set(`${r.profile}|${key}`, g);
+    // Visionnage garde, proche, d'une autre source qui n'y a pas deja ete rattachee.
+    const k = g.find((x) => !x.sources.has(r.source) && Math.abs(x.started - r.started) <= PLAY_NEAR);
+    if (!k) {
+      g.push({ id: r.id, source: r.source, started: r.started, sources: new Set([r.source]) });
+    } else if (r.source === 'local' && k.source !== 'local') {
+      drop.push(k.id);
+      Object.assign(k, { id: r.id, source: 'local', started: r.started });
+      k.sources.add('local');
+    } else {
+      drop.push(r.id);
+      k.sources.add(r.source);
+    }
+  }
+  const del = db.prepare('DELETE FROM plays WHERE id = ?');
+  transaction(() => drop.forEach((id) => del.run(id)));
+  return drop.length;
+}
+
+/**
+ * Une fois : lignes Scrob importees quand ses heures (UTC, sans fuseau) etaient lues comme des heures
+ * locales de ce serveur. Les profils encore associes refont leur import (heures justes, titres
+ * reconnus quelle que soit leur version) ; les autres gardent leurs lignes, remises a l'heure UTC.
+ */
+function migrateScrobTimes() {
+  const c = config.get();
+  if (c.migrations.includes('scrob-utc')) return;
+  const linked = new Set(c.profiles.filter((p) => p.scrob?.refreshToken).map((p) => p.id));
+  const rows = db.prepare("SELECT id, profile, started FROM plays WHERE source = 'scrob'").all();
+  const del = db.prepare('DELETE FROM plays WHERE id = ?');
+  const fix = db.prepare('UPDATE OR IGNORE plays SET started = ?, ended = ? WHERE id = ?');
+  transaction(() => {
+    for (const r of rows) {
+      if (linked.has(r.profile)) del.run(r.id);
+      else {
+        const at = r.started - new Date(r.started).getTimezoneOffset() * 60e3;
+        fix.run(at, at, r.id);
+      }
+    }
+  });
+  for (const p of c.profiles) if (linked.has(p.id)) Object.assign(p.scrob, { lastAt: 0, lastSync: null, lastResult: null });
+  c.migrations.push('scrob-utc');
+  config.save();
+  if (rows.length) log(`${rows.length} lecture(s) Scrob remise(s) a l'heure UTC ou reimportee(s)`);
+}
+
 function start() {
   clearTimeout(timer);
+  migrateScrobTimes();
+  dedupePlays()
+    .then((n) => n && log(`${n} visionnage(s) en double retire(s) des statistiques (meme lecture vue par plusieurs sources)`))
+    .catch((e) => log(`nettoyage des doublons KO : ${e.message}`));
   const run = () => {
     importAll()
       .catch((e) => log(`import KO : ${e.message}`))

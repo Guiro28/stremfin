@@ -148,7 +148,9 @@ function load() {
     // Bibliotheque d'addons du serveur : [{ id, url, name, manifest }], attribues ensuite aux profils.
     addons: Array.isArray(raw.addons) ? raw.addons : [],
     // Bibliotheque de collections (fichiers .json + addons), attribuees ensuite aux profils.
-    collections: Array.isArray(raw.collections) ? raw.collections : []
+    collections: Array.isArray(raw.collections) ? raw.collections : [],
+    // Corrections de donnees deja faites (une seule fois chacune) : ["scrob-utc", ...].
+    migrations: Array.isArray(raw.migrations) ? raw.migrations : []
   };
   state.settings.upstream = { ...defaultSettings().upstream, ...(state.settings.upstream || {}) };
   migratePlatforms();
