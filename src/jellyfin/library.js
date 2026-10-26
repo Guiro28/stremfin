@@ -97,8 +97,9 @@ function lightDto(profile, entry) {
   if (!entry) return null;
   switch (entry.kind) {
     case 'movie':
-    case 'series':
       return dto.mediaItem(entry.uuid, entry.kind, entry.data, udRow(profile, entry.uuid));
+    case 'series':
+      return seriesUserData(profile, entry, dto.mediaItem(entry.uuid, entry.kind, entry.data, udRow(profile, entry.uuid)));
     case 'episode':
       return dto.episodeItem(entry.uuid, entry, ids.get(entry.data.seriesUuid), udRow(profile, entry.uuid));
     case 'season': {
@@ -203,7 +204,67 @@ async function seriesTree(profile, series) {
   });
   ids.registerMany(regs);
   for (const s of seasons) s.episodes = s.episodeUuids.map((u) => ids.get(u));
+  // Episodes deja sortis (hors speciaux) : sert a la pastille "episodes restants" des listes.
+  const aired = (meta.videos || []).filter((v) => v?.id && Number(v.season) !== 0 && isAired(v.released, now)).length;
+  // Debut de l'id video des episodes (tt... ou tmdb:N) : identite de la serie commune a ses versions.
+  const vidKey = String(videos.find((v) => Number(v.season) !== 0)?.id || '').replace(/:\d+:\d+$/, '') || undefined;
+  if (aired !== series.data.airedCount || vidKey !== series.data.vidKey) ids.register(series.key, series.kind, { airedCount: aired, vidKey });
   return { meta, seasons };
+}
+
+/** Episode sorti (ou sans date connue) ? */
+function isAired(released, now = Date.now()) {
+  const t = Date.parse(released || '');
+  return !Number.isFinite(t) || t <= now;
+}
+
+/**
+ * Identite d'une serie commune a ses deux versions (tt... / tmdb:...) : l'id IMDb, sinon tmdb:N.
+ * C'est aussi le debut de l'id video de ses episodes (tt..:s:e ou tmdb:N:s:e).
+ */
+function seriesKeyOf(data) {
+  return data?.vidKey || data?.imdb || (data?.tmdb ? `tmdb:${data.tmdb}` : data?.sid) || null;
+}
+
+const episodeSeriesKey = (data) => String(data?.vid || '').replace(/:\d+:\d+$/, '') || null;
+
+// Episodes vus de chaque profil, par serie : "saison:episode". Relus apres chaque changement.
+const playedCache = new Map();
+
+function forgetPlayed(profileId) {
+  playedCache.delete(profileId);
+  nextUpMemo.delete(profileId);
+}
+
+function playedBySeries(profileId) {
+  if (playedCache.has(profileId)) return playedCache.get(profileId);
+  const map = new Map();
+  for (const r of st.udPlayedEpisodes.all(profileId)) {
+    const d = JSON.parse(r.data);
+    const k = episodeSeriesKey(d);
+    if (!k || !Number(d.season)) continue;
+    if (!map.has(k)) map.set(k, new Set());
+    map.get(k).add(`${d.season}:${d.episode}`);
+  }
+  playedCache.set(profileId, map);
+  return map;
+}
+
+/**
+ * Serie dans une liste : coche quand tous les episodes sortis sont vus, pastille du nombre
+ * d'episodes restants (comme Jellyfin). Connu des que la fiche de la serie a ete chargee une fois.
+ */
+function seriesUserData(profile, entry, d, always = false) {
+  const total = entry.data.airedCount;
+  const k = seriesKeyOf(entry.data);
+  if (!total || !k || !d?.UserData) return d;
+  const seen = playedBySeries(profile.id).get(k)?.size || 0;
+  // Dans les listes, seulement pour les series commencees (sur la fiche, toujours).
+  if (!seen && !always) return d;
+  d.UserData.UnplayedItemCount = Math.max(0, total - seen);
+  d.UserData.Played = seen >= total;
+  d.UserData.PlayedPercentage = Math.min(100, (seen / total) * 100);
+  return d;
 }
 
 // ---- Fiche detaillee --------------------------------------------------------
@@ -228,10 +289,7 @@ async function itemDto(profile, id) {
       const tree = await seriesTree(profile, fresh);
       d.ChildCount = tree.seasons.length;
       d.RecursiveItemCount = tree.seasons.reduce((n, s) => n + s.episodes.length, 0);
-      d.UserData.UnplayedItemCount = tree.seasons.reduce(
-        (n, s) => n + s.episodes.filter((e) => !udRow(profile, e.uuid)?.played).length,
-        0
-      );
+      seriesUserData(profile, ids.get(entry.uuid), d, true);
     } else {
       prefetch(profile, entry.uuid);
     }
@@ -284,9 +342,12 @@ async function seasonsOf(profile, seriesId) {
   if (!series || series.kind !== 'series') return [];
   const tree = await seriesTree(profile, series);
   const fresh = ids.get(series.uuid);
+  // Episodes vus, quelle que soit la version de la serie sur laquelle ils l'ont ete.
+  const seen = playedBySeries(profile.id).get(seriesKeyOf(fresh.data)) || new Set();
+  const played = (e) => seen.has(`${e.data.season}:${e.data.episode}`) || !!udRow(profile, e.uuid)?.played;
   return tree.seasons.map((s) => {
     const d = dto.seasonItem(s.uuid, fresh, s.n, udRow(profile, s.uuid), s.episodes.length);
-    d.UserData.UnplayedItemCount = s.episodes.filter((e) => !udRow(profile, e.uuid)?.played).length;
+    d.UserData.UnplayedItemCount = s.episodes.filter((e) => !played(e)).length;
     d.UserData.Played = d.UserData.UnplayedItemCount === 0 && s.episodes.length > 0;
     return d;
   });
@@ -392,33 +453,87 @@ function favorites(profile, types) {
     .filter((d) => d && (!types || types.includes(d.Type)));
 }
 
-/** "A suivre" : pour chaque serie entamee, l'episode qui suit le dernier vu. */
-async function nextUp(profile, { limit = 20, seriesId } = {}) {
-  const rows = st.udRecent.all(profile.id, 500);
-  const lastBySeries = new Map();
-  for (const r of rows) {
-    const e = ids.get(r.uuid);
-    if (!e || e.kind !== 'episode') continue;
-    if (seriesId && e.data.seriesUuid !== ids.norm(seriesId)) continue;
-    // Les deux versions d'une serie (tt... / tmdb:...) partagent l'id video de leurs episodes.
-    const k = String(e.data.vid || '').replace(/:\d+:\d+$/, '') || e.data.seriesUuid;
-    if (!lastBySeries.has(k)) lastBySeries.set(k, { e, r });
+/**
+ * "A suivre", comme Jellyfin. Series candidates : toutes celles dont un episode a ete vu, commence
+ * ou lance depuis `cutoff` (reglage "jours dans A suivre" des apps), la plus recemment regardee
+ * d'abord. Pour chacune : le premier episode sorti et pas vu apres l'episode vu le plus avance
+ * (saison puis numero, speciaux a part) ; une nouvelle saison y apparait donc d'elle-meme. Un
+ * episode deja commence n'y est que si `resumable` (sinon il est dans "Reprendre"). `rewatching` :
+ * pour une serie que l'on revoit, l'episode deja vu qui suit le dernier regarde. Vu et en cours se
+ * lisent sur les deux versions de la serie (tt... / tmdb:...).
+ */
+async function nextUp(profile, { start = 0, limit = 20, seriesId, cutoff = 0, resumable = true, rewatching = false } = {}) {
+  const memoKey = JSON.stringify([start, limit, seriesId || '', cutoff ? Math.floor(cutoff / 3600e3) : 0, resumable, rewatching]);
+  const memo = nextUpMemo.get(profile.id);
+  if (memo?.has(memoKey) && memo.get(memoKey).exp > Date.now()) return memo.get(memoKey).items;
+
+  const groups = new Map(); // serie -> { last, recent: { at, seriesUuid }, eps: Map("s:e" -> etat) }
+  let wanted = null;
+  if (seriesId) {
+    const s = ids.get(seriesId);
+    if (!s || s.kind !== 'series') return [];
+    await seriesTree(profile, s).catch(() => null);
+    wanted = seriesKeyOf(ids.get(s.uuid).data);
+    groups.set(wanted, { last: 0, recent: { at: 0, seriesUuid: s.uuid }, eps: new Map() });
   }
+  for (const r of st.udEpisodesSince.all(profile.id, seriesId ? 0 : cutoff || 0)) {
+    const d = JSON.parse(r.data);
+    const k = episodeSeriesKey(d) || d.seriesUuid;
+    if (!k || (wanted && k !== wanted)) continue;
+    let g = groups.get(k);
+    if (!g) groups.set(k, (g = { last: 0, recent: { at: -1, seriesUuid: null }, eps: new Map() }));
+    const at = r.last_played || 0;
+    g.last = Math.max(g.last, at);
+    // Version de la serie regardee en dernier : "A suivre" continue dans celle-la.
+    if (!wanted && at > g.recent.at && d.seriesUuid) g.recent = { at, seriesUuid: d.seriesUuid };
+    const n = Number(d.season);
+    if (!n) continue;
+    const se = `${n}:${Number(d.episode)}`;
+    const cur = g.eps.get(se) || { played: false, position: 0, at: 0 };
+    g.eps.set(se, { played: cur.played || !!r.played, position: Math.max(cur.position, r.position || 0), at: Math.max(cur.at, at) });
+  }
+  const order = [...groups.values()].filter((g) => g.recent.seriesUuid).sort((a, b) => b.last - a.last);
   const out = [];
-  for (const { e, r } of lastBySeries.values()) {
-    if (out.length >= limit) break;
-    const sUuid = e.data.seriesUuid;
-    const series = ids.get(sUuid);
-    if (!series) continue;
-    // Episode en cours : il apparait deja dans "Reprendre", sauf si on demande une serie precise.
-    if (!r.played && !seriesId) continue;
-    const tree = await seriesTree(profile, series).catch(() => ({ seasons: [] }));
-    const flat = tree.seasons.filter((s) => s.n !== 0).flatMap((s) => s.episodes);
-    const idx = flat.findIndex((x) => x.uuid === e.uuid);
-    const next = flat.slice(idx + 1).find((x) => !udRow(profile, x.uuid)?.played) || (!r.played ? e : null);
-    if (next) out.push(dto.episodeItem(next.uuid, next, ids.get(sUuid), udRow(profile, next.uuid)));
+  // Par lots : les fiches des series se lisent en parallele (cache TMDB, rafraichi en arriere-plan).
+  for (let i = 0; i < order.length && out.length < start + limit; i += 8) {
+    const found = await Promise.all(order.slice(i, i + 8).map((g) => nextOfSeries(profile, g, { resumable, rewatching }).catch(() => [])));
+    for (const items of found) out.push(...items);
   }
-  return out;
+  const items = out.slice(start, start + limit);
+  if (!nextUpMemo.has(profile.id)) nextUpMemo.set(profile.id, new Map());
+  nextUpMemo.get(profile.id).set(memoKey, { items, exp: Date.now() + 60e3 });
+  return items;
+}
+
+// Resultats recents de "A suivre" (une minute), oublies a chaque changement de vu / reprise.
+const nextUpMemo = new Map();
+
+/** Episode(s) "A suivre" d'une serie candidate. */
+async function nextOfSeries(profile, g, { resumable, rewatching }) {
+  const series = ids.get(g.recent.seriesUuid);
+  if (!series || series.kind !== 'series') return [];
+  const tree = await seriesTree(profile, series);
+  const now = Date.now();
+  // Episodes sortis, dans l'ordre (saison puis numero), sans les speciaux.
+  const flat = tree.seasons.filter((s) => s.n !== 0).flatMap((s) => s.episodes).filter((e) => e && isAired(e.data.released, now));
+  const state = (e) => g.eps.get(`${e.data.season}:${e.data.episode}`) || { played: false, position: 0, at: 0 };
+  let furthest = -1;
+  flat.forEach((e, i) => {
+    if (state(e).played) furthest = i;
+  });
+  const picks = [];
+  const next = flat.slice(furthest + 1).find((e) => !state(e).played);
+  if (next && (resumable || !(state(next).position > 0))) picks.push(next);
+  if (rewatching) {
+    let last = -1;
+    flat.forEach((e, i) => {
+      if (state(e).played && (last < 0 || state(e).at > state(flat[last]).at)) last = i;
+    });
+    const again = last >= 0 ? flat.slice(last + 1).find((e) => state(e).played) : null;
+    if (again && again !== next) picks.push(again);
+  }
+  const fresh = ids.get(series.uuid);
+  return picks.map((e) => dto.episodeItem(e.uuid, e, fresh, udRow(profile, e.uuid)));
 }
 
 // ---- Images -----------------------------------------------------------------
@@ -530,6 +645,7 @@ function startWarming() {
 
 module.exports = {
   udRow,
+  forgetPlayed,
   metaFor,
   keepReleased,
   similar,

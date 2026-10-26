@@ -475,10 +475,21 @@ router.get(['/Users/:u/Items', '/Items'], async (req, res) => {
 
 // ---- Series -----------------------------------------------------------------
 
+// Reglages envoyes par les apps (memes valeurs par defaut que Jellyfin) : anciennete maximale
+// (nextUpDateCutoff, "jours dans A suivre"), episode deja commence (enableResumable), revisionnage
+// (enableRewatching). DisableFirstEpisode n'existe plus dans Jellyfin : ignore.
 router.get('/Shows/NextUp', async (req, res) => {
   const q = lq(req);
-  const items = await library.nextUp(req.profile, { limit: int(q.limit, 20), seriesId: q.seriesid });
-  res.json(dto.queryResult(decorate(items, q, req.profile)));
+  const start = int(q.startindex, 0);
+  const items = await library.nextUp(req.profile, {
+    start,
+    limit: int(q.limit, 20),
+    seriesId: q.seriesid,
+    cutoff: Date.parse(q.nextupdatecutoff || '') || 0,
+    resumable: q.enableresumable !== 'false',
+    rewatching: q.enablerewatching === 'true'
+  });
+  res.json(dto.queryResult(decorate(items, q, req.profile), undefined, start));
 });
 
 router.get('/Shows/:id/Seasons', async (req, res) => {

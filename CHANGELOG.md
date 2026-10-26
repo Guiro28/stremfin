@@ -3,6 +3,27 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
+## 0.2.7 — 2026-10-26
+
+### Corrections
+- **« À suivre » fonctionne comme Jellyfin** :
+  - toutes les séries regardées depuis la limite choisie dans l'app (365 jours par défaut dans le
+    client web) sont prises en compte, plus seulement les 500 dernières lignes d'historique ;
+  - l'épisode proposé suit l'épisode vu le plus avancé (et non le dernier regardé) : une
+    nouvelle saison y apparaît d'elle-même ;
+  - une série n'en disparaît plus parce qu'un épisode a été ouvert quelques secondes ;
+  - les réglages des apps sont respectés (ancienneté, épisode déjà commencé, revisionnage).
+- **Revisionnage** : un épisode déjà vu que l'on revoit reste vu ; arrêté en cours, il va dans
+  « Reprendre ». Chaque visionnage complet compte.
+- **Vu / pas vu partagé entre les deux versions d'un titre** (catalogue d'un addon en IMDb,
+  catalogue TMDB) : progression et « vu » sont recopiés sur l'autre version. Au démarrage, une
+  fois, les épisodes importés sous un id TMDB sont rangés sous l'id de la fiche, et les vus
+  existants sont recopiés.
+
+### Ajouts
+- **Affiches de séries** : coche quand tous les épisodes sortis sont vus, pastille du nombre
+  d'épisodes restants pour une série commencée.
+
 ## 0.2.6 — 2026-10-26
 
 ### Corrections

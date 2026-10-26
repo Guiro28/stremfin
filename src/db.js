@@ -116,7 +116,19 @@ const st = {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(profile, uuid) DO UPDATE SET position = excluded.position, played = excluded.played,
       favorite = excluded.favorite, likes = excluded.likes, play_count = excluded.play_count, last_played = excluded.last_played`),
-  udResume: db.prepare('SELECT * FROM userdata WHERE profile = ? AND position > 0 AND played = 0 ORDER BY last_played DESC LIMIT ?'),
+  // Reprise : toute position gardee, meme sur un titre deja vu (revisionnage arrete en cours), comme Jellyfin.
+  udResume: db.prepare('SELECT * FROM userdata WHERE profile = ? AND position > 0 ORDER BY last_played DESC LIMIT ?'),
+  udPlayedOrStarted: db.prepare('SELECT * FROM userdata WHERE profile = ? AND (played = 1 OR position > 0)'),
+  // "A suivre" : episodes touches depuis une date (vus, en cours ou seulement lances), avec leur fiche.
+  udEpisodesSince: db.prepare(`SELECT u.uuid, u.played, u.position, u.last_played, i.data FROM userdata u JOIN ids i ON i.uuid = u.uuid
+    WHERE u.profile = ? AND i.kind = 'episode' AND u.last_played >= ?`),
+  // Episodes ranges sous un id video TMDB (tmdb:N:s:e), tous profils.
+  udTmdbVidEpisodes: db.prepare(`SELECT u.*, i.data FROM userdata u JOIN ids i ON i.uuid = u.uuid
+    WHERE i.kind = 'episode' AND i.data LIKE '%"vid":"tmdb:%'`),
+  udDel: db.prepare('DELETE FROM userdata WHERE profile = ? AND uuid = ?'),
+  // Episodes vus (pastille "episodes restants" et coche des series).
+  udPlayedEpisodes: db.prepare(`SELECT i.data FROM userdata u JOIN ids i ON i.uuid = u.uuid
+    WHERE u.profile = ? AND i.kind = 'episode' AND u.played = 1`),
   udFavorites: db.prepare('SELECT * FROM userdata WHERE profile = ? AND favorite = 1 ORDER BY last_played DESC'),
   udRecent: db.prepare('SELECT * FROM userdata WHERE profile = ? AND last_played IS NOT NULL ORDER BY last_played DESC LIMIT ?'),
   udPlayed: db.prepare('SELECT uuid FROM userdata WHERE profile = ? AND played = 1'),

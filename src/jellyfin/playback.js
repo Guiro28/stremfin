@@ -872,10 +872,14 @@ function saveUd(profile, uuid, row) {
     row.likes === undefined ? null : row.likes, row.play_count || 0, row.last_played || null);
   // Apps connectees prevenues : "Reprendre", vu / pas vu et favoris se mettent a jour tout de suite.
   notifyUserData(profile, uuid);
+  // Meme progression et meme "vu" sur l'autre version du titre (tt... / tmdb:...).
+  require('./versions').mirror(profile, uuid).catch(() => {});
 }
 
 /** Annonce aux apps du profil (WebSocket) les donnees de lecture d'un element. */
 function notifyUserData(profile, uuid) {
+  // Episodes vus du profil (coche et pastille des series) : a relire.
+  require('./library').forgetPlayed(profile.id);
   const row = st.udGet.get(profile.id, uuid);
   if (row) require('./socket').userDataChanged(profile.id, uuid, dto.userData(uuid, row, runtimeOf(ids.get(uuid))));
 }
@@ -892,20 +896,21 @@ function report(profile, body, stage, req) {
   if (!entry || !['movie', 'episode'].includes(entry.kind)) return;
   const row = { ...current(profile, entry.uuid) };
   const wasPlayed = !!row.played;
+  const wasStarted = row.position > 0;
   const pos = Number(body.PositionTicks);
   const ticks = runtimeOf(entry);
   if (Number.isFinite(pos)) row.position = pos;
   const position = row.position;
   row.last_played = Date.now();
-  // Memes seuils que Jellyfin : vu au-dela de 90 %, pas de reprise sous 5 %.
+  // Memes regles que Jellyfin : vu au-dela de 90 %, pas de reprise sous 5 %. Un titre deja vu que
+  // l'on revoit reste vu : seule sa position de reprise est gardee (revisionnage arrete en cours).
   if (ticks && row.position > ticks * 0.9) {
-    if (!row.played) row.play_count = (row.play_count || 0) + 1;
+    // Chaque visionnage complet compte, revisionnage compris (une seule fois par lecture).
+    if (!row.played || wasStarted) row.play_count = (row.play_count || 0) + 1;
     row.played = 1;
     row.position = 0;
   } else if (stage === 'stopped' && ticks && row.position < ticks * 0.05) {
     row.position = 0;
-  } else if (row.position > 0) {
-    row.played = 0;
   }
   saveUd(profile, entry.uuid, row);
   // Statistiques : lecture en cours et temps regarde, avec la release lue et l'appareil.

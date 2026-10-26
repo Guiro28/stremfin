@@ -656,6 +656,13 @@ function migrateScrobTimes() {
 function start() {
   clearTimeout(timer);
   migrateScrobTimes();
+  const versions = require('./jellyfin/versions');
+  versions
+    .rekeyTmdbVids()
+    .then((n) => n && log(`${n} episode(s) range(s) sous l'id video de la fiche (tt..:s:e)`))
+    .then(() => versions.syncAll())
+    .then((n) => n && log(`${n} vu(s) ou reprise(s) recopie(s) sur l'autre version du titre (tt... / tmdb:...)`))
+    .catch((e) => log(`partage des vus entre versions KO : ${e.message}`));
   dedupePlays()
     .then((n) => n && log(`${n} visionnage(s) en double retire(s) des statistiques (meme lecture vue par plusieurs sources)`))
     .catch((e) => log(`nettoyage des doublons KO : ${e.message}`));
