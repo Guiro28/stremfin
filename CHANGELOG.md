@@ -3,6 +3,19 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
+## 0.2.9 — 2026-10-26
+
+### Ajouts
+- **« Continuer de regarder » depuis toutes les sources de suivi** : en plus de Nuvio, les
+  lectures en cours sont importées de Scrob (*Continue watching*), de Trakt et de Simkl (lectures
+  mises en pause, `/sync/playback`), entre 5 et 90 %. Trakt et Simkl ne donnant qu'un
+  pourcentage, la position est calculée d'après la durée du titre (fiche, sinon TMDB). Une
+  reprise importée n'écrase jamais une lecture plus récente faite dans Stremfin.
+
+### Changements
+- Une reprise importée d'un titre déjà vu (revisionnage) le laisse vu, comme une lecture faite
+  dans Stremfin.
+
 ## 0.2.8 — 2026-10-26
 
 ### Changements

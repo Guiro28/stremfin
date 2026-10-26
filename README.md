@@ -290,14 +290,16 @@ service avec son logo, comme dans Nuvio Manager :
     seul. Le jeton de chaque profil (7 jours) est renouvelé tout seul, et l'autorisation est
     révoquée chez Simkl quand on dissocie le compte.
   - *Importer* : l'historique (tout la première fois, puis ce qui est nouveau, toutes les 6 h
-    ou avec *Importer maintenant*) marque les titres vus.
+    ou avec *Importer maintenant*) marque les titres vus, et les lectures mises en pause
+    (`/sync/playback`, entre 5 et 90 %) arrivent dans « Continuer de regarder ».
   - *Envoyer* : la lecture en cours part vers Trakt (début, pause, fin ; Trakt marque vu
     au-delà de 80 %), les titres vus / « pas vus » vers Trakt et Simkl. Ce qui vient d'un
     import n'est jamais renvoyé.
 - **Scrob** ([ellite/scrob](https://github.com/ellite/scrob), suivi auto-hébergé) : l'adresse du
   serveur se règle dans *Réglages → Suivi*, puis chaque profil associe son compte par code, à
   valider sur la page `/link` du serveur Scrob (comme son extension Kodi). Scrob garde chaque
-  visionnage avec sa date : l'import reprend aussi les films et épisodes vus plusieurs fois.
+  visionnage avec sa date : l'import reprend aussi les films et épisodes vus plusieurs fois,
+  et ses lectures en cours (*Continue watching*) arrivent dans « Continuer de regarder ».
   L'envoi passe les lectures en direct (début, pause, reprise, fin ; Scrob marque vu à 90 %) et
   les titres vus ; un « pas vu » n'est envoyé que pour les films. Pour retirer l'accès côté
   Scrob, supprime l'appareil dans *Connections → Connected Apps*. Si Scrob envoie lui-même vers

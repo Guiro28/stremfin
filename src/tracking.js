@@ -297,7 +297,50 @@ async function traktEvents(profile) {
     const pages = Number(r.headers.get('x-pagination-page-count') || 0);
     if (!r.data.length || (pages && page >= pages)) break;
   }
+  // Lectures en pause ("Continuer de regarder") : relues a chaque import.
+  const pb = await request(`${TRAKT}/sync/playback`, { headers: traktHeaders(token) }).catch(() => null);
+  if (pb?.ok) events.push(...pausedEvents(pb.data));
   return { events, commit: () => (t.lastAt = newest) };
+}
+
+/**
+ * Lectures en pause de Trakt ou Simkl (/sync/playback, meme format a un detail pres : le numero
+ * d'episode s'appelle "number" chez Trakt, "episode" chez Simkl). Seul le pourcentage est donne :
+ * la position est calculee a l'import, d'apres la duree du titre. Entre 5 et 90 %, comme Jellyfin.
+ */
+function pausedEvents(list) {
+  const out = [];
+  for (const p of Array.isArray(list) ? list : []) {
+    const percent = Number(p.progress) || 0;
+    if (percent < 5 || percent > 90) continue;
+    const at = Date.parse(p.paused_at) || 0;
+    if (p.type === 'movie' && p.movie) {
+      const i = p.movie.ids || {};
+      if (i.imdb || i.tmdb) out.push({ kind: 'movie', imdb: i.imdb || undefined, tmdb: Number(i.tmdb) || undefined, title: p.movie.title, at, percent });
+    } else if (p.type === 'episode' && p.show && p.episode) {
+      const i = p.show.ids || {};
+      const episode = p.episode.number ?? p.episode.episode;
+      if ((i.imdb || i.tmdb) && p.episode.season != null && episode != null) {
+        out.push({ kind: 'episode', imdb: i.imdb || undefined, tmdb: Number(i.tmdb) || undefined, title: p.show.title, season: p.episode.season, episode, at, percent });
+      }
+    }
+  }
+  return out;
+}
+
+/** Duree (ms) d'un film ou d'un episode : celle de la fiche si elle est connue, sinon TMDB. */
+async function durationOf(x, ev, uuids) {
+  for (const u of uuids) {
+    const m = minutesOf(ids.get(u)?.data.runtime);
+    if (m) return m * 60e3;
+  }
+  if (!tmdb.enabled() || !x.sids?.length) return 0;
+  const sid = x.sids.find((s) => s.startsWith('tmdb:')) || x.sids[0];
+  const meta = await tmdb.meta(x.kind === 'movie' ? 'movie' : 'series', sid).catch(() => null);
+  if (!meta) return 0;
+  if (x.kind === 'movie') return minutesOf(meta.runtime) * 60e3;
+  const v = (meta.videos || []).find((y) => Number(y.season) === Number(ev.season) && Number(y.episode) === Number(ev.episode));
+  return minutesOf(v?.runtime || meta.runtime) * 60e3;
 }
 
 /** Historique Simkl : tout la premiere fois, ensuite ce qui a change depuis le dernier import. */
@@ -329,6 +372,9 @@ async function simklEvents(profile) {
       }
     }
   }
+  // Lectures en pause ("Continuer de regarder") : relues a chaque import.
+  const pb = await request(simklUrl('/sync/playback', {}, simklIdOf(t)), { headers: simklHeaders(token, simklIdOf(t)) }).catch(() => null);
+  if (pb?.ok) events.push(...pausedEvents(pb.data));
   return { events, commit: () => (t.lastSync = startedAt) };
 }
 
@@ -350,10 +396,7 @@ async function scrobEvents(profile) {
     if (!r.ok || !Array.isArray(r.data?.results)) throw new Error('Historique Scrob indisponible');
     let done = false;
     for (const ev of r.data.results) {
-      // Scrob donne l'heure UTC sans fuseau ("2026-10-23T21:19:22") : sans "Z", elle serait lue
-      // comme une heure locale.
-      const iso = String(ev.watched_at || '');
-      const at = Date.parse(/T.*(Z|[+-]\d\d:?\d\d)$/i.test(iso) || !iso ? iso : `${iso}Z`) || 0;
+      const at = scrobTime(ev.watched_at);
       if (t.lastAt && at <= t.lastAt) {
         done = true;
         break;
@@ -374,7 +417,33 @@ async function scrobEvents(profile) {
     }
     if (done || page >= (Number(r.data.total_pages) || 1)) break;
   }
+  // Lectures en cours ("Continue watching" de Scrob, rangees a part de l'historique) : relues a
+  // chaque import ; une reprise n'ecrase jamais une lecture plus recente faite ici.
+  const r = await request(scrobApi('/history/continue-watching?limit=200'), { headers: scrobHeaders(token) }).catch(() => null);
+  if (r?.ok && Array.isArray(r.data?.continue_watching)) {
+    for (const ev of r.data.continue_watching) {
+      if (ev.source === 'stremfin') continue;
+      const m = ev.media || {};
+      const position = (Number(ev.progress_seconds) || 0) * 1000;
+      // Pourcentage : fraction (0,42) ou pourcentage (42) selon la source.
+      const pct = Number(ev.progress_percent) > 1 ? Number(ev.progress_percent) / 100 : Number(ev.progress_percent) || 0;
+      const duration = (Number(m.runtime) || 0) * 60e3 || (pct > 0 ? position / pct : 0);
+      if (!position || !duration || position < duration * 0.05 || position > duration * 0.9) continue;
+      const base = { at: scrobTime(ev.watched_at), position, duration };
+      if (m.type === 'movie' && (m.imdb_id || m.tmdb_id)) {
+        events.push({ kind: 'movie', imdb: m.imdb_id || undefined, tmdb: m.tmdb_id || undefined, title: m.title, ...base });
+      } else if (m.type === 'episode' && m.show_tmdb_id && m.season_number != null && m.episode_number != null) {
+        events.push({ kind: 'episode', tmdb: m.show_tmdb_id, title: m.show_title, season: m.season_number, episode: m.episode_number, ...base });
+      }
+    }
+  }
   return { events, commit: () => (t.lastAt = newest) };
+}
+
+/** Heure Scrob : UTC sans fuseau ("2026-10-23T21:19:22"), qui sans "Z" serait lue comme locale. */
+function scrobTime(value) {
+  const iso = String(value || '');
+  return Date.parse(/T.*(Z|[+-]\d\d:?\d\d)$/i.test(iso) || !iso ? iso : `${iso}Z`) || 0;
 }
 
 /** Vus et lectures en cours du profil Nuvio choisi (lecture seule). */
@@ -428,11 +497,13 @@ function markWatched(profile, uuid, at) {
   return true;
 }
 
-/** Reprise a `positionMs`, si c'est plus recent que ce que Stremfin connait. */
+/**
+ * Reprise a `positionMs`, si c'est plus recent que ce que Stremfin connait. Un titre deja vu que
+ * l'on revoit reste vu (comme une lecture faite ici) : seule sa position est gardee.
+ */
 function markProgress(profile, uuid, at, positionMs) {
   const row = { ...current(profile, uuid) };
   if ((row.last_played || 0) >= at) return false;
-  row.played = 0;
   row.position = positionMs * 10000;
   row.last_played = at;
   save(profile, uuid, row);
@@ -500,13 +571,17 @@ async function apply(profile, events, source) {
           }))
         );
       }
-      if (ev.position) {
-        // Duree connue de Nuvio : sert au pourcentage de reprise tant que la fiche n'est pas chargee.
+      if (ev.position || ev.percent) {
+        // Trakt / Simkl ne donnent qu'un pourcentage : position d'apres la duree du titre.
+        const duration = ev.duration || (ev.percent ? await durationOf(x, ev, uuids) : 0);
+        const position = ev.position || (duration ? Math.round((duration * ev.percent) / 100) : 0);
+        if (!position) continue;
+        // Duree connue : sert au pourcentage de reprise tant que la fiche n'est pas chargee.
         for (const u of uuids) {
           const e = ids.get(u);
-          if (e && !e.data.runtime && ev.duration) ids.register(e.key, e.kind, { runtime: `${Math.round(ev.duration / 60e3)} min` });
+          if (e && !e.data.runtime && duration) ids.register(e.key, e.kind, { runtime: `${Math.round(duration / 60e3)} min` });
         }
-        if (uuids.map((u) => markProgress(profile, u, ev.at, ev.position)).some(Boolean)) progress++;
+        if (uuids.map((u) => markProgress(profile, u, ev.at, position)).some(Boolean)) progress++;
         continue;
       }
       if (uuids.map((u) => markWatched(profile, u, ev.at)).some(Boolean)) watched++;
