@@ -3,27 +3,12 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
-## 0.2.10-dev.2 — en développement (branche `dev`, image `ghcr.io/guiro28/stremfin:dev`)
-
-### Ajouts
-- **Index des catalogues** (*Réglages → Index des catalogues*, désactivé par défaut) : chaque liste
-  active des profils est lue en entier en arrière-plan. Une seule règle pour toutes les listes :
-  mise à jour rapide du début des listes (3, 5 ou 10 pages, toutes les 1 à 6 h) et relecture
-  complète chaque nuit ou chaque semaine ; titres maximum par liste, vitesse de lecture, état,
-  « Scanner maintenant » et « Vider l'index ». Rien n'est ajouté au cache général ni aux
-  sauvegardes.
-- Dans les apps, une liste indexée n'a plus de plafond de 2 000 titres, annonce son total exact,
-  et les **tris et filtres des apps** s'appliquent à toute la liste : nom, année, note, date
-  d'ajout dans la liste, aléatoire ; genres et années présents dans la liste ; vus / non vus.
-
-- **« Seulement ce qui est sorti » avec l'index** : si un profil utilise l'option, le scan vérifie
-  aussi la date de sortie en VOD / DVD / TV de chaque titre (une seule fois ; les titres pas encore
-  sortis sont revus chaque jour). Le filtre se lit alors dans l'index : total exact dès la 1re
-  page et défilement instantané, même au fond d'une liste de 5 000 titres.
+## 0.2.10-dev.3 — en développement (branche `dev`, image `ghcr.io/guiro28/stremfin:dev`)
 
 ### Changements
-- « Masquer les vus » et le filtre vu / pas vu des apps s'appliquent avant le découpage en pages
-  (pages pleines, défilement juste).
+- **Index des catalogues retiré** (essayé en 0.2.10-dev.1 et 0.2.10-dev.2) : les catalogues sont de
+  nouveau lus à la demande, comme en 0.2.9. Au démarrage, les tables et réglages qu'il avait créés
+  sont supprimés.
 
 ## 0.2.9 — 2026-10-26
 
