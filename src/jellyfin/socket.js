@@ -38,7 +38,10 @@ function attach(server) {
 // rapportee toutes les quelques secondes pendant une lecture).
 const pending = new Map();
 
-/** Annonce aux apps du profil les donnees de lecture changees : [{ uuid, data (UserData) }]. */
+/**
+ * Annonce aux apps du profil les donnees de lecture changees (data : UserData, ou fonction qui
+ * le calcule a l'envoi et peut renvoyer null pour ne rien annoncer).
+ */
 function userDataChanged(profileId, uuid, data) {
   if (!clients.get(profileId)?.size) return;
   if (!pending.has(profileId)) {
@@ -52,7 +55,15 @@ function flush(profileId) {
   const items = pending.get(profileId);
   pending.delete(profileId);
   if (!items?.size) return;
-  const msg = JSON.stringify({ MessageType: 'UserDataChanged', Data: { UserId: profileId, UserDataList: [...items.values()] } });
+  const list = [];
+  for (const v of items.values()) {
+    try {
+      const d = typeof v === 'function' ? v() : v;
+      if (d) list.push(d);
+    } catch {}
+  }
+  if (!list.length) return;
+  const msg = JSON.stringify({ MessageType: 'UserDataChanged', Data: { UserId: profileId, UserDataList: list } });
   for (const ws of clients.get(profileId) || []) {
     try {
       ws.send(msg);

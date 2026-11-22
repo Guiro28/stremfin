@@ -1,5 +1,7 @@
 // Traduction de l'interface (de). Cle = texte francais. Fichier genere.
 UI.add({
+  "Titres gardés par catalogue": "Gespeicherte Titel pro Katalog",
+  "Le préchauffage charge chaque catalogue jusqu'à ce nombre de titres et les garde en base ; ceux affichés plus loin ou trouvés par une recherche s'y ajoutent. Les listes s'ouvrent tout de suite, même après un redémarrage, et se mettent à jour en arrière-plan. Rien n'est retiré de la base.": "Das Vorladen lädt jeden Katalog bis zu dieser Anzahl von Titeln und speichert sie in der Datenbank; weiter unten angezeigte oder per Suche gefundene Titel kommen hinzu. Listen öffnen sofort, auch nach einem Neustart, und werden im Hintergrund aktualisiert. Aus der Datenbank wird nie etwas entfernt.",
   "Conversion vidéo": "Videokonvertierung",
   "Pour les apps qui ne lisent pas une vidéo telle quelle (le client web dans un navigateur, souvent) : Stremfin la diffuse en HLS avec FFmpeg, en convertissant seulement ce que l'app ne lit pas (le son en AAC, l'image en H.264). Les apps TV lisent presque tout sans conversion.": "Für Apps, die ein Video nicht direkt abspielen (oft der Web-Client im Browser): Stremfin streamt es per HLS mit FFmpeg und wandelt nur um, was die App nicht abspielt (Ton nach AAC, Bild nach H.264). TV-Apps spielen fast alles ohne Umwandlung.",
   "FFmpeg": "FFmpeg",

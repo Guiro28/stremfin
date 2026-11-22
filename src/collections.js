@@ -14,7 +14,8 @@ const libraryImages = require('./libraryImages');
 
 const ADDON_URL = 'stremfin://collections';
 const PAGE = 50;
-const MAX_ITEMS = 2000;
+// Titres lus par source au plus : le plafond des catalogues (reglage), 2000 au moins.
+const maxItems = () => Math.max(2000, config.get().settings.catalogMaxItems || 0);
 const REFRESH_EVERY = 6 * 3600e3;
 const HOUR = 3600e3;
 
@@ -553,8 +554,8 @@ async function folderPage(c, folderId, skip) {
       }
     }
     // Assez de titres, ou toutes les sources epuisees : on rend la page.
-    if (merged.length >= want || lists.every((l) => l.length < per) || per >= MAX_ITEMS) return { metas: merged.slice(skip, want), partial: lists.some((l) => !l.length) };
-    per = Math.min(MAX_ITEMS, per * 2);
+    if (merged.length >= want || lists.every((l) => l.length < per) || per >= maxItems()) return { metas: merged.slice(skip, want), partial: lists.some((l) => !l.length) };
+    per = Math.min(maxItems(), per * 2);
   }
 }
 

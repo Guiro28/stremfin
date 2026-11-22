@@ -3,7 +3,29 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
-## 0.2.10-dev.4 — en développement (branche `dev`, image `ghcr.io/guiro28/stremfin:dev`)
+## 0.2.10-dev.5 — en développement (branche `dev`, image `ghcr.io/guiro28/stremfin:dev`)
+
+### Ajouts
+- **Catalogues gardés en base** : le préchauffage charge chaque catalogue (bibliothèques, dossiers des
+  collections) jusqu'au nombre de titres réglé et le garde en base ; les titres affichés plus loin ou
+  trouvés par une recherche s'y ajoutent (10 000 par liste au plus). Après un redémarrage, les
+  bibliothèques s'ouvrent tout de suite ; une liste de plus d'une heure est relue en arrière-plan sur
+  la même longueur, et reste telle quelle si l'addon ne répond pas. Réglages › Métadonnées › « Titres
+  gardés par catalogue » (1000 par défaut, de 100 à 10 000).
+- **Recherches gardées** : une recherche déjà faite (addons et TMDB) est servie depuis la base et mise
+  à jour en arrière-plan.
+
+### Changements
+- **Badge des épisodes restants refait** (sur le modèle de Polyfin) : épisodes sortis moins épisodes
+  vus, sur toutes les séries, même pas commencées, et sur chaque saison. Le nombre d'épisodes sortis
+  est gardé par série (sans enregistrer tous les épisodes) et recalculé chaque jour ; une réponse
+  attend jusqu'à 1,5 s les séries jamais comptées. Marquer un épisode vu met à jour l'épisode, la
+  saison et la série dans l'app, y compris pour l'autre version d'un titre.
+- **La base n'est plus jamais nettoyée** : fiches, listes et réponses en cache sont toutes gardées
+  (le ménage automatique du cache est retiré). Les nouvelles réponses TMDB des saisons ne gardent que
+  ce que Stremfin utilise (numéro, nom, résumé, image, date, durée).
+
+## 0.2.10-dev.4
 
 ### Ajouts
 - **Conversion vidéo pour le client web** (sur le modèle de Polyfin) : l'app envoie ce qu'elle lit

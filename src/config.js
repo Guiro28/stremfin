@@ -47,6 +47,9 @@ function defaultSettings() {
     torrentServer: process.env.TORRENT_SERVER || '',
     // Masque les episodes pas encore sortis.
     hideUnreleased: true,
+    // Titres gardes en base par liste de catalogue (bibliotheque, dossier, genre) : au-dela, la
+    // liste s'arrete. Une liste gardee s'ouvre tout de suite et se met a jour en arriere-plan.
+    catalogMaxItems: 1000,
     // Clip "aucune source disponible" lance quand aucun addon ne fournit la video.
     noSourceVideo: true,
     // Delai max d'attente des addons de sources (ms).
@@ -290,6 +293,7 @@ function updateSettings(patch) {
   if (!['auto', 'nvenc', 'qsv', 'vaapi', 'videotoolbox', 'amf', 'software'].includes(s.transcodeHw)) s.transcodeHw = 'auto';
   s.transcodeMaxSessions = Math.min(10, Math.max(1, Math.round(Number(s.transcodeMaxSessions)) || 2));
   s.transcodeMaxBitrate = Math.min(100, Math.max(1, Math.round(Number(s.transcodeMaxBitrate)) || 10));
+  s.catalogMaxItems = Math.min(10000, Math.max(100, Math.round(Number(s.catalogMaxItems)) || 1000));
   if (!['fr', 'en', 'es', 'de', 'it'].includes(s.language)) s.language = 'fr';
   s.backupHour = Math.min(23, Math.max(0, Math.round(Number(s.backupHour)) || 0));
   s.backupRetention = Math.min(365, Math.max(1, Math.round(Number(s.backupRetention)) || 7));

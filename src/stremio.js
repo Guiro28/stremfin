@@ -104,14 +104,16 @@ function catalog(manifestUrl, type, id, extra) {
   // Collections (bibliotheque du serveur) : addon virtuel elles aussi.
   if (manifestUrl === require('./collections').ADDON_URL) return require('./collections').catalog(type, id, extra);
   const url = resourceUrl(manifestUrl, 'catalog', type, id, extra);
+  // Recherche : gardee une semaine (servie tout de suite, mise a jour en arriere-plan apres 6 h).
+  const search = !!extra?.search;
   return cache.cached(
     'cat|' + url,
-    (r) => (r.metas.length ? HOUR : 2 * 60e3),
+    (r) => (r.metas.length ? (search ? 6 * HOUR : HOUR) : 2 * 60e3),
     async () => {
       const r = await getJson(url, { upstream: upstream() });
       return { metas: Array.isArray(r?.metas) ? r.metas : [] };
     },
-    { stale: (r) => (r.metas.length ? 24 * HOUR : 0) }
+    { stale: (r) => (r.metas.length ? (search ? 7 * 24 * HOUR : 24 * HOUR) : 0) }
   );
 }
 

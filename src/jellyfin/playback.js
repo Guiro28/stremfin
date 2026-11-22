@@ -943,10 +943,30 @@ function saveUd(profile, uuid, row) {
 
 /** Annonce aux apps du profil (WebSocket) les donnees de lecture d'un element. */
 function notifyUserData(profile, uuid) {
+  const library = require('./library');
+  const socket = require('./socket');
   // Episodes vus du profil (coche et pastille des series) : a relire.
-  require('./library').forgetPlayed(profile.id);
+  library.forgetPlayed(profile.id);
   const row = st.udGet.get(profile.id, uuid);
-  if (row) require('./socket').userDataChanged(profile.id, uuid, dto.userData(uuid, row, runtimeOf(ids.get(uuid))));
+  if (row) socket.userDataChanged(profile.id, uuid, dto.userData(uuid, row, runtimeOf(ids.get(uuid))));
+  // Episode : sa saison et sa serie aussi (comme Polyfin), pour que la pastille "episodes restants"
+  // et la coche changent tout de suite. Calculees a l'envoi : une fois pour plusieurs episodes.
+  const entry = ids.get(uuid);
+  if (entry?.kind !== 'episode') return;
+  const { seriesUuid, seasonUuid, season } = entry.data;
+  const ud = (id) => ({ UserData: dto.userData(id, st.udGet.get(profile.id, id), 0) });
+  if (seasonUuid) {
+    socket.userDataChanged(profile.id, seasonUuid, () => {
+      const d = library.seasonUserData(profile, ids.get(seriesUuid), season, ud(seasonUuid));
+      return d.UserData.UnplayedItemCount === undefined ? null : d.UserData;
+    });
+  }
+  if (seriesUuid) {
+    socket.userDataChanged(profile.id, seriesUuid, () => {
+      const d = library.seriesUserData(profile, ids.get(seriesUuid), ud(seriesUuid));
+      return d.UserData.UnplayedItemCount === undefined ? null : d.UserData;
+    });
+  }
 }
 
 function current(profile, uuid) {

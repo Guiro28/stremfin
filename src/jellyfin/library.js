@@ -104,7 +104,7 @@ function lightDto(profile, entry) {
       return dto.episodeItem(entry.uuid, entry, ids.get(entry.data.seriesUuid), udRow(profile, entry.uuid));
     case 'season': {
       const series = ids.get(entry.data.seriesUuid);
-      return series ? dto.seasonItem(entry.uuid, series, entry.data.season, udRow(profile, entry.uuid)) : null;
+      return series ? seasonUserData(profile, series, entry.data.season, dto.seasonItem(entry.uuid, series, entry.data.season, udRow(profile, entry.uuid))) : null;
     }
     case 'collection':
       return dto.boxSetItem(entry.uuid, entry.data, udRow(profile, entry.uuid));
@@ -152,34 +152,13 @@ async function seriesTree(profile, series) {
   ids.register(series.key, series.kind, dto.preview({ ...meta, type: series.data.type || 'series' }));
 
   const now = Date.now();
-  // Episodes pas encore diffuses : masques par le reglage du serveur, sauf pour un profil qui
-  // a choisi "Afficher les episodes manquants" dans l'app (ils s'affichent alors grises).
-  const hide = config.get().settings.hideUnreleased && !profile.displayMissingEpisodes;
-  const videos = (meta.videos || []).filter((v) => {
-    if (!v?.id) return false;
-    if (!hide || !v.released) return true;
-    const t = Date.parse(v.released);
-    return !Number.isFinite(t) || t <= now;
-  });
-
-  const bySeason = new Map();
-  videos.forEach((v, i) => {
-    const n = Number.isFinite(Number(v.season)) ? Number(v.season) : 1;
-    if (!bySeason.has(n)) bySeason.set(n, []);
-    bySeason.get(n).push({ v, i });
-  });
-  // Ordre : saisons croissantes, les "speciaux" (saison 0) a la fin.
-  const numbers = [...bySeason.keys()].sort((a, b) => (a === 0) - (b === 0) || a - b);
-
   const regs = [];
-  const seasons = numbers.map((n) => {
+  const seasons = seasonGroups(profile, meta, now).map(({ n, list }) => {
     const seasonKey = `season|${series.data.sid}|${n}`;
     const seasonUuid = ids.uuidOf(seasonKey);
     regs.push({ key: seasonKey, kind: 'season', data: { seriesUuid: series.uuid, type: series.data.type, seriesSid: series.data.sid, season: n } });
-    const eps = bySeason
-      .get(n)
-      .sort((a, b) => (Number(a.v.episode ?? a.v.number) || 0) - (Number(b.v.episode ?? b.v.number) || 0) || a.i - b.i)
-      .map(({ v }, idx) => {
+    const eps = list
+      .map(({ v, episode }) => {
         const key = `ep|${series.data.sid}|${v.id}`;
         regs.push({
           key,
@@ -193,7 +172,7 @@ async function seriesTree(profile, series) {
             tmdbVid: v.tmdbVid,
             runtime: v.runtime,
             season: n,
-            episode: Number(v.episode ?? v.number) || idx + 1,
+            episode,
             name: v.name || v.title,
             thumbnail: v.thumbnail,
             overview: v.overview || v.description,
@@ -206,14 +185,47 @@ async function seriesTree(profile, series) {
   });
   ids.registerMany(regs);
   for (const s of seasons) s.episodes = s.episodeUuids.map((u) => ids.get(u));
-  // Episodes deja sortis (hors speciaux) : sert a la pastille "episodes restants" des listes.
-  const aired = (meta.videos || []).filter((v) => v?.id && Number(v.season) !== 0 && isAired(v.released, now)).length;
-  // Debut de l'id video des episodes (tt... ou tmdb:N) : identite de la serie commune a ses versions.
-  const vidKey = String(videos.find((v) => Number(v.season) !== 0)?.id || '').replace(/:\d+:\d+$/, '') || undefined;
-  // airedAt : date du calcul (refait chaque jour pour une serie commencee, nouveaux episodes).
-  const stale = !series.data.airedAt || now - series.data.airedAt > 24 * 3600e3;
-  if (aired !== series.data.airedCount || vidKey !== series.data.vidKey || stale) ids.register(series.key, series.kind, { airedCount: aired, vidKey, airedAt: now });
+  saveAired(series, seasons.map((s) => ({ n: s.n, episodes: s.episodes.map((e) => e?.data || {}) })), now);
   return { meta, seasons };
+}
+
+/**
+ * Episodes d'une fiche ranges par saison, avec leur numero : [{ n, list: [{ v, episode }] }].
+ * Saisons croissantes, les "speciaux" (saison 0) a la fin.
+ */
+function seasonGroups(profile, meta, now = Date.now()) {
+  // Episodes pas encore diffuses : masques par le reglage du serveur, sauf pour un profil qui
+  // a choisi "Afficher les episodes manquants" dans l'app (ils s'affichent alors grises).
+  const hide = config.get().settings.hideUnreleased && !profile.displayMissingEpisodes;
+  const videos = (meta.videos || []).filter((v) => {
+    if (!v?.id) return false;
+    if (!hide || !v.released) return true;
+    const t = Date.parse(v.released);
+    return !Number.isFinite(t) || t <= now;
+  });
+  const bySeason = new Map();
+  videos.forEach((v, i) => {
+    const n = Number.isFinite(Number(v.season)) ? Number(v.season) : 1;
+    if (!bySeason.has(n)) bySeason.set(n, []);
+    bySeason.get(n).push({ v, i });
+  });
+  const numbers = [...bySeason.keys()].sort((a, b) => (a === 0) - (b === 0) || a - b);
+  return numbers.map((n) => ({
+    n,
+    list: bySeason
+      .get(n)
+      .sort((a, b) => (Number(a.v.episode ?? a.v.number) || 0) - (Number(b.v.episode ?? b.v.number) || 0) || a.i - b.i)
+      .map(({ v }, idx) => ({ v, episode: Number(v.episode ?? v.number) || idx + 1 }))
+  }));
+}
+
+/** Compte les episodes sortis d'une serie d'apres sa fiche, sans enregistrer ses episodes. */
+async function countFromMeta(profile, series) {
+  const meta = await metaFor(profile, series.data.type || 'series', series.data.sid);
+  if (!meta) return;
+  const now = Date.now();
+  const groups = seasonGroups(profile, meta, now);
+  saveAired(series, groups.map(({ n, list }) => ({ n, episodes: list.map(({ v, episode }) => ({ episode, released: v.released, vid: v.id })) })), now);
 }
 
 /** Episode sorti (ou sans date connue) ? */
@@ -222,30 +234,189 @@ function isAired(released, now = Date.now()) {
   return !Number.isFinite(t) || t <= now;
 }
 
-// Series dont le nombre d'episodes sortis est a calculer (fiche lue en arriere-plan, une a la fois).
-const airedQueue = new Map(); // uuid -> profil
-const airedTried = new Map(); // uuid -> derniere tentative (une par heure au plus)
-let airedBusy = false;
+// ---- Episodes sortis : pastille "episodes restants" -------------------------
+// Comme Polyfin : chaque serie garde la liste de ses episodes deja sortis ("saison:episode"), et
+// la pastille compte ceux que le profil n'a pas vus parmi eux. Un episode vu qui n'est pas dans la
+// liste (numerotation differente d'un import Trakt / Simkl, episode en double) ne fausse rien.
 
-function countAiredLater(profile, uuid) {
-  if (airedQueue.has(uuid) || Date.now() - (airedTried.get(uuid) || 0) < 3600e3) return;
-  airedTried.set(uuid, Date.now());
-  if (airedTried.size > 5000) airedTried.delete(airedTried.keys().next().value);
-  airedQueue.set(uuid, profile);
-  if (airedBusy) return;
-  airedBusy = true;
-  setImmediate(async () => {
-    try {
-      while (airedQueue.size) {
-        const [id, p] = airedQueue.entries().next().value;
-        const e = ids.get(id);
-        if (e?.kind === 'series') await seriesTree(p, e).catch(() => {});
-        airedQueue.delete(id);
+/** Episodes sortis en plages compactes : "1:1-10,2:1-8.10" (saison:episodes). */
+function encodeAired(pairs) {
+  const by = new Map();
+  for (const [s, e] of pairs) {
+    if (!Number.isInteger(s) || !Number.isInteger(e)) continue;
+    if (!by.has(s)) by.set(s, new Set());
+    by.get(s).add(e);
+  }
+  return [...by.keys()]
+    .sort((a, b) => a - b)
+    .map((s) => {
+      const nums = [...by.get(s)].sort((a, b) => a - b);
+      const runs = [];
+      for (let i = 0; i < nums.length; ) {
+        let j = i;
+        while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
+        runs.push(i === j ? `${nums[i]}` : `${nums[i]}-${nums[j]}`);
+        i = j + 1;
       }
-    } finally {
-      airedBusy = false;
+      return `${s}:${runs.join('.')}`;
+    })
+    .join(',');
+}
+
+const airedMemo = new Map();
+
+/** Episodes sortis d'une serie ("saison:episode"), ou null s'ils ne sont pas encore connus. */
+function airedSet(data) {
+  const str = data?.airedKeys;
+  if (typeof str !== 'string') return null;
+  let set = airedMemo.get(str);
+  if (set) return set;
+  set = new Set();
+  for (const part of str.split(',')) {
+    const [s, runs] = part.split(':');
+    if (!runs) continue;
+    for (const r of runs.split('.')) {
+      const [a, b = a] = r.split('-').map(Number);
+      if (!Number.isInteger(a) || !Number.isInteger(b) || b - a > 20000) continue;
+      for (let e = a; e <= b; e++) set.add(`${s}:${e}`);
+    }
+  }
+  if (airedMemo.size > 3000) airedMemo.delete(airedMemo.keys().next().value);
+  airedMemo.set(str, set);
+  return set;
+}
+
+/** Enregistre sur la serie ses episodes sortis (seasons : [{ n, episodes: [{ episode, released, vid }] }]). */
+function saveAired(series, seasons, now = Date.now()) {
+  const pairs = [];
+  for (const s of seasons) for (const e of s.episodes) if (isAired(e.released, now)) pairs.push([s.n, e.episode]);
+  const airedKeys = encodeAired(pairs);
+  const airedCount = pairs.filter(([n]) => n !== 0).length;
+  // Debut de l'id video des episodes (tt... ou tmdb:N) : identite de la serie commune a ses versions.
+  const first = seasons.find((s) => s.n !== 0)?.episodes.find((e) => e.vid);
+  const vidKey = String(first?.vid || '').replace(/:\d+:\d+$/, '') || undefined;
+  // airedAt : date du calcul (refait chaque jour, pour les nouveaux episodes).
+  const stale = !series.data.airedAt || now - series.data.airedAt > 24 * 3600e3;
+  if (airedKeys !== series.data.airedKeys || vidKey !== series.data.vidKey || stale) {
+    ids.register(series.key, series.kind, { airedKeys, airedCount, vidKey, airedAt: now });
+  }
+}
+
+// Lecture des fiches pour compter les episodes : 8 a la fois au plus, une seule lecture par serie
+// en cours, une nouvelle tentative par heure au plus apres un echec. Deux files : les series d'une
+// reponse attendue passent avant celles du prechauffage et des recomptages quotidiens.
+const counting = new Map(); // uuid -> promesse
+const countTried = new Map(); // uuid -> derniere lecture
+const countUrgent = [];
+const countLow = [];
+const lowRuns = new Map(); // uuid -> lecture en attente dans countLow
+let countActive = 0;
+
+function countNext() {
+  while (countActive < 8) {
+    const run = countUrgent.shift() || countLow.shift();
+    if (!run) return;
+    run();
+  }
+}
+
+function countAired(profile, uuid, low = false) {
+  if (counting.has(uuid)) {
+    // Deja en attente en arriere-plan, et maintenant attendue par une reponse : passe devant.
+    const run = !low && lowRuns.get(uuid);
+    if (run) {
+      lowRuns.delete(uuid);
+      const i = countLow.indexOf(run);
+      if (i >= 0) countLow.splice(i, 1);
+      countUrgent.push(run);
+      countNext();
+    }
+    return counting.get(uuid);
+  }
+  if (Date.now() - (countTried.get(uuid) || 0) < 3600e3) return Promise.resolve();
+  countTried.set(uuid, Date.now());
+  if (countTried.size > 20000) countTried.delete(countTried.keys().next().value);
+  const p = new Promise((resolve) => {
+    const run = () => {
+      lowRuns.delete(uuid);
+      countActive++;
+      Promise.resolve()
+        .then(() => {
+          const e = ids.get(uuid);
+          return e?.kind === 'series' ? countFromMeta(profile, e) : null;
+        })
+        .catch(() => {})
+        .finally(() => {
+          countActive--;
+          counting.delete(uuid);
+          resolve();
+          countNext();
+        });
+    };
+    if (low) {
+      lowRuns.set(uuid, run);
+      countLow.push(run);
+    } else {
+      countUrgent.push(run);
     }
   });
+  counting.set(uuid, p);
+  countNext();
+  return p;
+}
+
+/** Prechauffage : series d'une liste dont les episodes sortis sont inconnus ou comptes il y a plus d'un jour. */
+function countAiredSoon(profile, metas) {
+  // Enregistrees sans traduction en arriere-plan (elle se fera a leur premier affichage).
+  const fresh = [];
+  const series = [];
+  for (const m of metas || []) {
+    if (m?.type !== 'series' || !m.id) continue;
+    const key = itemKey('series', m.id);
+    const e = ids.get(ids.uuidOf(key));
+    if (e) series.push(e);
+    else fresh.push({ key, kind: 'series', data: dto.preview(m) });
+  }
+  if (fresh.length) for (const u of ids.registerMany(fresh)) series.push(ids.get(u));
+  for (const e of series) {
+    if (!e) continue;
+    if (!airedSet(e.data) || Date.now() - (e.data.airedAt || 0) > 24 * 3600e3) countAired(profile, e.uuid, true);
+  }
+}
+
+// Series lues pour une reponse, et attente maximale (comme Polyfin) : celles lues plus tard ont
+// leur pastille a l'affichage suivant.
+const COUNT_READ = 300;
+const COUNT_WAIT = 1500;
+
+/**
+ * Pastilles des series d'une reponse (liste d'elements deja construits) : les series dont les
+ * episodes sortis ne sont pas connus sont lues tout de suite (1,5 s au plus), celles comptees il y a
+ * plus d'un jour sont relues en arriere-plan.
+ */
+async function withSeriesCounts(profile, items) {
+  const series = [];
+  for (const d of items) {
+    if (d?.Type !== 'Series' || !d.UserData) continue;
+    const e = ids.get(d.Id);
+    if (e?.kind === 'series') series.push({ d, e });
+  }
+  if (!series.length) return items;
+  const waits = [];
+  for (const { e } of series) {
+    if (!airedSet(e.data)) {
+      if (waits.length < COUNT_READ) waits.push(countAired(profile, e.uuid));
+    } else if (Date.now() - (e.data.airedAt || 0) > 24 * 3600e3) {
+      countAired(profile, e.uuid, true);
+    }
+  }
+  if (waits.length) {
+    let timer;
+    await Promise.race([Promise.all(waits), new Promise((r) => (timer = setTimeout(r, COUNT_WAIT)))]);
+    clearTimeout(timer);
+  }
+  for (const { d, e } of series) seriesUserData(profile, ids.get(e.uuid) || e, d);
+  return items;
 }
 
 /**
@@ -271,7 +442,7 @@ function playedBySeries(profileId) {
   const map = new Map();
   for (const r of st.udPlayedEpisodes.all(profileId)) {
     const d = JSON.parse(r.data);
-    if (!Number(d.season)) continue;
+    if (!Number.isFinite(Number(d.season))) continue;
     // Range sous l'identite de la serie (debut de l'id video) et sous l'id de sa version
     // (tt... ou tmdb:...) : une serie se retrouve meme si sa fiche n'a jamais ete ouverte.
     for (const k of new Set([episodeSeriesKey(d), d.seriesSid])) {
@@ -285,25 +456,48 @@ function playedBySeries(profileId) {
 }
 
 /**
- * Serie dans une liste : coche quand tous les episodes sortis sont vus, pastille du nombre
- * d'episodes restants (comme Jellyfin). Connu des que la fiche de la serie a ete chargee une fois.
+ * Episodes sortis d'une serie (season : une saison, sinon toute la serie hors speciaux) et ceux que
+ * le profil a vus parmi eux, quelle que soit la version de la serie (tt... / tmdb:...) sur laquelle
+ * ils l'ont ete. null tant que les episodes sortis ne sont pas connus.
  */
-function seriesUserData(profile, entry, d, always = false) {
-  const total = entry.data.airedCount;
-  const k = seriesKeyOf(entry.data);
-  if (!k || !d?.UserData) return d;
+function airedCounts(profile, data, season) {
+  const aired = airedSet(data);
+  if (!aired) return null;
   const played = playedBySeries(profile.id);
-  const seen = (played.get(k) || played.get(entry.data.sid))?.size || 0;
-  // Serie commencee dont on ne connait pas (ou plus) le nombre d'episodes sortis : calcule en
-  // arriere-plan, la pastille apparait a l'affichage suivant.
-  if (seen && (!total || Date.now() - (entry.data.airedAt || 0) > 24 * 3600e3)) countAiredLater(profile, entry.uuid);
-  if (!total) return d;
-  // Dans les listes, seulement pour les series commencees (sur la fiche, toujours).
-  if (!seen && !always) return d;
-  d.UserData.UnplayedItemCount = Math.max(0, total - seen);
-  d.UserData.Played = seen >= total;
-  d.UserData.PlayedPercentage = Math.min(100, (seen / total) * 100);
+  const seen = [...new Set([seriesKeyOf(data), data.sid])].map((k) => k && played.get(k)).filter(Boolean);
+  let total = 0;
+  let watched = 0;
+  for (const k of aired) {
+    const s = Number(k.slice(0, k.indexOf(':')));
+    if (season === undefined ? s === 0 : s !== season) continue;
+    total++;
+    if (seen.some((set) => set.has(k))) watched++;
+  }
+  return { total, watched };
+}
+
+function applyCounts(d, c) {
+  d.UserData.UnplayedItemCount = c.total - c.watched;
+  d.UserData.Played = c.total > 0 && c.watched >= c.total;
+  d.UserData.PlayedPercentage = c.total ? (c.watched / c.total) * 100 : 0;
   return d;
+}
+
+/**
+ * Serie : coche quand tous les episodes sortis sont vus, pastille du nombre d'episodes restants
+ * (comme Jellyfin), sur toutes les series, commencees ou non, des que ses episodes sont connus.
+ */
+function seriesUserData(profile, entry, d) {
+  if (!entry?.data || !d?.UserData) return d;
+  const c = airedCounts(profile, entry.data);
+  return c ? applyCounts(d, c) : d;
+}
+
+/** Saison : meme pastille, d'apres les episodes sortis de cette saison. */
+function seasonUserData(profile, series, n, d) {
+  if (!series?.data || !d?.UserData) return d;
+  const c = airedCounts(profile, series.data, Number(n));
+  return c ? applyCounts(d, c) : d;
 }
 
 // ---- Fiche detaillee --------------------------------------------------------
@@ -328,7 +522,7 @@ async function itemDto(profile, id) {
       const tree = await seriesTree(profile, fresh);
       d.ChildCount = tree.seasons.length;
       d.RecursiveItemCount = tree.seasons.reduce((n, s) => n + s.episodes.length, 0);
-      seriesUserData(profile, ids.get(entry.uuid), d, true);
+      seriesUserData(profile, ids.get(entry.uuid), d);
     } else {
       prefetch(profile, entry.uuid);
     }
@@ -340,7 +534,8 @@ async function itemDto(profile, id) {
     if (!series) return null;
     const tree = await seriesTree(profile, series);
     const s = tree.seasons.find((x) => x.n === entry.data.season);
-    return dto.seasonItem(entry.uuid, ids.get(series.uuid), entry.data.season, udRow(profile, entry.uuid), s?.episodes.length);
+    const fresh = ids.get(series.uuid);
+    return seasonUserData(profile, fresh, entry.data.season, dto.seasonItem(entry.uuid, fresh, entry.data.season, udRow(profile, entry.uuid), s?.episodes.length));
   }
 
   if (entry.kind === 'episode') {
@@ -381,15 +576,8 @@ async function seasonsOf(profile, seriesId) {
   if (!series || series.kind !== 'series') return [];
   const tree = await seriesTree(profile, series);
   const fresh = ids.get(series.uuid);
-  // Episodes vus, quelle que soit la version de la serie sur laquelle ils l'ont ete.
-  const seen = playedBySeries(profile.id).get(seriesKeyOf(fresh.data)) || new Set();
-  const played = (e) => seen.has(`${e.data.season}:${e.data.episode}`) || !!udRow(profile, e.uuid)?.played;
-  return tree.seasons.map((s) => {
-    const d = dto.seasonItem(s.uuid, fresh, s.n, udRow(profile, s.uuid), s.episodes.length);
-    d.UserData.UnplayedItemCount = s.episodes.filter((e) => !played(e)).length;
-    d.UserData.Played = d.UserData.UnplayedItemCount === 0 && s.episodes.length > 0;
-    return d;
-  });
+  // Pastille de chaque saison : ses episodes sortis pas encore vus (sur l'une ou l'autre version).
+  return tree.seasons.map((s) => seasonUserData(profile, fresh, s.n, dto.seasonItem(s.uuid, fresh, s.n, udRow(profile, s.uuid), s.episodes.length)));
 }
 
 async function episodesOf(profile, seriesId, { seasonId, season } = {}) {
@@ -629,7 +817,6 @@ async function imageUrl(id, type, index = 0, imageTag = '') {
 // catalogue : une app qui en ouvre un recoit aussitot ses premiers titres (l'app Emby en
 // demande 300 d'un coup). Une liste deja en cache ne coute presque rien.
 
-const WARM_ITEMS = 300;
 const WARM_EVERY = 2 * 3600e3;
 const WARM_DELAY = 60e3;
 let warmTimer = null;
@@ -641,13 +828,16 @@ async function warmLibraries() {
   const t0 = Date.now();
   let lists = 0;
   const done = new Set();
-  const warmOne = async (view, filter, sort) => {
+  const warmOne = async (profile, view, filter, sort) => {
     // Meme liste pour plusieurs profils (meme filtre) : une seule fois.
     const k = `${view.key}|${filter?.key || ''}|${sort || ''}`;
     if (done.has(k)) return;
     done.add(k);
     try {
-      await catalog.slice(view, 0, WARM_ITEMS, undefined, filter, sort);
+      // Jusqu'au nombre de titres du reglage, gardes en base.
+      const metas = await catalog.warm(view, filter, sort);
+      // Pastilles "episodes restants" pretes des le premier affichage.
+      countAiredSoon(profile, metas);
       lists++;
     } catch (e) {
       log(`[warm] ${view.key} : ${e.message}`);
@@ -659,14 +849,14 @@ async function warmLibraries() {
     for (const profile of profiles) {
       const filter = releasedFilter(profile);
       for (const view of catalog.views(profile)) {
-        await warmOne(view, filter);
+        await warmOne(profile, view, filter);
         if (view.type !== 'nuviocol') continue;
         // Collection : ses dossiers et sous-dossiers, apres toutes les bibliotheques.
         const c = collections.byId(view.catId.slice(4));
-        if (c) for (const v of collections.warmViews(c)) shelves.push({ view: v, filter });
+        if (c) for (const v of collections.warmViews(c)) shelves.push({ profile, view: v, filter });
       }
     }
-    for (const s of shelves) await warmOne(s.view, s.filter, s.sort);
+    for (const s of shelves) await warmOne(s.profile, s.view, s.filter, s.sort);
     log(`[warm] ${lists} listes prechauffees en ${Math.round((Date.now() - t0) / 1000)} s`);
   } finally {
     warming = false;
@@ -698,6 +888,9 @@ module.exports = {
   lightDto,
   metasToDtos,
   seriesTree,
+  withSeriesCounts,
+  seriesUserData,
+  seasonUserData,
   itemDto,
   viewByUuid,
   viewItems,

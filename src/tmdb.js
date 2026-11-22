@@ -84,15 +84,35 @@ async function slot(fn) {
 }
 
 /** GET TMDB en cache. La cle API n'entre pas dans la cle de cache. */
-function get(path, params = {}, { ttl = DAY, stale = 7 * DAY, language = lang() } = {}) {
+function get(path, params = {}, { ttl = DAY, stale = 7 * DAY, language = lang(), shrink } = {}) {
   const q = new URLSearchParams({ language, ...params });
   const ck = `tmdb|${path}|${q}`;
   return cache.cached(
     ck,
     ttl,
-    () => slot(() => getJson(`${API}${path}?${q}&api_key=${apiKey()}`, { timeout: 15000 })),
+    // shrink : ne garde en cache que ce qui sert (reponses volumineuses).
+    () => slot(() => getJson(`${API}${path}?${q}&api_key=${apiKey()}`, { timeout: 15000 })).then((j) => (shrink && j ? shrink(j) : j)),
     { stale }
   );
+}
+
+/** Saisons d'une reponse /tv/{id}?append_to_response=season/N : seulement ce que lit episodes(). */
+function slimSeasons(r) {
+  const out = {};
+  for (const [k, v] of Object.entries(r)) {
+    if (!k.startsWith('season/')) continue;
+    out[k] = {
+      episodes: (v?.episodes || []).map((e) => ({
+        episode_number: e.episode_number,
+        name: e.name,
+        overview: e.overview || undefined,
+        still_path: e.still_path || undefined,
+        air_date: e.air_date || undefined,
+        runtime: e.runtime || undefined
+      }))
+    };
+  }
+  return out;
 }
 
 /** Verifie une cle (utilise par l'admin avant de l'enregistrer). */
@@ -234,7 +254,7 @@ async function episodes(d, imdb) {
   const out = [];
   for (let i = 0; i < numbers.length; i += 20) {
     const chunk = numbers.slice(i, i + 20);
-    const r = await get(`/tv/${d.id}`, { append_to_response: chunk.map((n) => `season/${n}`).join(',') }, { ttl: 12 * HOUR });
+    const r = await get(`/tv/${d.id}`, { append_to_response: chunk.map((n) => `season/${n}`).join(',') }, { ttl: 12 * HOUR, shrink: slimSeasons });
     for (const n of chunk) {
       for (const e of r[`season/${n}`]?.episodes || []) {
         const tmdbVid = `tmdb:${d.id}:${n}:${e.episode_number}`;
@@ -429,7 +449,8 @@ async function catalog(type, id, extra = {}) {
     // Genre choisi dans l'app : s'ajoute a celui de la categorie (ET logique).
     if (genre) params.with_genres = [params.with_genres, genre].filter(Boolean).join(',');
   }
-  const r = await get(path, params, { ttl: 3 * HOUR, stale: 2 * DAY });
+  // Recherche : gardee une semaine (servie tout de suite, mise a jour en arriere-plan apres 6 h).
+  const r = await get(path, params, id === 'tmdb-search' ? { ttl: 6 * HOUR, stale: 7 * DAY } : { ttl: 3 * HOUR, stale: 2 * DAY });
   return { metas: (r.results || []).map((x) => previewOf(x, type)) };
 }
 

@@ -309,6 +309,24 @@ router.get(['/Videos/:id/:msid/Subtitles/:index/:start/Stream.:ext', '/Videos/:i
 router.use(auth.required);
 // App Emby ou Jellyfin : connue pendant la construction des fiches (images des dossiers).
 router.use((req, res, next) => clientContext.run({ emby: isEmby(req) }, next));
+// Pastille "episodes restants" (comme Polyfin) : avant l'envoi d'une reponse, les series dont les
+// episodes sortis ne sont pas encore connus sont lues, 1,5 s au plus ; les autres l'ont ensuite.
+router.use((req, res, next) => {
+  if (req.method !== 'GET' || !req.profile) return next();
+  const json = res.json.bind(res);
+  res.json = (body) => {
+    const list = Array.isArray(body?.Items) ? body.Items : Array.isArray(body) ? body : body?.Type === 'Series' ? [body] : null;
+    if (!list?.some((d) => d?.Type === 'Series')) return json(body);
+    library
+      .withSeriesCounts(req.profile, list)
+      .catch(() => {})
+      .finally(() => {
+        if (!res.headersSent) json(body);
+      });
+    return res;
+  };
+  next();
+});
 
 // Bandeau Spotlight du theme Abyss (client web) : films tendance TMDB, meme hors bibliotheques.
 // Chaque film devient un element Stremfin : sa fiche s'ouvre et se lit via les addons.

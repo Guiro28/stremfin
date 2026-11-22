@@ -79,6 +79,8 @@ async function mirror(profile, uuid) {
   const cur = st.udGet.get(profile.id, twin);
   if (cur && cur.position === row.position && cur.played === row.played && cur.play_count === row.play_count && cur.last_played === row.last_played) return;
   st.udPut.run(profile.id, twin, row.position, row.played, cur?.favorite || 0, cur?.likes ?? null, row.play_count, row.last_played);
+  // Apps prevenues aussi pour l'autre version (sa serie peut etre celle affichee dans une liste).
+  require('./playback').notifyUserData(profile, twin);
 }
 
 /**

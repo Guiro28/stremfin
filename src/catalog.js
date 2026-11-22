@@ -3,8 +3,19 @@ const stremio = require('./stremio');
 const config = require('./config');
 const tmdb = require('./tmdb');
 
-const MAX_ITEMS = 2000; // plafond par catalogue (au-dela, les apps n'y vont jamais)
+const { st } = require('./db');
+
+// Liste d'un catalogue a mettre a jour apres une heure : l'ancienne reste affichee pendant ce temps.
 const PAGER_TTL = 3600e3;
+
+/** Titres charges d'avance par catalogue au prechauffage (reglage de l'admin). */
+function warmItems() {
+  return config.get().settings.catalogMaxItems || 1000;
+}
+
+// Plafond d'une liste : au-dela du prechauffage, elle s'allonge quand une app defile plus loin.
+const MAX_ITEMS = 10000;
+const maxItems = () => Math.max(MAX_ITEMS, warmItems());
 
 const TYPE_LABEL = {
   fr: { movie: 'Films', series: 'Séries' },
@@ -127,11 +138,170 @@ const PARALLEL_PAGES = 6;
 function pagerFor(view, genre, filter, sort) {
   const key = `${view.key}|${genre || ''}|${filter?.key || ''}|${sort || ''}`;
   let p = pagers.get(key);
-  if (!p || Date.now() - p.at > PAGER_TTL) {
-    p = { metas: [], seen: new Set(), raw: 0, lastSize: 0, pageSize: 0, done: false, at: Date.now(), loading: null };
+  if (!p) {
+    // Liste gardee en base (deja chargee avant un redemarrage) : affichee tout de suite.
+    p = restore(key) || emptyPager(key);
     pagers.set(key, p);
   }
+  if (Date.now() - p.at > PAGER_TTL) {
+    if (!p.metas.length) {
+      p = emptyPager(key);
+      pagers.set(key, p);
+    } else {
+      renew(p, view, genre, filter, sort);
+    }
+  }
+  markUsed(key);
   return p;
+}
+
+function emptyPager(key) {
+  return { key, metas: [], seen: new Set(), raw: 0, lastSize: 0, pageSize: 0, done: false, at: Date.now(), loading: null };
+}
+
+// ---- Listes gardees en base ---------------------------------------------------------
+// Le prechauffage charge chaque catalogue jusqu'au nombre de titres du reglage ; une app qui defile
+// plus loin l'allonge. Chaque liste (bibliotheque, dossier, genre, tri) est gardee en base : titres
+// dans l'ordre ("type|id", leur fiche est dans la table ids, jamais videe) et position dans le
+// catalogue de l'addon. Au demarrage, elle s'affiche tout de suite ; plus vieille qu'une heure, elle
+// est relue en arriere-plan jusqu'a la meme profondeur, puis remplacee. Rien n'est retire de la base.
+
+const SHOWN = ['movie', 'series', 'collection', 'colfolder', 'colcat'];
+const itemKeyOf = (type, id) => `item|${type}|${id}`;
+
+/** Meta d'apres l'apercu garde dans ids (meme forme que celle d'un catalogue). */
+function metaOf(entry, type, id) {
+  const d = entry.data;
+  return { ...d, id, type, imdb_id: d.imdb, moviedb_id: d.tmdb };
+}
+
+function restore(key) {
+  const row = st.listGet.get(key);
+  if (!row) return null;
+  let keys;
+  try {
+    keys = JSON.parse(row.items);
+  } catch {
+    return null;
+  }
+  const max = maxItems();
+  const metas = [];
+  for (const k of keys) {
+    if (metas.length >= max) break;
+    const i = k.indexOf('|');
+    const type = k.slice(0, i);
+    const id = k.slice(i + 1);
+    const e = ids.get(ids.uuidOf(itemKeyOf(type, id)));
+    if (e) metas.push(metaOf(e, type, id));
+  }
+  if (!metas.length) return null;
+  const trimmed = keys.length > metas.length && metas.length >= max;
+  return {
+    key,
+    metas,
+    seen: new Set(metas.map((m) => m.id)),
+    raw: row.raw,
+    pageSize: row.page_size,
+    lastSize: row.last_size,
+    done: !!row.done || trimmed,
+    at: row.updated,
+    loading: null
+  };
+}
+
+// Listes a ecrire en base, regroupees (une liste qui se charge page par page n'est ecrite qu'une fois).
+const dirty = new Map();
+let saveTimer = null;
+
+function scheduleSave(p) {
+  if (!p.key) return;
+  dirty.set(p.key, p);
+  if (!saveTimer) {
+    saveTimer = setTimeout(flushSaves, 3000);
+    saveTimer.unref?.();
+  }
+}
+
+function flushSaves() {
+  saveTimer = null;
+  const list = [...dirty.values()];
+  dirty.clear();
+  const dto = require('./jellyfin/dto');
+  for (const p of list) {
+    // Liste remplacee entre-temps par une version plus recente : rien a ecrire.
+    if (pagers.get(p.key) !== p) continue;
+    try {
+      const metas = p.metas.filter((m) => m?.id && SHOWN.includes(m.type));
+      // Apercu de chaque titre dans ids (ceux d'un prechauffage n'y sont pas encore).
+      const missing = [];
+      for (const m of metas) {
+        const key = itemKeyOf(m.type, m.id);
+        if (!ids.get(ids.uuidOf(key))) missing.push({ key, kind: m.type, data: dto.preview(m) });
+      }
+      if (missing.length) ids.registerMany(missing);
+      const now = Date.now();
+      st.listPut.run(p.key, JSON.stringify(metas.map((m) => `${m.type}|${m.id}`)), p.raw, p.pageSize, p.lastSize, p.done ? 1 : 0, p.at, now);
+      usedAt.set(p.key, now);
+    } catch (e) {
+      console.log(new Date().toISOString(), `[catalog] liste non gardee ${p.key}: ${e.message}`);
+    }
+  }
+}
+
+// Derniere utilisation de chaque liste (ecrite une fois par heure au plus), pour information.
+const usedAt = new Map();
+
+function markUsed(key) {
+  const now = Date.now();
+  if (now - (usedAt.get(key) || 0) < 3600e3) return;
+  usedAt.set(key, now);
+  try {
+    st.listUsed.run(now, key);
+  } catch {}
+}
+
+/** Relit une liste en arriere-plan jusqu'a sa profondeur actuelle, puis la remplace. */
+function renew(old, view, genre, filter, sort) {
+  if (old.renewing) return old.renewing;
+  const q = emptyPager(old.key);
+  old.renewing = (async () => {
+    // Plusieurs tours : la liste affichee a pu s'allonger pendant la relecture (defilement).
+    let want = 0;
+    while (!q.done && q.metas.length < Math.min(old.metas.length, maxItems()) && want !== old.metas.length) {
+      want = old.metas.length;
+      await fill(q, view, Math.min(want, maxItems()), genre, filter, sort);
+    }
+    if (q.failed && q.metas.length < old.metas.length) {
+      // Addon injoignable : l'ancienne liste reste, nouvel essai dans 10 minutes.
+      old.at = Date.now() - PAGER_TTL + 10 * 60e3;
+      return;
+    }
+    if (pagers.get(old.key) === old) {
+      pagers.set(old.key, q);
+      scheduleSave(q);
+    }
+  })()
+    .catch(() => {
+      old.at = Date.now() - PAGER_TTL + 10 * 60e3;
+    })
+    .finally(() => {
+      old.renewing = null;
+    });
+  return old.renewing;
+}
+
+/**
+ * Prechauffage d'un catalogue : liste relue si elle date, puis chargee jusqu'au nombre de titres du
+ * reglage (une liste deja plus longue le reste). Renvoie ses titres.
+ */
+async function warm(view, filter, sort) {
+  const genre = view.defaultGenre;
+  if (!view.sortable) sort = undefined;
+  const p = pagerFor(view, genre, filter, sort);
+  if (p.renewing) await p.renewing;
+  const cur = pagers.get(p.key) || p;
+  await fill(cur, view, warmItems(), genre, filter, sort);
+  return cur.metas;
 }
 
 /** Charge `count` pages a partir de la position courante (en parallele), dans l'ordre. */
@@ -159,6 +329,7 @@ function loadPages(p, view, count, genre, filter, sort) {
       if (page.error) {
         console.log(new Date().toISOString(), `[catalog] KO ${view.key}: ${page.error.message}`);
         p.done = true;
+        p.failed = true;
         // Rien de charge du tout : on retentera dans une minute.
         if (!p.raw && i === 0) p.at = Date.now() - PAGER_TTL + 60e3;
         break;
@@ -177,7 +348,7 @@ function loadPages(p, view, count, genre, filter, sort) {
       }
       // Page vide, page deja vue (addon qui ignore skip) ou catalogue sans pagination : fin.
       // Les pages suivantes du lot sont ignorees.
-      if (!added || !view.hasSkip || p.raw >= MAX_ITEMS) {
+      if (!added || !view.hasSkip || p.raw >= maxItems()) {
         p.done = true;
         break;
       }
@@ -185,11 +356,16 @@ function loadPages(p, view, count, genre, filter, sort) {
     // Filtre (ex: titres sortis) applique a tout le lot en une fois.
     const keep = filter ? await Promise.all(fresh.map((m) => filter.fn(m).catch(() => true))) : null;
     p.metas.push(...fresh.filter((m, i) => !keep || keep[i]));
-    if (p.metas.length >= MAX_ITEMS) p.done = true;
+    if (p.metas.length >= maxItems()) {
+      p.metas.length = maxItems();
+      p.done = true;
+    }
     // Liste vide : on retentera dans 2 minutes (addon qui prepare encore sa liste).
     if (p.done && !p.metas.length) p.at = Math.min(p.at, Date.now() - PAGER_TTL + 2 * 60e3);
   })().finally(() => {
     p.loading = null;
+    // Gardee en base (sauf liste vide, ou incomplete parce qu'un addon ne repond pas).
+    if (p.metas.length && !p.failed) scheduleSave(p);
   });
   return p.loading;
 }
@@ -259,4 +435,4 @@ async function search(profile, query, types = ['movie', 'series']) {
   return out;
 }
 
-module.exports = { allCatalogs, isEnabled, views, positionOf, slice, search, catalogKey, label };
+module.exports = { allCatalogs, isEnabled, views, positionOf, slice, warm, search, catalogKey, label };

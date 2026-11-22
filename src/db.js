@@ -74,6 +74,19 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS plays_unique ON plays (profile, uuid, source, started);
   CREATE INDEX IF NOT EXISTS plays_profile ON plays (profile, started);
 
+  -- Listes des catalogues deja chargees (titres dans l'ordre, "type|id"), gardees entre deux
+  -- demarrages : une bibliotheque s'ouvre tout de suite et se met a jour en arriere-plan.
+  CREATE TABLE IF NOT EXISTS lists (
+    key       TEXT PRIMARY KEY,
+    items     TEXT NOT NULL,
+    raw       INTEGER NOT NULL DEFAULT 0,
+    page_size INTEGER NOT NULL DEFAULT 0,
+    last_size INTEGER NOT NULL DEFAULT 0,
+    done      INTEGER NOT NULL DEFAULT 0,
+    updated   INTEGER NOT NULL,
+    used      INTEGER NOT NULL
+  );
+
   -- Sessions de l'interface d'administration (seul le hache du jeton est stocke).
   CREATE TABLE IF NOT EXISTS admin_sessions (
     token_hash TEXT PRIMARY KEY,
@@ -106,7 +119,11 @@ const st = {
   idPut: db.prepare('INSERT INTO ids (uuid, key, kind, data) VALUES (?, ?, ?, ?) ON CONFLICT(uuid) DO UPDATE SET data = excluded.data, kind = excluded.kind'),
   cacheGet: db.prepare('SELECT value, expires FROM cache WHERE key = ?'),
   cachePut: db.prepare('INSERT INTO cache (key, value, expires) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, expires = excluded.expires'),
-  cachePurge: db.prepare('DELETE FROM cache WHERE expires < ?'),
+  listGet: db.prepare('SELECT * FROM lists WHERE key = ?'),
+  listPut: db.prepare(`INSERT INTO lists (key, items, raw, page_size, last_size, done, updated, used) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET items = excluded.items, raw = excluded.raw, page_size = excluded.page_size,
+      last_size = excluded.last_size, done = excluded.done, updated = excluded.updated, used = excluded.used`),
+  listUsed: db.prepare('UPDATE lists SET used = ? WHERE key = ?'),
   tokenGet: db.prepare('SELECT * FROM tokens WHERE token = ?'),
   tokenPut: db.prepare('INSERT INTO tokens (token, profile, device_id, device, client, version, created, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
   tokenSeen: db.prepare('UPDATE tokens SET last_seen = ? WHERE token = ?'),
@@ -168,9 +185,7 @@ function transaction(fn) {
   }
 }
 
-// Menage du cache expire depuis plus d'une semaine.
-setInterval(() => {
-  try { st.cachePurge.run(Date.now() - 7 * 864e5); } catch {}
-}, 6 * 3600e3).unref();
+// La base n'est jamais nettoyee : fiches, listes des catalogues et reponses en cache sont toutes
+// gardees (une reponse perimee est remplacee quand elle est relue).
 
 module.exports = { db, st, transaction };

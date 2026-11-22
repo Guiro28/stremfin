@@ -1789,6 +1789,8 @@ PAGES['settings/metadata'] = async (main) => {
         <div class="control"><select name="lang">${LANG_OPTS.map(([v, l]) => `<option value="${v}" ${s.metadataLanguage === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
       <div class="setting"><div class="text"><b>${t('Masquer les épisodes pas encore sortis')}</b><span>${t("Les épisodes annoncés mais pas encore diffusés n'apparaissent pas.")}</span></div>
         <div class="control">${toggle('name="hideUnreleased"', s.hideUnreleased)}</div></div>
+      <div class="setting"><div class="text"><b>${t('Titres gardés par catalogue')}</b><span>${t("Le préchauffage charge chaque catalogue jusqu'à ce nombre de titres et les garde en base ; ceux affichés plus loin ou trouvés par une recherche s'y ajoutent. Les listes s'ouvrent tout de suite, même après un redémarrage, et se mettent à jour en arrière-plan. Rien n'est retiré de la base.")}</span></div>
+        <div class="control"><input name="maxItems" type="number" min="100" max="10000" step="100" value="${s.catalogMaxItems}" style="width:100px"></div></div>
       <div class="setting"><div class="text"><b>${t("Passer l'intro et le générique")}</b><span>${t("Boutons dans les apps Jellyfin, d'après la base communautaire TheIntroDB.")}</span></div>
         <div class="control">${toggle('name="introSkip"', s.introSkip)}</div></div>
       <div class="row end" style="margin-top:8px">${s.tmdbApiKey ? `<button class="btn danger" type="button" id="keyDel">${t('Retirer la clé')}</button>` : ''}<button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
@@ -1800,6 +1802,7 @@ PAGES['settings/metadata'] = async (main) => {
       tmdbApiKey: f.key.value.trim(),
       metadataLanguage: f.lang.value,
       hideUnreleased: f.hideUnreleased.checked,
+      catalogMaxItems: Number(f.maxItems.value),
       introSkip: f.introSkip.checked
     }).then((r) => r && render());
   };
