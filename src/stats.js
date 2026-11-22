@@ -69,14 +69,18 @@ function onReport(profile, entry, stage, info) {
     s = null;
   }
   const position = Math.round((info.position || 0) / TICKS);
+  // Arret seul, sans debut (lecteur externe, app qui n'a rien envoye avant) : la lecture compte
+  // si la position montre qu'on a regarde assez longtemps ; elle a commence il y a "position".
+  const stopOnly = !s && stage === 'stopped';
+  if (stopOnly && position < MIN_WATCHED) return;
   if (!s) {
-    if (stage === 'stopped') return;
     const t = titleOf(entry);
     const duration = info.ticks ? Math.round(info.ticks / TICKS) : 0;
     const src = info.source || {};
     // Debit moyen estime de la release : taille du fichier / duree.
     const bitrate = src.size && duration ? Math.round((src.size * 8) / (duration / 1000)) : null;
-    const playId = q.start.run(profile.id, entry.uuid, entry.kind, t.title, t.series, now, now, position, duration, [src.quality, src.release].filter(Boolean).join(' · ') || null, bitrate, info.client || null, info.device || null, src.addonName || null, src.addonLogo || null).lastInsertRowid;
+    const started = stopOnly ? now - position : now;
+    const playId = q.start.run(profile.id, entry.uuid, entry.kind, t.title, t.series, started, now, position, duration, [src.quality, src.release].filter(Boolean).join(' · ') || null, bitrate, info.client || null, info.device || null, src.addonName || null, src.addonLogo || null).lastInsertRowid;
     const id = crypto.createHash('sha1').update(`${deviceKey}|${entry.uuid}|${now}`).digest('hex').slice(0, 16);
     s = {
       id,
@@ -86,11 +90,11 @@ function onReport(profile, entry, stage, info) {
       uuid: entry.uuid,
       kind: entry.kind,
       state: info.paused ? 'paused' : 'playing',
-      startedAt: now,
+      startedAt: started,
       updatedAt: now,
       position,
       duration,
-      watched: 0,
+      watched: stopOnly ? position : 0,
       release: src.release || null,
       size: src.size || 0,
       addonName: src.addonName || null,
@@ -105,8 +109,13 @@ function onReport(profile, entry, stage, info) {
     live.set(id, s);
     byDevice.set(deviceKey, id);
   } else {
-    // Temps regarde : ecoule depuis le dernier rapport, hors pause (trous de plus d'1 min ignores).
-    if (s.state === 'playing') s.watched += Math.min(now - s.updatedAt, 60e3);
+    // Temps regarde : ecoule depuis le dernier rapport, hors pause. Un trou de plus d'une minute
+    // (app qui envoie peu de rapports, lecteur externe) compte si la position a avance d'autant ;
+    // sinon (app fermee sans prevenir, longue pause), une minute au plus.
+    if (s.state === 'playing') {
+      const advanced = info.position !== undefined && info.position !== null ? Math.max(0, position - s.position) : 0;
+      s.watched += Math.min(now - s.updatedAt, Math.max(60e3, advanced));
+    }
     s.updatedAt = now;
     if (info.position !== undefined && info.position !== null) s.position = position;
     if (info.ticks) s.duration = Math.round(info.ticks / TICKS);

@@ -1,6 +1,7 @@
 // Images des tuiles "Mes medias" choisies par profil, ou pour une collection (tous les profils) :
-// fichier envoye (data/library-images) ou adresse d'une image. Sans choix, la tuile prend le fond
-// du titre le plus populaire (ou l'image Nuvio d'une collection).
+// fichier envoye (data/library-images), adresse d'une image, ou image generee par Stremfin (fond
+// fourni ou mur de jaquettes, calque de couleur et nom, voir libraryCard.js). Sans choix, Stremfin
+// genere lui-meme l'image avec les jaquettes de la bibliotheque (les collections Nuvio gardent la leur).
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -59,10 +60,149 @@ function setUrl(profile, key, url) {
 
 function clear(profile, key) {
   const e = profile.catalogs?.[key];
-  if (!e?.image) return;
+  if (!e?.image && !e?.card) return;
   dropFile(e.image);
   delete e.image;
+  if (e.card?.source) dropFile(PREFIX + e.card.source);
+  delete e.card;
   config.save();
+}
+
+// ---- Images generees ------------------------------------------------------------------
+// Style Polyfin (voir libraryCard.js) : mur de jaquettes, degrade sombre et nom en gras blanc.
+// Generees a la demande (bouton "Generer l'image", gardees comme image choisie), ou
+// automatiquement pour ce qui n'a pas d'image : bibliotheques, collections et leurs dossiers.
+
+// Version du style : une image automatique d'une version plus ancienne est refaite.
+const STYLE = 2;
+const AUTO_EVERY = 7 * 864e5;
+// Jaquettes demandees : de quoi remplir chaque case du mur sans repetition (28 en large).
+const POSTERS = 32;
+
+/** Image telechargee (jaquette), 8 Mo max. */
+async function fetchImage(url) {
+  const { request, readAll } = require('./http');
+  const { res } = await request(url, { timeout: 15000, upstream: config.get().settings.upstream, headers: { 'user-agent': 'Stremfin' } });
+  const buf = await readAll(res);
+  if ((res.statusCode || 0) >= 400) throw new Error(`HTTP ${res.statusCode}`);
+  if (buf.length > 8 * 1024 * 1024) throw new Error('Image trop lourde');
+  return buf;
+}
+
+/** Jaquettes des premiers titres d'une liste (catalogue au sens de catalog.js), pour le mur. */
+async function posterBuffers(view) {
+  const { metas } = await require('./catalog').slice(view, 0, POSTERS + 10);
+  const urls = [...new Set((metas || []).map((m) => m.poster).filter((u) => /^https?:\/\//i.test(String(u || ''))))].slice(0, POSTERS);
+  // Par lots de 8, pour ne pas ouvrir 32 connexions d'un coup.
+  const bufs = [];
+  for (let i = 0; i < urls.length; i += 8) bufs.push(...(await Promise.all(urls.slice(i, i + 8).map((u) => fetchImage(u).catch(() => null)))));
+  return bufs.filter(Boolean);
+}
+
+/** JPEG genere pour une liste : ses jaquettes et son nom. */
+async function draw(view, name, poster = false) {
+  return require('./libraryCard').render({ posters: await posterBuffers(view), title: name, poster });
+}
+
+/** Genere l'image d'une bibliotheque du profil (jaquettes + nom) et la garde comme image de sa tuile. */
+async function generate(profile, view) {
+  const e = entry(profile, view.key);
+  storeFile(e, `${profile.id}-${hash(view.key)}`, await draw(view, view.name));
+  if (e.card?.source) dropFile(PREFIX + e.card.source);
+  delete e.card;
+  config.save();
+  return e.image;
+}
+
+// Images automatiques, generees en tache de fond l'une apres l'autre ; refaites quand le nom
+// change, quand le style change, et chaque semaine (nouvelles jaquettes).
+const autoQueue = [];
+const autoPending = new Set();
+let autoRunning = false;
+
+async function runAuto() {
+  if (autoRunning) return;
+  autoRunning = true;
+  while (autoQueue.length) {
+    const job = autoQueue.shift();
+    try {
+      await job.run();
+    } catch (err) {
+      console.log(new Date().toISOString(), `[images] image de « ${job.label} » non generee : ${err.message}`);
+    }
+    autoPending.delete(job.id);
+  }
+  autoRunning = false;
+}
+
+function schedule(id, label, run) {
+  if (autoPending.has(id)) return;
+  autoPending.add(id);
+  autoQueue.push({ id, label, run });
+  setImmediate(runAuto);
+}
+
+/** Adresse d'une image automatique a jour, ou null ; stale : a refaire (nom, style ou age). */
+function autoState(a, name) {
+  const ready = !!a?.file && fs.existsSync(path.join(DIR, path.basename(a.file)));
+  const stale = !ready || a.name !== name || a.v !== STYLE || Date.now() - a.at > AUTO_EVERY;
+  return { url: ready ? `${PREFIX}${a.file}?v=${a.at}` : null, stale };
+}
+
+function writeAuto(file, jpegBuf, name) {
+  fs.mkdirSync(DIR, { recursive: true });
+  fs.writeFileSync(path.join(DIR, file), jpegBuf);
+  return { file, name, at: Date.now(), v: STYLE };
+}
+
+/**
+ * Image automatique d'une bibliotheque (adresse), ou null tant qu'elle n'est pas prete : elle
+ * est alors generee en tache de fond, et les apps la recoivent au prochain affichage. Une
+ * collection qui a deja sa propre image (Nuvio ou choisie) la garde.
+ */
+function autoImage(profile, view) {
+  if (!profile || !view) return null;
+  if (view.type === 'nuviocol') {
+    const c = require('./collections').byId(String(view.catId || view.key || '').replace(/^.*col:/, ''));
+    if (c && require('./collections').imageOf(c)) return null;
+  }
+  const state = autoState(profile.catalogs?.[view.key]?.auto, view.name);
+  if (state.stale) {
+    schedule(`${profile.id}|${view.key}`, view.name, async () => {
+      const p = config.getProfile(profile.id);
+      const v = p && require('./jellyfin/library').viewByUuid(p, view.uuid);
+      if (!v || custom(p, v.key)) return;
+      entry(p, v.key).auto = writeAuto(`auto-${p.id}-${hash(v.key)}.jpg`, await draw(v, v.name), v.name);
+      config.save();
+    });
+  }
+  return state.url;
+}
+
+/**
+ * Image automatique d'une collection ou d'un de ses dossiers (target : "" collection, id de
+ * dossier, ou "dossier:n" sous-dossier), commune a tous les profils, ou null tant qu'elle n'est
+ * pas prete. spec : { view, name, poster } (voir collections.generationSpec).
+ */
+function autoCollectionImage(c, target, spec) {
+  if (!c || !spec?.view) return null;
+  c.autoImages = c.autoImages || {};
+  const state = autoState(c.autoImages[target || ''], spec.name);
+  if (state.stale) {
+    schedule(`col|${c.id}|${target || ''}`, spec.name, async () => {
+      const jpegBuf = await draw(spec.view, spec.name, spec.poster);
+      c.autoImages = c.autoImages || {};
+      c.autoImages[target || ''] = writeAuto(`auto-col-${hash(`${c.id}|${target || ''}`)}.jpg`, jpegBuf, spec.name);
+      config.save();
+    });
+  }
+  return state.url;
+}
+
+/** Genere l'image d'une collection ou d'un de ses dossiers et la garde comme image choisie. */
+async function generateCollection(c, target, spec) {
+  if (!spec?.view) throw new Error('Aucune liste de titres pour cette image');
+  return storeFile(collectionHolder(c, target), `col-${hash(`${c.id}|${target || ''}`)}`, await draw(spec.view, spec.name, spec.poster));
 }
 
 // Collection : image de sa tuile (commune a tous les profils, qui peuvent toujours choisir la
@@ -102,4 +242,4 @@ function custom(profile, key) {
   return profile?.catalogs?.[key]?.image || undefined;
 }
 
-module.exports = { saveFile, setUrl, clear, saveCollectionFile, setCollectionUrl, clearCollection, clearCollectionAll, file, custom };
+module.exports = { saveFile, setUrl, clear, saveCollectionFile, setCollectionUrl, clearCollection, clearCollectionAll, file, custom, generate, autoImage, autoCollectionImage, generateCollection };

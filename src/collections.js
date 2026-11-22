@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const config = require('./config');
 const cache = require('./cache');
 const { getJson } = require('./http');
+const libraryImages = require('./libraryImages');
 
 const ADDON_URL = 'stremfin://collections';
 const PAGE = 50;
@@ -441,7 +442,12 @@ async function folderMetas(c) {
       let poster = own || f.cover;
       // Fond : le GIF anime (les apps Emby l'affichent derriere), sinon l'image de fond.
       let background = own || gif || f.hero || f.cover;
-      if (!poster) {
+      // Sans image : celle generee par Stremfin (jaquettes du dossier et son nom), des qu'elle est prete.
+      const auto = poster ? null : libraryImages.autoCollectionImage(c, f.id, generationSpec(c, f.id));
+      if (auto) {
+        poster = auto;
+        background = gif || f.hero || auto;
+      } else if (!poster) {
         // Sans image de couverture : celle du premier titre du dossier.
         const first = await Promise.race([slice(folderView(c.id, f.id), 0, 1).then((r) => r.metas[0]), new Promise((r) => setTimeout(r, 5000))]).catch(() => null);
         poster = f.shape === 'LANDSCAPE' ? f.hero || first?.background || first?.poster : first?.poster;
@@ -470,11 +476,43 @@ async function subfolders(colId, folderId) {
   return Promise.all(
     list.map(async ({ index, src, view }) => {
       const own = customImage(c, `${folderId}:${index}`);
-      const first = own ? null : await firstOf(view);
-      const image = own || first?.background || first?.poster;
+      const auto = own ? null : libraryImages.autoCollectionImage(c, `${folderId}:${index}`, generationSpec(c, `${folderId}:${index}`));
+      const first = own || auto ? null : await firstOf(view);
+      const image = own || auto || first?.background || first?.poster;
       return { id: `colc:${colId}:${folderId}:${index}`, type: 'colcat', name: `${catalogName(c, src)} · ${label(view.type)}`, poster: image, background: image, colId, folderId, srcIndex: index, shape: 'LANDSCAPE', fr: true };
     })
   );
+}
+
+/**
+ * Ce que montre l'image generee d'une cible (voir libraryImages) : la liste dont elle prend les
+ * jaquettes, son nom, et son format. "" : la collection (titres de son premier dossier) ; "dossier" :
+ * le dossier (affiche, ou paysage s'il l'est) ; "dossier:n" : un sous-dossier (paysage). null si
+ * la cible n'existe pas.
+ */
+function generationSpec(c, target) {
+  if (!target) {
+    // La collection : les titres de son premier dossier qui en a (les couvertures des dossiers
+    // sont souvent des logos en WebP ou en GIF).
+    const first = (c.data.folders || []).find((x) => folderCatalogs(c, fid(x)).length);
+    return first ? { view: folderView(c.id, fid(first)), name: c.title, poster: false } : null;
+  }
+  const [folderId, index] = String(target).split(':');
+  const f = (c.data.folders || []).find((x) => fid(x) === folderId);
+  if (!f) return null;
+  if (index === undefined) {
+    return { view: folderView(c.id, folderId), name: String(f.title || ''), poster: String(f.tileShape || shapeOf(c)).toUpperCase() !== 'LANDSCAPE' };
+  }
+  const x = folderCatalogs(c, folderId).find((y) => y.index === Number(index));
+  if (!x) return null;
+  const { label } = require('./catalog');
+  return { view: x.view, name: `${catalogName(c, x.src)} · ${label(x.view.type)}`, poster: false };
+}
+
+/** Image automatique deja prete d'une cible (pour l'interface), ou null. */
+function autoImageOf(c, target) {
+  const a = c.autoImages?.[target || ''];
+  return a?.file ? `/stremfin/library/${a.file}?v=${a.at}` : null;
 }
 
 /** Liste d'un sous-dossier (une source). */
@@ -564,6 +602,7 @@ function describe(c) {
     // Image de la tuile : choisie ici (image), sinon celle du .json (nuvioImage).
     image: c.image || null,
     nuvioImage: nuvioImageOf(c),
+    autoImage: autoImageOf(c, ''),
     missing: !!c.missing,
     updatedAt: c.updatedAt,
     folders: (c.data.folders || []).map((f) => {
@@ -576,8 +615,9 @@ function describe(c) {
         shape: String(f.tileShape || 'POSTER').toUpperCase(),
         image: customImage(c, id),
         nuvioImage: safeUrl(f.coverImageUrl) || safeUrl(f.heroBackdropUrl),
+        autoImage: autoImageOf(c, id),
         subfolders: subs,
-        sources: (f.sources || []).map((src, i) => ({ ...sourceLabel(src, c), index: i, image: subs ? customImage(c, `${id}:${i}`) : null }))
+        sources: (f.sources || []).map((src, i) => ({ ...sourceLabel(src, c), index: i, image: subs ? customImage(c, `${id}:${i}`) : null, autoImage: subs ? autoImageOf(c, `${id}:${i}`) : null }))
       };
     }),
     profiles: config.get().profiles.filter((p) => (p.collections || []).includes(c.id)).map((p) => p.id)
@@ -597,4 +637,4 @@ function imageTarget(c, target) {
   return index === undefined || (list.length > 1 && list.some((x) => x.index === Number(index)));
 }
 
-module.exports = { ADDON_URL, imageTarget, list, preview, importFrom, refresh, remove, assign, start, addon, folderView, subfolders, sourceViewOf, warmViews, catalog, byId };
+module.exports = { ADDON_URL, imageTarget, list, preview, importFrom, refresh, remove, assign, start, addon, folderView, subfolders, sourceViewOf, warmViews, catalog, byId, imageOf, generationSpec };

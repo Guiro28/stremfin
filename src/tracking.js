@@ -794,7 +794,8 @@ async function trakt(profile, path, body) {
 async function simkl(profile, path, body) {
   const id = simklIdOf(profile.simkl);
   const r = await request(simklUrl(path, {}, id), { method: 'POST', headers: simklHeaders(await simklToken(profile), id), body });
-  if (!r.ok) throw new Error(`Simkl : erreur ${r.status}`);
+  // 409 : deja note il y a peu (scrobble en double), sans gravite.
+  if (!r.ok && r.status !== 409) throw new Error(`Simkl : erreur ${r.status}`);
 }
 
 async function scrob(profile, path, { method = 'POST', body } = {}) {
@@ -876,39 +877,51 @@ function historyBody(entries, at) {
   };
 }
 
-const live = new Map(); // "profil|uuid" -> { paused, at }
+const live = new Map(); // "profil|uuid" -> { paused, at, finished }
 
 /**
- * Rapport de lecture d'une app : lecture en direct vers Trakt et Scrob (debut / pause / reprise /
- * arret ; Trakt marque vu au-dela de 80 %, Scrob a 90 %), et titre devenu vu vers Simkl.
+ * Rapport de lecture d'une app : lecture en direct vers Trakt, Simkl et Scrob (debut / pause /
+ * reprise / arret ; ils marquent vu au-dela de 80 a 90 %). Des que Stremfin marque le titre vu
+ * (`watched`, 90 %), l'arret leur est envoye tout de suite : une app fermee brutalement pendant le
+ * generique ne leur fait pas perdre le visionnage, et la suite du generique n'est pas renvoyee.
  */
 function onReport(profile, entry, stage, { position, ticks, paused, watched }) {
   const media = mediaOf(entry);
-  if (!media) return;
-  const toTrakt = exporting(profile, 'trakt');
-  const toScrob = exporting(profile, 'scrob');
-  if ((toTrakt || toScrob) && ticks) {
-    for (const [k, v] of live) if (Date.now() - v.at > 6 * 3600e3) live.delete(k);
-    const key = `${profile.id}|${entry.uuid}`;
-    const prev = live.get(key);
-    let action = null;
-    if (stage === 'stopped') {
-      action = 'stop';
-      live.delete(key);
-    } else if (!prev || stage === 'start') {
-      action = paused ? 'pause' : 'start';
-      live.set(key, { paused: !!paused, at: Date.now() });
-    } else if (!!paused !== prev.paused) {
-      action = paused ? 'pause' : 'resume';
-      Object.assign(prev, { paused: !!paused, at: Date.now() });
-    } else {
-      prev.at = Date.now();
-    }
-    const progress = Math.round(Math.min(100, Math.max(0, (position / ticks) * 100)) * 100) / 100;
-    if (action && toTrakt) trakt(profile, `/scrobble/${action === 'resume' ? 'start' : action}`, { ...media, progress, app_version: pkg.version }).catch((e) => failed(profile, 'trakt', e));
-    if (action && toScrob) scrobLive(profile, key, entry, media, action, position, ticks);
+  if (!media || !ticks) return;
+  const to = ['trakt', 'simkl', 'scrob'].filter((service) => exporting(profile, service));
+  if (!to.length) return;
+  for (const [k, v] of live) if (Date.now() - v.at > 6 * 3600e3) live.delete(k);
+  const key = `${profile.id}|${entry.uuid}`;
+  const prev = live.get(key);
+  const progress = Math.round(Math.min(100, Math.max(0, (position / ticks) * 100)) * 100) / 100;
+  let action = null;
+  if (prev?.finished) {
+    // Deja envoye comme termine : seule une nouvelle lecture depuis le debut repart.
+    if (stage === 'start' && progress < 90) live.delete(key);
+    else return;
   }
-  if (watched && exporting(profile, 'simkl')) simkl(profile, '/sync/history', historyBody([entry], Date.now())).catch((e) => failed(profile, 'simkl', e));
+  const cur = live.get(key);
+  if (watched || stage === 'stopped') {
+    action = 'stop';
+    if (watched) live.set(key, { finished: true, at: Date.now() });
+    else live.delete(key);
+  } else if (!cur || stage === 'start') {
+    action = paused ? 'pause' : 'start';
+    live.set(key, { paused: !!paused, at: Date.now() });
+  } else if (!!paused !== cur.paused) {
+    action = paused ? 'pause' : 'resume';
+    Object.assign(cur, { paused: !!paused, at: Date.now() });
+  } else {
+    cur.at = Date.now();
+  }
+  if (!action) return;
+  // Vu par Stremfin : au moins 90 %, pour que le service le marque vu lui aussi.
+  const sent = watched ? Math.max(progress, 90) : progress;
+  const path = `/scrobble/${action === 'resume' ? 'start' : action}`;
+  // Trakt a retire la pause de son API : un refus de pause n'est pas une erreur a afficher.
+  if (to.includes('trakt')) trakt(profile, path, { ...media, progress: sent, app_version: pkg.version }).catch((e) => action !== 'pause' && failed(profile, 'trakt', e));
+  if (to.includes('simkl')) simkl(profile, path, { ...media, progress: sent }).catch((e) => action !== 'pause' && failed(profile, 'simkl', e));
+  if (to.includes('scrob')) scrobLive(profile, key, entry, media, action, watched ? Math.max(position, ticks * 0.9) : position, ticks);
 }
 
 /** "Vu" / "pas vu" choisi dans une app : envoye a Trakt, Simkl et Scrob. */

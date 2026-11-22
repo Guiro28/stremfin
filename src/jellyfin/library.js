@@ -112,8 +112,8 @@ function lightDto(profile, entry) {
     case 'colcat':
       return dto.folderItem(entry.uuid, entry.data, udRow(profile, entry.uuid));
     case 'view':
-      // Image choisie dans l'admin, sinon le fond du titre le plus populaire.
-      return dto.viewItem(entry.uuid, entry.data, libraryImages.custom(profile, entry.data.key) || entry.data.image);
+      // Image choisie dans l'admin, sinon celle generee avec les jaquettes, sinon le fond du titre le plus populaire.
+      return dto.viewItem(entry.uuid, entry.data, viewImage(profile, entry));
     case 'genre':
       return dto.genreItem(entry.data.name);
     case 'person':
@@ -152,7 +152,9 @@ async function seriesTree(profile, series) {
   ids.register(series.key, series.kind, dto.preview({ ...meta, type: series.data.type || 'series' }));
 
   const now = Date.now();
-  const hide = config.get().settings.hideUnreleased;
+  // Episodes pas encore diffuses : masques par le reglage du serveur, sauf pour un profil qui
+  // a choisi "Afficher les episodes manquants" dans l'app (ils s'affichent alors grises).
+  const hide = config.get().settings.hideUnreleased && !profile.displayMissingEpisodes;
   const videos = (meta.videos || []).filter((v) => {
     if (!v?.id) return false;
     if (!hide || !v.released) return true;
@@ -208,7 +210,9 @@ async function seriesTree(profile, series) {
   const aired = (meta.videos || []).filter((v) => v?.id && Number(v.season) !== 0 && isAired(v.released, now)).length;
   // Debut de l'id video des episodes (tt... ou tmdb:N) : identite de la serie commune a ses versions.
   const vidKey = String(videos.find((v) => Number(v.season) !== 0)?.id || '').replace(/:\d+:\d+$/, '') || undefined;
-  if (aired !== series.data.airedCount || vidKey !== series.data.vidKey) ids.register(series.key, series.kind, { airedCount: aired, vidKey });
+  // airedAt : date du calcul (refait chaque jour pour une serie commencee, nouveaux episodes).
+  const stale = !series.data.airedAt || now - series.data.airedAt > 24 * 3600e3;
+  if (aired !== series.data.airedCount || vidKey !== series.data.vidKey || stale) ids.register(series.key, series.kind, { airedCount: aired, vidKey, airedAt: now });
   return { meta, seasons };
 }
 
@@ -216,6 +220,32 @@ async function seriesTree(profile, series) {
 function isAired(released, now = Date.now()) {
   const t = Date.parse(released || '');
   return !Number.isFinite(t) || t <= now;
+}
+
+// Series dont le nombre d'episodes sortis est a calculer (fiche lue en arriere-plan, une a la fois).
+const airedQueue = new Map(); // uuid -> profil
+const airedTried = new Map(); // uuid -> derniere tentative (une par heure au plus)
+let airedBusy = false;
+
+function countAiredLater(profile, uuid) {
+  if (airedQueue.has(uuid) || Date.now() - (airedTried.get(uuid) || 0) < 3600e3) return;
+  airedTried.set(uuid, Date.now());
+  if (airedTried.size > 5000) airedTried.delete(airedTried.keys().next().value);
+  airedQueue.set(uuid, profile);
+  if (airedBusy) return;
+  airedBusy = true;
+  setImmediate(async () => {
+    try {
+      while (airedQueue.size) {
+        const [id, p] = airedQueue.entries().next().value;
+        const e = ids.get(id);
+        if (e?.kind === 'series') await seriesTree(p, e).catch(() => {});
+        airedQueue.delete(id);
+      }
+    } finally {
+      airedBusy = false;
+    }
+  });
 }
 
 /**
@@ -241,10 +271,14 @@ function playedBySeries(profileId) {
   const map = new Map();
   for (const r of st.udPlayedEpisodes.all(profileId)) {
     const d = JSON.parse(r.data);
-    const k = episodeSeriesKey(d);
-    if (!k || !Number(d.season)) continue;
-    if (!map.has(k)) map.set(k, new Set());
-    map.get(k).add(`${d.season}:${d.episode}`);
+    if (!Number(d.season)) continue;
+    // Range sous l'identite de la serie (debut de l'id video) et sous l'id de sa version
+    // (tt... ou tmdb:...) : une serie se retrouve meme si sa fiche n'a jamais ete ouverte.
+    for (const k of new Set([episodeSeriesKey(d), d.seriesSid])) {
+      if (!k) continue;
+      if (!map.has(k)) map.set(k, new Set());
+      map.get(k).add(`${d.season}:${d.episode}`);
+    }
   }
   playedCache.set(profileId, map);
   return map;
@@ -257,8 +291,13 @@ function playedBySeries(profileId) {
 function seriesUserData(profile, entry, d, always = false) {
   const total = entry.data.airedCount;
   const k = seriesKeyOf(entry.data);
-  if (!total || !k || !d?.UserData) return d;
-  const seen = playedBySeries(profile.id).get(k)?.size || 0;
+  if (!k || !d?.UserData) return d;
+  const played = playedBySeries(profile.id);
+  const seen = (played.get(k) || played.get(entry.data.sid))?.size || 0;
+  // Serie commencee dont on ne connait pas (ou plus) le nombre d'episodes sortis : calcule en
+  // arriere-plan, la pastille apparait a l'affichage suivant.
+  if (seen && (!total || Date.now() - (entry.data.airedAt || 0) > 24 * 3600e3)) countAiredLater(profile, entry.uuid);
+  if (!total) return d;
   // Dans les listes, seulement pour les series commencees (sur la fiche, toujours).
   if (!seen && !always) return d;
   d.UserData.UnplayedItemCount = Math.max(0, total - seen);
@@ -538,6 +577,12 @@ async function nextOfSeries(profile, g, { resumable, rewatching }) {
 
 // ---- Images -----------------------------------------------------------------
 
+/** Image de la tuile d'une bibliotheque : choisie, sinon generee (jaquettes + nom), sinon le fond du 1er titre. */
+function viewImage(profile, entry) {
+  const d = entry.data;
+  return libraryImages.custom(profile, d.key) || libraryImages.autoImage(profile, { uuid: entry.uuid, key: d.key, name: d.name, type: d.type }) || d.image;
+}
+
 async function imageUrl(id, type, index = 0, imageTag = '') {
   const e = ids.get(id);
   if (!e) return null;
@@ -571,7 +616,7 @@ async function imageUrl(id, type, index = 0, imageTag = '') {
       return s ? pick(s.data) : null;
     }
     case 'view':
-      return libraryImages.custom(config.getProfile(d.profileId), d.key) || d.image || null;
+      return viewImage(config.getProfile(d.profileId), e) || null;
     case 'person':
       return t === 'primary' ? d.photo : null;
     default:

@@ -11,6 +11,8 @@ const { st } = require('../db');
 const dto = require('./dto');
 const languages = require('../languages');
 const noSourceClip = require('../noSource');
+const transcode = require('../transcode/decide');
+const hls = require('../transcode/hls');
 
 const SRC_TTL = 24 * 3600e3;
 
@@ -338,12 +340,17 @@ function unwrap(id) {
  * Meilleure source pour une qualite. Les langues preferees passent avant la qualite :
  * une VF en 1080p est preferee a une VO en 4K.
  */
-function pickSource(sources, q) {
+/**
+ * Source d'une qualite : la mieux classee, en descendant puis en montant de qualite. prefer
+ * (facultatif) : parmi les sources a egalite, celles que l'app lit telles quelles d'abord.
+ */
+function pickSource(sources, q, prefer) {
   if (!sources.length) return null;
   const best = Math.min(...sources.map((s) => s.score));
   const pool = sources.filter((s) => s.score === best);
   for (const b of FALLBACK[q] || FALLBACK[1080]) {
-    const hit = pool.find((s) => s.bucket === b);
+    const inBucket = pool.filter((s) => s.bucket === b);
+    const hit = (prefer && inBucket.find(prefer)) || inBucket[0];
     if (hit) return hit;
   }
   return pool[0];
@@ -574,6 +581,39 @@ function defaultSubtitle(streams, profile, audio) {
   }
 }
 
+/**
+ * Lecture d'une version pour l'app qui la demande (voir transcode/decide.js) : telle quelle, ou
+ * diffusee en HLS avec ce qu'elle ne lit pas converti. Rien a changer (objet vide) pour une
+ * lecture directe, une app sans profil, ou quand la conversion n'est pas possible (reglage,
+ * FFmpeg absent, trop de conversions en cours) : la version est alors servie telle quelle.
+ */
+function conversion(itemUuid, src, token, streams, audio, ticks, msid, opts) {
+  const request = opts.request;
+  if (!request?.DeviceProfile) return {};
+  const runtime = ticks ? ticks / 1e7 : 0;
+  const bitrate = src.size && runtime ? Math.round((src.size * 8) / runtime) : 0;
+  const wanted = Number.isInteger(request.AudioStreamIndex) ? streams.find((s) => s.Type === 'Audio' && s.Index === request.AudioStreamIndex) : null;
+  const chosen = wanted || audio;
+  const d = transcode.decide({ streams, container: src.container, bitrate, audioIndex: chosen?.Index, request });
+  if (d.directPlay || !d.transcoding) return {};
+  const mode = config.get().settings.transcodeMode;
+  const name = ids.get(itemUuid)?.data?.name || 'vidéo';
+  if (mode === 'off' || (mode === 'audio' && !d.copyVideo) || !hls.available()) {
+    log(`[play] ${name} : pas lisible telle quelle par l'app (${d.reasons.join(', ')}), conversion ${mode === 'off' ? 'désactivée' : mode === 'audio' ? "limitée au son" : 'indisponible'} : servie telle quelle`);
+    return {};
+  }
+  const url = hls.prepare({ itemUuid, msid, token, container: src.container, runtime, decision: d, audio: chosen, video: streams.find((s) => s.Type === 'Video'), bitrate, profileId: opts.profile?.id, name });
+  return {
+    SupportsDirectPlay: false,
+    SupportsDirectStream: false,
+    SupportsTranscoding: true,
+    TranscodingUrl: `${url}?api_key=${token}&TranscodeReasons=${d.reasons.join(',')}`,
+    TranscodingSubProtocol: 'hls',
+    TranscodingContainer: d.transcoding.container,
+    DefaultAudioStreamIndex: chosen ? chosen.Index : 1
+  };
+}
+
 function mediaSource(itemUuid, src, token, subs, opts = {}) {
   const ticks = runtimeOf(ids.get(itemUuid));
   const streams = opts.tracks?.length ? fileStreams(opts.tracks, src.text) : guessStreams(src.text);
@@ -603,6 +643,7 @@ function mediaSource(itemUuid, src, token, subs, opts = {}) {
     });
   });
   const subtitle = defaultSubtitle(streams, opts.profile, audio);
+  const delivery = conversion(itemUuid, src, token, streams, audio, ticks, msid, opts);
   return {
     Protocol: 'File',
     Id: msid,
@@ -637,7 +678,8 @@ function mediaSource(itemUuid, src, token, subs, opts = {}) {
     DefaultSubtitleStreamIndex: subtitle ? subtitle.Index : -1,
     // Indispensable pour que les apps demandent /MediaSegments (boutons "Passer l'intro").
     HasSegments: !!config.get().settings.introSkip,
-    DirectStreamUrl: `/Videos/${itemUuid}/stream.${src.container}?static=true&mediaSourceId=${msid}&api_key=${token}`
+    DirectStreamUrl: `/Videos/${itemUuid}/stream.${src.container}?static=true&mediaSourceId=${msid}&api_key=${token}`,
+    ...delivery
   };
 }
 
@@ -672,7 +714,23 @@ function placeholderSource(itemUuid) {
   };
 }
 
-async function playbackInfo(profile, token, itemId, mediaSourceId) {
+// Derniere source servie (PlaybackInfo) par profil et titre, pour les statistiques : release,
+// qualite, taille et addon d'origine, meme quand l'app ne renvoie pas l'id de la source.
+const served = {
+  map: new Map(),
+  remember(profile, uuid, src) {
+    const k = `${profile.id}|${uuid}`;
+    this.map.delete(k);
+    this.map.set(k, { src, at: Date.now() });
+    if (this.map.size > 500) this.map.delete(this.map.keys().next().value);
+  },
+  get(profile, uuid) {
+    const hit = this.map.get(`${profile.id}|${uuid}`);
+    return hit && Date.now() - hit.at < 12 * 3600e3 ? hit.src : null;
+  }
+};
+
+async function playbackInfo(profile, token, itemId, mediaSourceId, request = {}) {
   const { entry, q: fromItem } = unwrap(itemId);
   if (!entry) {
     log(`[play] PlaybackInfo pour un element inconnu : ${itemId}`);
@@ -692,21 +750,26 @@ async function playbackInfo(profile, token, itemId, mediaSourceId) {
   const wanted = releaseOf(entry.uuid, mediaSourceId);
   const release = wanted && sources.find((s) => s.id === wanted);
   if (exact) {
-    res.MediaSources = [mediaSource(entry.uuid, exact, token, subs, { profile, tracks: await tracksOf(exact) })];
+    served.remember(profile, entry.uuid, exact);
+    res.MediaSources = [mediaSource(entry.uuid, exact, token, subs, { profile, request, tracks: await tracksOf(exact) })];
   } else if (release) {
+    served.remember(profile, entry.uuid, release);
     const id = ids.norm(mediaSourceId);
     cache.put('src|' + id, release, SRC_TTL);
-    res.MediaSources = [mediaSource(entry.uuid, release, token, subs, { id, name: versionLabel(QUALITY_NAME[release.bucket], release), profile, tracks: await tracksOf(release) })];
+    res.MediaSources = [mediaSource(entry.uuid, release, token, subs, { id, name: versionLabel(QUALITY_NAME[release.bucket], release), profile, request, tracks: await tracksOf(release) })];
     log(`[play] ${entry.data.name || entry.data.vid} : release choisie ${QUALITY_NAME[release.bucket]} (${Date.now() - t0} ms)`);
   } else {
     // Sinon : la version choisie (4K/1080p/720p) ou la qualite par defaut du profil.
     const q = qualityOf(entry.uuid, mediaSourceId) || defaultQuality(profile);
-    const src = pickSource(sources, q);
+    // App qui dit ce qu'elle lit (client web...) : une release qu'elle lit telle quelle d'abord.
+    const prefer = request.DeviceProfile ? (s) => transcode.playsDirect(guessStreams(s.text), s.container, request) : null;
+    const src = pickSource(sources, q, prefer);
     if (src) {
+      served.remember(profile, entry.uuid, src);
       const id = qualityId(entry.uuid, q);
       cache.put('src|' + id, src, SRC_TTL);
       const label = src.bucket === q ? QUALITY_NAME[q] : `${QUALITY_NAME[q]} → ${QUALITY_NAME[src.bucket]}`;
-      res.MediaSources = [mediaSource(entry.uuid, src, token, subs, { id, name: versionLabel(label, src), profile, tracks: await tracksOf(src) })];
+      res.MediaSources = [mediaSource(entry.uuid, src, token, subs, { id, name: versionLabel(label, src), profile, request, tracks: await tracksOf(src) })];
       log(`[play] ${entry.data.name || entry.data.vid} : ${sources.length} source(s), qualite ${QUALITY_NAME[q]} -> ${QUALITY_NAME[src.bucket]} (${Date.now() - t0} ms)`);
     }
   }
@@ -897,7 +960,6 @@ function report(profile, body, stage, req) {
   const { entry } = unwrap(body?.ItemId);
   if (!entry || !['movie', 'episode'].includes(entry.kind)) return;
   const row = { ...current(profile, entry.uuid) };
-  const wasPlayed = !!row.played;
   const wasStarted = row.position > 0;
   const pos = Number(body.PositionTicks);
   const ticks = runtimeOf(entry);
@@ -906,9 +968,11 @@ function report(profile, body, stage, req) {
   row.last_played = Date.now();
   // Memes regles que Jellyfin : vu au-dela de 90 %, pas de reprise sous 5 %. Un titre deja vu que
   // l'on revoit reste vu : seule sa position de reprise est gardee (revisionnage arrete en cours).
+  let completed = false;
   if (ticks && row.position > ticks * 0.9) {
     // Chaque visionnage complet compte, revisionnage compris (une seule fois par lecture).
-    if (!row.played || wasStarted) row.play_count = (row.play_count || 0) + 1;
+    completed = !row.played || wasStarted;
+    if (completed) row.play_count = (row.play_count || 0) + 1;
     row.played = 1;
     row.position = 0;
   } else if (stage === 'stopped' && ticks && row.position < ticks * 0.05) {
@@ -916,7 +980,9 @@ function report(profile, body, stage, req) {
   }
   saveUd(profile, entry.uuid, row);
   // Statistiques : lecture en cours et temps regarde, avec la release lue et l'appareil.
-  const src = body.MediaSourceId ? cache.peek('src|' + ids.norm(body.MediaSourceId))?.v : null;
+  // Source lue : celle que l'app renvoie, sinon la derniere servie a ce profil pour ce titre (des
+  // apps n'envoient pas MediaSourceId dans leurs rapports).
+  const src = (body.MediaSourceId ? cache.peek('src|' + ids.norm(body.MediaSourceId))?.v : null) || served.get(profile, entry.uuid);
   const tok = req?.tok || {};
   require('../stats').onReport(profile, entry, stage, {
     position,
@@ -928,7 +994,8 @@ function report(profile, body, stage, req) {
     source: src ? { release: src.release || src.name, quality: QUALITY_NAME[src.bucket], size: src.size, addonName: src.addon || null, addonLogo: src.addonLogo || null } : null
   });
   // Trakt (lecture en direct) et Simkl (vu), si le profil les a associes.
-  require('../tracking').onReport(profile, entry, stage, { position, ticks, paused: body.IsPaused === true, watched: !wasPlayed && !!row.played });
+  require('../tracking').onReport(profile, entry, stage, { position, ticks, paused: body.IsPaused === true, watched: completed });
+  if (stage === 'stopped') hls.stopFor({ itemUuid: entry.uuid, profileId: profile.id });
 }
 
 async function setPlayed(profile, id, played) {

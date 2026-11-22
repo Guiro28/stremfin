@@ -14,6 +14,7 @@ const clientContext = require('./clientContext');
 const playback = require('./playback');
 const avatars = require('../avatars');
 const tmdb = require('../tmdb');
+const { db } = require('../db');
 const { verifyPassword } = require('../security');
 
 const router = express.Router({ caseSensitive: false });
@@ -153,6 +154,11 @@ function librarySort(req, q) {
   return sort;
 }
 
+/** Bibliotheques du profil (actives) : id vu par les apps -> cle de catalogue. */
+function viewKeys(profile) {
+  return new Map(catalog.views(profile).map((v) => [v.uuid, v.key]));
+}
+
 function filterPlayed(items, q) {
   if (q.isplayed === 'true') return items.filter((i) => i.UserData?.Played);
   if (q.isplayed === 'false') return items.filter((i) => !i.UserData?.Played);
@@ -247,6 +253,37 @@ router.get(['/Items/:id/Images/:type', '/Items/:id/Images/:type/:index', '/Items
   if (!url) return res.status(404).end();
   res.setHeader('Cache-Control', 'public, max-age=86400');
   res.redirect(302, url);
+});
+
+// Conversion HLS (voir transcode/hls.js) : liste principale, liste des segments, segments.
+// Publiques comme le flux video : l'identifiant de session est impossible a deviner.
+const hls = require('../transcode/hls');
+router.get('/Videos/:id/hls/:session/master.m3u8', async (req, res) => {
+  const s = hls.get(req.params.session);
+  if (!s) return res.status(404).end();
+  res.type('application/vnd.apple.mpegurl').setHeader('Cache-Control', 'no-store');
+  res.send((await hls.master(s)).replace('main.m3u8', `main.m3u8?api_key=${encodeURIComponent(lq(req).api_key || '')}`));
+});
+router.get('/Videos/:id/hls/:session/main.m3u8', async (req, res) => {
+  const s = hls.get(req.params.session);
+  if (!s) return res.status(404).end();
+  res.type('application/vnd.apple.mpegurl').setHeader('Cache-Control', 'no-store');
+  res.send(await hls.playlist(s));
+});
+router.get('/Videos/:id/hls/:session/init.mp4', async (req, res) => {
+  const s = hls.get(req.params.session);
+  const file = s && (await hls.init(s));
+  if (!file) return res.status(404).end();
+  res.type('video/mp4').sendFile(file);
+});
+router.get('/Videos/:id/hls/:session/:n.:ext', async (req, res) => {
+  const s = hls.get(req.params.session);
+  const n = parseInt(req.params.n, 10);
+  if (!s || !Number.isFinite(n) || !['ts', 'mp4'].includes(req.params.ext)) return res.status(404).end();
+  const file = await hls.segment(s, n);
+  if (!file) return res.status(404).end();
+  res.type(req.params.ext === 'ts' ? 'video/mp2t' : 'video/mp4').setHeader('Cache-Control', 'no-store');
+  res.sendFile(file);
 });
 
 // Flux video : la source est designee par un id non devinable, le jeton est optionnel.
@@ -350,14 +387,86 @@ router.post(['/Users/Configuration', '/Users/:u/Configuration'], (req, res) => {
   if (typeof b.PlayDefaultAudioTrack === 'boolean') playback.playDefaultAudioTrack = b.PlayDefaultAudioTrack;
   if (typeof b.RememberAudioSelections === 'boolean') playback.rememberAudio = b.RememberAudioSelections;
   if (typeof b.RememberSubtitleSelections === 'boolean') playback.rememberSubtitles = b.RememberSubtitleSelections;
-  config.updateProfile(req.profile.id, { playback });
+  if (typeof b.EnableNextEpisodeAutoPlay === 'boolean') playback.nextEpisodeAutoPlay = b.EnableNextEpisodeAutoPlay;
+  // Accueil et affichage : bibliotheques (ids des apps -> cles de catalogue du profil).
+  const patch = { playback };
+  const keyOf = viewKeys(req.profile);
+  const keys = (v) => (Array.isArray(v) ? v.map((x) => keyOf.get(ids.norm(String(x)))).filter(Boolean) : null);
+  const ordered = keys(b.OrderedViews);
+  if (ordered?.length) {
+    // L'ordre des apps ne connait que les bibliotheques actives : les autres gardent leur place relative, apres.
+    patch.catalogOrder = [...ordered, ...(req.profile.catalogOrder || []).filter((k) => !ordered.includes(k))];
+  }
+  const latest = keys(b.LatestItemsExcludes);
+  if (latest) patch.latestExcludes = latest;
+  const myMedia = keys(b.MyMediaExcludes);
+  if (myMedia) patch.myMediaExcludes = myMedia;
+  if (typeof b.HidePlayedInLatest === 'boolean') patch.hidePlayedInLatest = b.HidePlayedInLatest;
+  if (typeof b.DisplayMissingEpisodes === 'boolean') patch.displayMissingEpisodes = b.DisplayMissingEpisodes;
+  config.updateProfile(req.profile.id, patch);
   const pb = req.profile.playback;
   log(`[user] ${req.profile.name} : audio ${pb.audioLanguage || 'langues du profil'}, sous-titres ${pb.subtitleLanguage || 'langue du profil'} (${pb.subtitleMode})`);
   res.status(204).end();
 });
 
+// Mot de passe change depuis l'app (Parametres -> Profil). Jellyfin 10.9+ : POST /Users/Password?userId=... ;
+// client web, Emby et anciens Jellyfin : /Users/{id}/Password. Les autres appareils sont deconnectes,
+// comme sur Jellyfin ; celui qui fait le changement reste connecte.
+router.post(['/Users/Password', '/Users/:u/Password'], (req, res) => {
+  const target = req.params.u || lq(req).userid;
+  if (target && ids.norm(target) !== req.profile.id) return res.status(403).send('Forbidden');
+  const b = req.body || {};
+  if (b.ResetPassword === true) return res.status(403).send("Seul l'administrateur de Stremfin peut réinitialiser un mot de passe.");
+  const current = String(b.CurrentPw ?? b.CurrentPassword ?? b.currentPw ?? '');
+  const next = String(b.NewPw ?? b.NewPassword ?? b.newPw ?? '');
+  if (!verifyPassword(current, req.profile.passwordHash)) {
+    log(`[user] ${req.profile.name} : mot de passe actuel incorrect`);
+    return res.status(403).send('Mot de passe actuel incorrect.');
+  }
+  try {
+    config.updateProfile(req.profile.id, { password: next });
+  } catch (e) {
+    return res.status(400).send(e.message);
+  }
+  db.prepare('DELETE FROM tokens WHERE profile = ? AND token <> ?').run(req.profile.id, req.tok.token);
+  log(`[user] ${req.profile.name} : mot de passe change depuis ${req.tok.client || "l'app"}`);
+  res.status(204).end();
+});
+
+// Avatar envoye depuis l'app : le client web envoie l'image en base64, d'autres apps en binaire.
+const avatarBody = express.raw({ type: () => true, limit: Math.ceil((avatars.MAX_BYTES * 4) / 3) + 4096 });
+router.post(['/Users/:u/Images/:type', '/Users/:u/Images/:type/:index'], avatarBody, (req, res) => {
+  if (ids.norm(req.params.u) !== req.profile.id) return res.status(403).send('Forbidden');
+  if (req.params.type.toLowerCase() !== 'primary') return res.status(400).send("Seul l'avatar (Primary) peut être changé.");
+  let buf = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  if (!avatars.sniff(buf)) {
+    const text = buf.toString('latin1').replace(/^data:[^,]*,/, '').replace(/\s+/g, '');
+    if (/^[A-Za-z0-9+/]+={0,2}$/.test(text)) buf = Buffer.from(text, 'base64');
+  }
+  try {
+    avatars.save(req.profile, buf);
+  } catch (e) {
+    return res.status(400).send(e.message);
+  }
+  log(`[user] ${req.profile.name} : avatar change depuis ${req.tok.client || "l'app"}`);
+  res.status(204).end();
+});
+router.delete(['/Users/:u/Images/:type', '/Users/:u/Images/:type/:index'], (req, res) => {
+  if (ids.norm(req.params.u) !== req.profile.id) return res.status(403).send('Forbidden');
+  if (req.params.type.toLowerCase() !== 'primary') return res.status(400).send("Seul l'avatar (Primary) peut être supprimé.");
+  avatars.remove(req.profile);
+  log(`[user] ${req.profile.name} : avatar supprime depuis ${req.tok.client || "l'app"}`);
+  res.status(204).end();
+});
+
+// Bibliotheques de l'utilisateur. Celles retirees de "Mes medias" restent visibles dans les
+// reglages de l'app, qui les demandent avec includeHidden=true pour pouvoir les remettre.
 router.get(['/Users/:u/Views', '/UserViews'], (req, res) => {
-  const views = catalog.views(req.profile).map((v) => library.lightDto(req.profile, ids.get(v.uuid)));
+  const hidden = lq(req).includehidden === 'true' ? new Set() : new Set(req.profile.myMediaExcludes || []);
+  const views = catalog
+    .views(req.profile)
+    .filter((v) => !hidden.has(v.key))
+    .map((v) => library.lightDto(req.profile, ids.get(v.uuid)));
   res.json(dto.queryResult(views));
 });
 router.get('/Library/MediaFolders', (req, res) => {
@@ -377,8 +486,11 @@ router.get(['/Users/:u/Items/Latest', '/Items/Latest'], async (req, res) => {
   const view = library.viewByUuid(req.profile, entry.uuid);
   if (!view) return res.json([]);
   const sort = view.sortable && /^tmdb-cat-/.test(view.catId) ? 'recent' : undefined;
-  const { items } = await library.viewItems(req.profile, view, { start: 0, limit, sort });
-  res.json(decorate(filterPlayed(items, q), q, req.profile));
+  // "Masquer les elements vus dans les ajouts recents" : on prend plus large pour remplir la rangee.
+  const hidePlayed = !!req.profile.hidePlayedInLatest;
+  const { items } = await library.viewItems(req.profile, view, { start: 0, limit: hidePlayed ? Math.min(limit * 3, 100) : limit, sort });
+  const shown = hidePlayed ? items.filter((i) => !i.UserData?.Played).slice(0, limit) : items;
+  res.json(decorate(filterPlayed(shown, q), q, req.profile));
 });
 
 router.get(['/Users/:u/Items/Resume', '/UserItems/Resume'], (req, res) => {
@@ -573,7 +685,12 @@ router.get(['/Users/:u/Items/:id', '/Items/:id', '/UserItems/:id'], async (req, 
 router.all('/Items/:id/PlaybackInfo', async (req, res) => {
   const q = lq(req);
   const msid = req.body?.MediaSourceId || q.mediasourceid;
-  res.json(await playback.playbackInfo(req.profile, req.tok.token, req.params.id, msid));
+  // La requete de l'app (POST) : son profil de lecture (DeviceProfile), la piste audio choisie...
+  const body = req.method === 'POST' && req.body && typeof req.body === 'object' ? req.body : {};
+  const request = { ...body };
+  if (!Number.isInteger(request.AudioStreamIndex) && q.audiostreamindex !== undefined) request.AudioStreamIndex = parseInt(q.audiostreamindex, 10);
+  if (!request.MaxStreamingBitrate && q.maxstreamingbitrate) request.MaxStreamingBitrate = Number(q.maxstreamingbitrate);
+  res.json(await playback.playbackInfo(req.profile, req.tok.token, req.params.id, msid, request));
 });
 
 router.post('/Sessions/Playing', (req, res) => {
@@ -589,6 +706,10 @@ router.post('/Sessions/Playing/Stopped', (req, res) => {
   res.status(204).end();
 });
 router.post('/Sessions/Playing/Ping', (req, res) => res.status(204).end());
+// Le client web arrete la conversion en cours (changement de version, de piste audio, fin).
+router.delete('/Videos/ActiveEncodings', (req, res) => {
+  res.status(204).end();
+});
 
 // Anciennes routes de progression (encore utilisees par certaines apps).
 router.post(['/Users/:u/PlayingItems/:id', '/PlayingItems/:id'], (req, res) => {

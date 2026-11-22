@@ -51,6 +51,18 @@ function defaultSettings() {
     noSourceVideo: true,
     // Delai max d'attente des addons de sources (ms).
     streamTimeout: 15000,
+    // Conversion des videos qu'une app ne lit pas telles quelles (client web...) : "full" (son et
+    // image), "audio" (son seulement, l'image doit etre lisible), "off" (jamais : servies telles quelles).
+    transcodeMode: 'full',
+    // Encodeur video : "auto" (le premier qui marche : NVIDIA, Intel, AMD, Apple, puis processeur),
+    // ou impose : nvenc, qsv, vaapi, videotoolbox, amf, software.
+    transcodeHw: 'auto',
+    // Conversions en meme temps, au plus ; au-dela, les videos sont servies telles quelles.
+    transcodeMaxSessions: 2,
+    // Debit maximal d'une image convertie (Mbit/s).
+    transcodeMaxBitrate: 10,
+    // Chemin de FFmpeg (vide : FFMPEG_PATH, puis le PATH).
+    ffmpegPath: '',
     // Cle API TMDB (v3) : fiches traduites, catalogues Stremfin (tendances, sagas, collections).
     tmdbApiKey: process.env.TMDB_API_KEY || '',
     // Applications Trakt (client id + secret) et Simkl (client id) : suivi des profils et
@@ -85,7 +97,7 @@ function defaultSettings() {
 // Default (pistes marquees "par defaut" / "forcees"), Always, OnlyForced, Smart (si l'audio
 // n'est pas dans la langue des sous-titres), None.
 const SUBTITLE_MODES = ['Default', 'Always', 'OnlyForced', 'Smart', 'None'];
-const PLAYBACK = { audioLanguage: '', subtitleLanguage: '', subtitleMode: 'Default', playDefaultAudioTrack: false, rememberAudio: true, rememberSubtitles: true };
+const PLAYBACK = { audioLanguage: '', subtitleLanguage: '', subtitleMode: 'Default', playDefaultAudioTrack: false, rememberAudio: true, rememberSubtitles: true, nextEpisodeAutoPlay: true };
 
 function newProfile(name) {
   return {
@@ -120,6 +132,12 @@ function newProfile(name) {
     homeSections: null,
     // Bibliotheques sans rangee "ajouts recents" sur l'accueil (cles de catalogue).
     latestExcludes: [],
+    // Bibliotheques retirees de "Mes medias" et du menu des apps (cles de catalogue), toujours actives.
+    myMediaExcludes: [],
+    // Rangees "ajouts recents" sans les titres deja vus.
+    hidePlayedInLatest: false,
+    // Episodes pas encore diffuses affiches dans les saisons (grises, non lisibles).
+    displayMissingEpisodes: false,
     // Affiche le profil sur l'ecran "Qui regarde ?" de tous les appareils.
     showOnLogin: false,
     // Profil desactive : plus aucune connexion possible.
@@ -268,6 +286,10 @@ function updateSettings(patch) {
   if (!['abyss', 'elegantfin', 'none'].includes(s.webTheme)) s.webTheme = 'abyss';
   if (!['trending', 'resume'].includes(s.webSpotlightSource)) s.webSpotlightSource = 'trending';
   if (!['catalog', 'name'].includes(s.embySort)) s.embySort = 'catalog';
+  if (!['full', 'audio', 'off'].includes(s.transcodeMode)) s.transcodeMode = 'full';
+  if (!['auto', 'nvenc', 'qsv', 'vaapi', 'videotoolbox', 'amf', 'software'].includes(s.transcodeHw)) s.transcodeHw = 'auto';
+  s.transcodeMaxSessions = Math.min(10, Math.max(1, Math.round(Number(s.transcodeMaxSessions)) || 2));
+  s.transcodeMaxBitrate = Math.min(100, Math.max(1, Math.round(Number(s.transcodeMaxBitrate)) || 10));
   if (!['fr', 'en', 'es', 'de', 'it'].includes(s.language)) s.language = 'fr';
   s.backupHour = Math.min(23, Math.max(0, Math.round(Number(s.backupHour)) || 0));
   s.backupRetention = Math.min(365, Math.max(1, Math.round(Number(s.backupRetention)) || 7));
@@ -331,7 +353,7 @@ function duplicateProfile(id, name, password) {
   assertUniqueName(n);
   const p = newProfile(n);
   p.passwordHash = requirePassword(password);
-  for (const k of ['addons', 'catalogs', 'catalogOrder', 'collections', 'preferredLanguages', 'playback', 'hideWatched', 'defaultQuality', 'versionMode', 'customCss', 'onlyReleased', 'homeSections', 'latestExcludes']) {
+  for (const k of ['addons', 'catalogs', 'catalogOrder', 'collections', 'preferredLanguages', 'playback', 'hideWatched', 'defaultQuality', 'versionMode', 'customCss', 'onlyReleased', 'homeSections', 'latestExcludes', 'myMediaExcludes', 'hidePlayedInLatest', 'displayMissingEpisodes']) {
     if (src[k] !== undefined) p[k] = JSON.parse(JSON.stringify(src[k]));
   }
   state.profiles.push(p);
@@ -355,6 +377,9 @@ function updateProfile(id, patch) {
     p.homeSections = patch.homeSections.map(String).filter((x) => HOME_SECTIONS.includes(x)).slice(0, 10);
   }
   if (Array.isArray(patch.latestExcludes)) p.latestExcludes = patch.latestExcludes.map(String);
+  if (Array.isArray(patch.myMediaExcludes)) p.myMediaExcludes = patch.myMediaExcludes.map(String);
+  if (typeof patch.hidePlayedInLatest === 'boolean') p.hidePlayedInLatest = patch.hidePlayedInLatest;
+  if (typeof patch.displayMissingEpisodes === 'boolean') p.displayMissingEpisodes = patch.displayMissingEpisodes;
   if (Array.isArray(patch.preferredLanguages)) {
     p.preferredLanguages = patch.preferredLanguages.map((l) => String(l).toLowerCase().trim()).filter(Boolean);
   }
@@ -365,7 +390,7 @@ function updateProfile(id, patch) {
     if (typeof x.audioLanguage === 'string') pb.audioLanguage = to2(x.audioLanguage).slice(0, 8);
     if (typeof x.subtitleLanguage === 'string') pb.subtitleLanguage = to2(x.subtitleLanguage).slice(0, 8);
     if (SUBTITLE_MODES.includes(x.subtitleMode)) pb.subtitleMode = x.subtitleMode;
-    for (const k of ['playDefaultAudioTrack', 'rememberAudio', 'rememberSubtitles']) if (typeof x[k] === 'boolean') pb[k] = x[k];
+    for (const k of ['playDefaultAudioTrack', 'rememberAudio', 'rememberSubtitles', 'nextEpisodeAutoPlay']) if (typeof x[k] === 'boolean') pb[k] = x[k];
     p.playback = pb;
   }
   if (typeof patch.hideWatched === 'boolean') p.hideWatched = patch.hideWatched;

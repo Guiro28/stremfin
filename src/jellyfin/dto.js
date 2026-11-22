@@ -241,6 +241,9 @@ function episodeItem(uuid, e, series, udRow) {
   d.Overview = v.overview;
   d.PremiereDate = iso(v.released);
   d.DateCreated = d.PremiereDate;
+  // Pas encore diffuse (affiche avec "Afficher les episodes manquants") : episode virtuel, comme
+  // un episode manquant de Jellyfin, que les apps grisent.
+  if (Date.parse(v.released || '') > Date.now()) d.LocationType = 'Virtual';
   d.ProductionYear = v.released ? new Date(v.released).getUTCFullYear() || undefined : undefined;
   d.RunTimeTicks = ticks;
   d.SeriesId = v.seriesUuid;
@@ -374,18 +377,18 @@ function userDto(profile, { autoLogin = false } = {}) {
       AudioLanguagePreference: languages.to3(pb.audioLanguage),
       PlayDefaultAudioTrack: pb.playDefaultAudioTrack,
       SubtitleLanguagePreference: languages.to3(pb.subtitleLanguage),
-      DisplayMissingEpisodes: false,
+      DisplayMissingEpisodes: !!profile.displayMissingEpisodes,
       GroupedFolders: [],
       SubtitleMode: pb.subtitleMode,
       DisplayCollectionsView: false,
       EnableLocalPassword: false,
       OrderedViews: views.map((v) => v.uuid),
       LatestItemsExcludes: views.filter((v) => excluded.has(v.key)).map((v) => v.uuid),
-      MyMediaExcludes: [],
-      HidePlayedInLatest: false,
+      MyMediaExcludes: views.filter((v) => (profile.myMediaExcludes || []).includes(v.key)).map((v) => v.uuid),
+      HidePlayedInLatest: !!profile.hidePlayedInLatest,
       RememberAudioSelections: pb.rememberAudio,
       RememberSubtitleSelections: pb.rememberSubtitles,
-      EnableNextEpisodeAutoPlay: true,
+      EnableNextEpisodeAutoPlay: pb.nextEpisodeAutoPlay !== false,
       CastReceiverId: ''
     },
     Policy: {

@@ -144,9 +144,13 @@ function profileDetail(p) {
     createdAt: p.createdAt,
     homeSections: p.homeSections || null,
     latestExcludes: p.latestExcludes || [],
+    myMediaExcludes: p.myMediaExcludes || [],
+    hidePlayedInLatest: !!p.hidePlayedInLatest,
+    displayMissingEpisodes: !!p.displayMissingEpisodes,
     libraries: catalog.views(p).map((v) => {
       const custom = libraryImages.custom(p, v.key);
-      return { key: v.key, name: v.name, type: v.type, image: custom || null, preview: custom || ids.get(v.uuid)?.data.image || null };
+      const auto = custom ? null : libraryImages.autoImage(p, v);
+      return { key: v.key, name: v.name, type: v.type, image: custom || null, preview: custom || auto || ids.get(v.uuid)?.data.image || null };
     }),
     preferredLanguages: p.preferredLanguages || [],
     playback: { ...config.PLAYBACK, ...(p.playback || {}) },
@@ -342,9 +346,26 @@ router.put('/api/settings', adminOnly, async (req, res) => {
   }
   const keyChanged = patch.tmdbApiKey !== undefined && patch.tmdbApiKey !== before.tmdbApiKey;
   const langChanged = patch.metadataLanguage !== undefined && patch.metadataLanguage !== before.metadataLanguage;
+  const ffmpegChanged = (patch.ffmpegPath !== undefined && patch.ffmpegPath !== before.ffmpegPath) || (patch.transcodeHw !== undefined && patch.transcodeHw !== before.transcodeHw);
   const s = config.updateSettings(patch);
   if (keyChanged || langChanged) tmdb.warm();
+  if (ffmpegChanged) await require('./transcode/ffmpeg').refresh();
   res.json(publicSettings(s));
+});
+
+// ---- Conversion video : etat de FFmpeg et de l'encodeur, conversions en cours ----------------------
+
+function transcodeInfo() {
+  const st = require('./transcode/ffmpeg').status();
+  return {
+    ffmpeg: { ready: st.ready, ok: st.ok, path: st.path, version: st.version, encoder: st.encoder, tried: st.tried, zscale: st.zscale, error: st.error, checkedAt: st.checkedAt },
+    sessions: require('./transcode/hls').list()
+  };
+}
+router.get('/api/transcode', adminOnly, (req, res) => res.json(transcodeInfo()));
+router.post('/api/transcode/detect', adminOnly, async (req, res) => {
+  await require('./transcode/ffmpeg').refresh();
+  res.json(transcodeInfo());
 });
 
 // ---- Suivi (Trakt, Simkl, Scrob, historique Nuvio) d'un profil ----------------------------------------
@@ -488,6 +509,18 @@ router.put('/api/collections/:id/image', adminOnly, (req, res) => {
   if (ok) res.json(collections.list().find((x) => x.id === t.c.id));
 });
 
+// Genere l'image d'une collection ou d'un de ses dossiers (jaquettes et nom, style Polyfin).
+router.post('/api/collections/:id/image/generate', adminOnly, async (req, res) => {
+  const t = imageTargetOr404(req, res);
+  if (!t) return;
+  try {
+    await libraryImages.generateCollection(t.c, t.target, collections.generationSpec(t.c, t.target));
+  } catch (e) {
+    return fail(res, 400, e.message);
+  }
+  res.json(collections.list().find((x) => x.id === t.c.id));
+});
+
 router.delete('/api/collections/:id/image', adminOnly, (req, res) => {
   const t = imageTargetOr404(req, res);
   if (!t) return;
@@ -516,7 +549,7 @@ router.get('/api/profiles/:id', (req, res) => {
   if (p) res.json(profileDetail(p));
 });
 
-const USER_FIELDS = ['password', 'preferredLanguages', 'playback', 'defaultQuality', 'versionMode', 'customCss', 'hideWatched', 'onlyReleased', 'catalogs', 'catalogOrder', 'homeSections', 'latestExcludes'];
+const USER_FIELDS = ['password', 'preferredLanguages', 'playback', 'defaultQuality', 'versionMode', 'customCss', 'hideWatched', 'onlyReleased', 'catalogs', 'catalogOrder', 'homeSections', 'latestExcludes', 'myMediaExcludes', 'hidePlayedInLatest', 'displayMissingEpisodes'];
 
 router.patch('/api/profiles/:id', (req, res) => {
   let body = req.body || {};
@@ -595,6 +628,20 @@ router.put('/api/profiles/:id/library-image', (req, res) => {
   // Fichier envoye (corps binaire) ou adresse d'image (JSON { url }).
   const ok = attempt(res, () => (Buffer.isBuffer(req.body) ? libraryImages.saveFile(p, key, req.body) : libraryImages.setUrl(p, key, req.body?.url)));
   if (ok) res.json(profileDetail(p));
+});
+
+// Genere l'image d'une bibliotheque (jaquettes de ses titres et son nom, style Polyfin).
+router.post('/api/profiles/:id/library-image/generate', async (req, res) => {
+  const p = profileOr404(req, res);
+  if (!p) return;
+  const view = catalog.views(p).find((v) => v.key === req.query.key);
+  if (!view) return fail(res, 404, 'Bibliothèque introuvable (elle doit être active)');
+  try {
+    await libraryImages.generate(p, view);
+  } catch (e) {
+    return fail(res, 400, e.message);
+  }
+  res.json(profileDetail(p));
 });
 
 router.delete('/api/profiles/:id/library-image', (req, res) => {

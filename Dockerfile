@@ -14,7 +14,12 @@ FROM alpine:3.24
 
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates libstdc++ su-exec \
+ARG TARGETARCH
+# FFmpeg pour la conversion video (client web), et les pilotes des cartes graphiques : AMD
+# (VA-API, toutes architectures), Intel (VA-API et QuickSync, amd64 seulement). NVIDIA : pilote
+# fourni par l'hote (NVIDIA Container Toolkit, voir docker-compose.yml).
+RUN apk add --no-cache ca-certificates libstdc++ su-exec ffmpeg mesa-va-gallium \
+    && if [ "$TARGETARCH" = "amd64" ]; then apk add --no-cache intel-media-driver libva-intel-driver onevpl-intel-gpu || true; fi \
     && addgroup -g 1000 node \
     && adduser -u 1000 -G node -s /bin/sh -D node
 
@@ -25,6 +30,7 @@ COPY --chown=node:node package.json server.js ./
 COPY --chown=node:node src ./src
 COPY --chown=node:node public ./public
 COPY --chown=node:node vendor ./vendor
+COPY --chown=node:node assets ./assets
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh \

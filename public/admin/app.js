@@ -877,6 +877,12 @@ function tabPrefs(el, p) {
       <div class="control"><div class="segmented" id="versionMode">${[['quality', '3 qualités'], ['releases', '5 releases par qualité']].map(([v, l]) => `<button type="button" data-v="${v}" class="${p.versionMode === v ? 'on' : ''}">${t(l)}</button>`).join('')}</div></div></div>
     <div class="setting"><div class="text"><b>${t('Masquer les films déjà vus')}</b><span>${t('Ils disparaissent des bibliothèques une fois terminés.')}</span></div>
       <div class="control">${toggle('id="hideWatched"', p.hideWatched)}</div></div>
+    <div class="setting"><div class="text"><b>${t("Lire automatiquement l'épisode suivant")}</b><span>${t("À la fin d'un épisode, les apps lancent le suivant. Aussi réglable dans les paramètres de lecture des apps.")}</span></div>
+      <div class="control">${toggle('id="pbNextEp"', p.playback.nextEpisodeAutoPlay !== false)}</div></div>
+    <div class="setting"><div class="text"><b>${t('Afficher les épisodes à venir')}</b><span>${t("Les épisodes pas encore diffusés apparaissent grisés dans les saisons. Aussi réglable dans les apps (« Afficher les épisodes manquants »).")}</span></div>
+      <div class="control">${toggle('id="displayMissingEpisodes"', p.displayMissingEpisodes)}</div></div>
+    <div class="setting"><div class="text"><b>${t('Masquer les titres vus des ajouts récents')}</b><span>${t("Les rangées des bibliothèques sur l'accueil ne montrent que ce qui reste à voir. Aussi réglable dans les apps (Paramètres → Accueil).")}</span></div>
+      <div class="control">${toggle('id="hidePlayedInLatest"', p.hidePlayedInLatest)}</div></div>
     <div class="setting"><div class="text"><b>${t('Seulement ce qui est sorti')}</b><span>${t('Masque films et séries pas encore disponibles en VOD, DVD ou à la TV.')}${tmdbOn ? '' : ` ${t('Nécessite une clé TMDB.')}`}</span></div>
       <div class="control">${toggle('id="onlyReleased"', p.onlyReleased, !tmdbOn)}</div></div>
   </div>
@@ -896,6 +902,7 @@ function tabPrefs(el, p) {
   $('#pbAudio').onchange = (e) => savePlayback({ audioLanguage: e.target.value });
   $('#pbSubLang').onchange = (e) => savePlayback({ subtitleLanguage: e.target.value });
   $('#pbSubMode').onchange = (e) => savePlayback({ subtitleMode: e.target.value });
+  $('#pbNextEp').onchange = (e) => savePlayback({ nextEpisodeAutoPlay: e.target.checked });
   $('#cssSave').onclick = async (e) => {
     const r = await busy(e.currentTarget, () => api('PATCH', `/profiles/${p.id}`, { customCss: $('#customCss').value }), t('CSS enregistré'));
     if (r) {
@@ -918,7 +925,7 @@ function tabPrefs(el, p) {
     const b = e.target.closest('[data-v]');
     if (b && (await patchProfile(p, { versionMode: b.dataset.v }))) tabPrefs(el, state.profile);
   };
-  for (const k of ['hideWatched', 'onlyReleased']) {
+  for (const k of ['hideWatched', 'onlyReleased', 'displayMissingEpisodes', 'hidePlayedInLatest']) {
     $('#' + k).onchange = async (e) => {
       if (!(await patchProfile(p, { [k]: e.target.checked }))) e.target.checked = !e.target.checked;
     };
@@ -940,6 +947,7 @@ function tabHome(el, p) {
   const original = JSON.stringify(sections);
   const dirty = () => JSON.stringify(sections) !== original;
   const excluded = new Set(p.latestExcludes);
+  const hiddenFromMyMedia = new Set(p.myMediaExcludes || []);
 
   /** Applique une reponse du serveur (profil a jour) en gardant les sections non enregistrees. */
   const apply = (r) => {
@@ -950,6 +958,9 @@ function tabHome(el, p) {
     p.latestExcludes = r.latestExcludes;
     excluded.clear();
     r.latestExcludes.forEach((k) => excluded.add(k));
+    p.myMediaExcludes = r.myMediaExcludes || [];
+    hiddenFromMyMedia.clear();
+    p.myMediaExcludes.forEach((k) => hiddenFromMyMedia.add(k));
     draw();
   };
 
@@ -971,6 +982,7 @@ function tabHome(el, p) {
             <div style="width:96px;height:54px;border-radius:6px;overflow:hidden;flex:none;background:var(--input);display:grid;place-items:center">${l.preview ? `<img src="${esc(l.preview)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover">` : icon('layers')}</div>
             <div class="body"><div class="title">${esc(l.name)}</div><div class="meta"><span class="badge">${esc(typeLabel(l.type))}</span>${l.image ? `<span class="badge accent">${t('image perso')}</span>` : ''}</div></div>
             <div class="actions"><button class="btn ghost icon-only" data-img="${esc(l.key)}" title="${esc(t("Changer l'image de la tuile"))}" aria-label="${esc(t("Changer l'image"))}">${icon('camera')}</button>
+              <label class="row small muted" style="gap:6px" title="${esc(t("Tuile dans « Mes médias » et bibliothèque dans le menu des apps"))}">${t('Mes médias')} ${toggle(`data-mymedia="${esc(l.key)}" aria-label="${esc(t('Dans « Mes médias »'))}"`, !hiddenFromMyMedia.has(l.key))}</label>
               <label class="row small muted" style="gap:6px" title="${esc(t("Rangée « ajouts récents » sur l'accueil"))}">${t('Rangée')} ${toggle(`data-latest="${esc(l.key)}" aria-label="${esc(t("Rangée sur l'accueil"))}"`, !excluded.has(l.key))}</label></div></div>`).join('')}</div>`
           : `<div class="empty">${icon('layers')}<p>${t('Aucune bibliothèque active.')}</p></div>`}
         <input type="file" id="libImgFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
@@ -1031,6 +1043,15 @@ function tabHome(el, p) {
     if (!libs) return;
     sortable(libs, async (keys) => apply(await busy(null, () => api('PUT', `/profiles/${p.id}/libraries/order`, { keys }), t('Ordre enregistré'))));
     libs.addEventListener('change', async (e) => {
+      const shown = e.target.dataset.mymedia;
+      if (shown) {
+        if (e.target.checked) hiddenFromMyMedia.delete(shown);
+        else hiddenFromMyMedia.add(shown);
+        const r = await busy(null, () => api('PATCH', `/profiles/${p.id}`, { myMediaExcludes: [...hiddenFromMyMedia] }), e.target.checked ? t('Affichée dans « Mes médias »') : t('Retirée de « Mes médias »'));
+        if (r) apply(r);
+        else draw();
+        return;
+      }
       const key = e.target.dataset.latest;
       if (!key) return;
       if (e.target.checked) excluded.delete(key);
@@ -1054,7 +1075,9 @@ function tabHome(el, p) {
       okLabel: t("Enregistrer l'adresse"),
       body: `<div class="stack">
         ${lib.preview ? `<img src="${esc(lib.preview)}" alt="" style="width:100%;aspect-ratio:16/9;border-radius:10px;object-fit:cover;background:var(--input)">` : ''}
-        <div class="row"><button type="button" class="btn" id="imgUpload">${icon('camera')}${t('Envoyer une image')}</button>
+        <p class="small muted" style="margin:0">${t('Sans image choisie, Stremfin génère la tuile avec les jaquettes de la bibliothèque et son nom.')}</p>
+        <div class="row"><button type="button" class="btn primary" id="imgGen">${icon('refresh')}${t("Générer l'image")}</button>
+          <button type="button" class="btn" id="imgUpload">${icon('camera')}${t('Envoyer une image')}</button>
           ${lib.image ? `<button type="button" class="btn ghost" id="imgAuto">${t("Revenir à l'image automatique")}</button>` : ''}</div>
         <div class="field"><label>${t("Ou adresse d'une image")}</label><input name="url" type="url" placeholder="https://…/image.jpg" value="${esc(lib.image && /^https?:/.test(lib.image) ? lib.image : '')}"></div>
       </div>`,
@@ -1064,6 +1087,13 @@ function tabHome(el, p) {
       }
     });
     const close = () => $('.backdrop [data-close]')?.click();
+    $('#imgGen').onclick = async (e) => {
+      const r = await busy(e.currentTarget, () => api('POST', `/profiles/${p.id}/library-image/generate?key=${enc}`), t('Image générée'));
+      if (r) {
+        close();
+        apply(r);
+      }
+    };
     $('#imgUpload').onclick = () => $('#libImgFile').click();
     $('#libImgFile').onchange = async (ev) => {
       const file = ev.target.files[0];
@@ -1089,7 +1119,6 @@ function tabHome(el, p) {
       apply(r);
     }
   };
-
   draw();
 }
 
@@ -1528,9 +1557,73 @@ PAGES['settings/playback'] = async (main) => {
       streamTimeout: secs * 1000
     });
   };
-  main.insertAdjacentHTML('beforeend', '<div class="card" id="noSourceCard" style="margin-top:16px"></div>');
+  main.insertAdjacentHTML('beforeend', '<div class="card" id="noSourceCard" style="margin-top:16px"></div><div class="card" id="transcodeCard" style="margin-top:16px"></div>');
   noSourceCard($('#noSourceCard'));
+  transcodeCard($('#transcodeCard'));
 };
+
+// ---- Conversion video ----------------------------------------------------------------------------
+
+const TRANSCODE_MODES = [
+  ['full', 'Son et image'],
+  ['audio', 'Son seulement'],
+  ['off', 'Désactivée']
+];
+const TRANSCODE_HW = [
+  ['auto', 'Automatique'],
+  ['nvenc', 'NVIDIA (NVENC)'],
+  ['qsv', 'Intel (QuickSync)'],
+  ['vaapi', 'Intel / AMD (VA-API)'],
+  ['videotoolbox', 'Apple (VideoToolbox)'],
+  ['amf', 'AMD (AMF)'],
+  ['software', 'Processeur (libx264)']
+];
+
+/** Carte de la conversion video : reglages, FFmpeg et encodeur detectes, conversions en cours. */
+async function transcodeCard(el) {
+  const info = await api('GET', '/transcode');
+  if (!info) return;
+  const s = state.settings;
+  const f = info.ffmpeg;
+  const used = f.tried.find((x) => x.id === f.encoder);
+  el.innerHTML = `<div class="card-head"><div><h2>${t('Conversion vidéo')}</h2><p>${t("Pour les apps qui ne lisent pas une vidéo telle quelle (le client web dans un navigateur, souvent) : Stremfin la diffuse en HLS avec FFmpeg, en convertissant seulement ce que l'app ne lit pas (le son en AAC, l'image en H.264). Les apps TV lisent presque tout sans conversion.")}</p></div></div>
+    <div class="setting"><div class="text"><b>${t('FFmpeg')}</b><span>${f.ok ? esc(t('{path} · version {v}', { path: f.path, v: f.version || '?' })) : esc(t(f.error || 'Détection en cours…'))}</span></div>
+      <div class="control"><span class="badge ${f.ok ? 'ok' : 'bad'}">${f.ok ? esc(t(used?.label || f.encoder)) : t('Indisponible')}</span></div></div>
+    ${f.tried.length ? `<p class="small muted" style="margin:0 0 10px">${f.tried.map((x) => `${esc(t(x.label))} : ${x.ok ? t('utilisable') : esc(x.error || t('non utilisable'))}`).join(' · ')}${f.ok && !f.zscale ? ` · ${t('pas de zscale : les vidéos HDR converties auront des couleurs ternes')}` : ''}</p>` : ''}
+    <form id="tf">
+      <div class="setting"><div class="text"><b>${t('Conversion')}</b><span>${t("« Son seulement » ne convertit que le son ; une image que l'app ne lit pas est alors servie telle quelle.")}</span></div>
+        <div class="control"><div class="segmented" id="tMode">${TRANSCODE_MODES.map(([v, l]) => `<button type="button" data-v="${v}" class="${s.transcodeMode === v ? 'on' : ''}">${t(l)}</button>`).join('')}</div></div></div>
+      <div class="setting"><div class="text"><b>${t('Encodeur vidéo')}</b><span>${t('Automatique : la carte graphique si elle marche (NVIDIA, Intel, AMD, Apple), sinon le processeur.')}</span></div>
+        <div class="control"><select name="hw">${TRANSCODE_HW.map(([v, l]) => `<option value="${v}" ${s.transcodeHw === v ? 'selected' : ''}>${t(l)}</option>`).join('')}</select></div></div>
+      <div class="setting"><div class="text"><b>${t('Conversions en même temps')}</b><span>${t('Au-delà, les vidéos sont servies telles quelles. Sans carte graphique, une conversion de l’image occupe beaucoup le processeur.')}</span></div>
+        <div class="control"><input name="sessions" type="number" min="1" max="10" step="1" value="${s.transcodeMaxSessions}" style="width:90px"></div></div>
+      <div class="setting"><div class="text"><b>${t('Débit maximal de l’image convertie')}</b><span>${t('L’image convertie est en 1080p au plus.')}</span></div>
+        <div class="control"><div class="row"><input name="bitrate" type="number" min="1" max="100" step="1" value="${s.transcodeMaxBitrate}" style="width:90px"><span class="muted">Mbit/s</span></div></div></div>
+      <div class="setting"><div class="text"><b>${t('Chemin de FFmpeg')}</b><span>${t('Vide : FFMPEG_PATH, puis le PATH (FFmpeg est inclus dans l’image Docker).')}</span></div>
+        <div class="control wide"><input name="path" type="text" value="${esc(s.ffmpegPath || '')}" placeholder="/usr/bin/ffmpeg"></div></div>
+      <div class="row end" style="margin-top:8px"><button type="button" class="btn ghost" id="tDetect">${icon('refresh')}${t('Détecter à nouveau')}</button><button class="btn primary" type="submit">${t('Enregistrer')}</button></div>
+    </form>
+    ${info.sessions.length ? `<p class="small muted" style="margin-top:12px">${t('En cours')} : ${info.sessions.map((x) => `${esc(x.name)} (${[x.copyVideo ? t('image copiée') : t('image convertie'), x.copyAudio ? t('son copié') : t('son converti')].join(', ')})`).join(' · ')}</p>` : ''}`;
+  let mode = s.transcodeMode;
+  $('#tMode', el).onclick = (e) => {
+    const b = e.target.closest('[data-v]');
+    if (!b) return;
+    mode = b.dataset.v;
+    $$('#tMode button', el).forEach((x) => x.classList.toggle('on', x === b));
+  };
+  $('#tDetect', el).onclick = async (e) => {
+    if (await busy(e.currentTarget, () => api('POST', '/transcode/detect'), t('Détection terminée'))) transcodeCard(el);
+  };
+  $('#tf', el).onsubmit = async (e) => {
+    e.preventDefault();
+    const tf = e.target;
+    const r = await busy($('button[type=submit]', tf), () => api('PUT', '/settings', { transcodeMode: mode, transcodeHw: tf.hw.value, transcodeMaxSessions: Number(tf.sessions.value), transcodeMaxBitrate: Number(tf.bitrate.value), ffmpegPath: tf.path.value.trim() }), t('Enregistré'));
+    if (r) {
+      state.settings = r;
+      transcodeCard(el);
+    }
+  };
+}
 
 // ---- Clip "aucune source disponible" -------------------------------------------------------------
 
@@ -1876,7 +1969,8 @@ async function collectionImage(c, target) {
   const source = index !== undefined ? folder?.sources.find((x) => x.index === Number(index)) : null;
   const name = source ? source.label : folder ? folder.title : c.title;
   const custom = source ? source.image : folder ? folder.image : c.image;
-  const preview = custom || (source ? null : folder ? folder.nuvioImage : c.nuvioImage);
+  const auto = source ? source.autoImage : folder ? folder.autoImage : c.autoImage;
+  const preview = custom || (source ? null : folder ? folder.nuvioImage : c.nuvioImage) || auto;
   const url = `/collections/${encodeURIComponent(c.id)}/image?target=${encodeURIComponent(target)}`;
   const done = modal({
     title: t('Image de « {name} »', { name }),
@@ -1884,7 +1978,9 @@ async function collectionImage(c, target) {
     okLabel: t("Enregistrer l'adresse"),
     body: `<div class="stack">
       ${preview ? `<img src="${esc(preview)}" alt="" style="width:100%;aspect-ratio:16/9;border-radius:10px;object-fit:cover;background:var(--input)">` : ''}
-      <div class="row"><button type="button" class="btn" id="cImgUpload">${icon('camera')}${t('Envoyer une image')}</button>
+      <p class="small muted" style="margin:0">${t("Sans image (choisie ou venue de Nuvio), Stremfin la génère avec les jaquettes et le nom.")}</p>
+      <div class="row"><button type="button" class="btn primary" id="cImgGen">${icon('refresh')}${t("Générer l'image")}</button>
+        <button type="button" class="btn" id="cImgUpload">${icon('camera')}${t('Envoyer une image')}</button>
         ${custom ? `<button type="button" class="btn ghost" id="cImgAuto">${t("Revenir à l'image d'origine")}</button>` : ''}</div>
       <input type="file" id="cImgFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
       <div class="field"><label>${t("Ou adresse d'une image")}</label><input name="url" type="url" placeholder="https://…/image.jpg" value="${esc(custom && /^https?:/.test(custom) ? custom : '')}"></div>
@@ -1895,6 +1991,13 @@ async function collectionImage(c, target) {
     }
   });
   const close = () => $('.backdrop [data-close]')?.click();
+  $('#cImgGen').onclick = async (e) => {
+    const gen = `/collections/${encodeURIComponent(c.id)}/image/generate?target=${encodeURIComponent(target)}`;
+    if (await busy(e.currentTarget, () => api('POST', gen), t('Image générée'))) {
+      close();
+      render();
+    }
+  };
   $('#cImgUpload').onclick = () => $('#cImgFile').click();
   $('#cImgFile').onchange = async (ev) => {
     const file = ev.target.files[0];

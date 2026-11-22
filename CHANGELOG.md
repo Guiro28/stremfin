@@ -3,7 +3,39 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
-## 0.2.10-dev.3 — en développement (branche `dev`, image `ghcr.io/guiro28/stremfin:dev`)
+## 0.2.10-dev.4 — en développement (branche `dev`, image `ghcr.io/guiro28/stremfin:dev`)
+
+### Ajouts
+- **Conversion vidéo pour le client web** (sur le modèle de Polyfin) : l'app envoie ce qu'elle lit
+  (profil de lecture) ; une version qu'elle ne lit pas telle quelle est diffusée en HLS avec FFmpeg,
+  en ne convertissant que le nécessaire (le son en AAC, l'image en H.264 en 1080p au plus, couleurs
+  corrigées pour le HDR). Une avance rapide relance FFmpeg à l'endroit demandé ; FFmpeg lit la
+  source par les mêmes routes que les apps (WARP, proxy) et à deux fois la vitesse de la vidéo au plus.
+  Les apps qui n'envoient pas de profil (apps TV) lisent tout en direct, comme avant.
+- **Encodeur détecté automatiquement** et vérifié par un essai : NVIDIA (NVENC), Intel (QuickSync,
+  VA-API), AMD (VA-API, AMF), Apple (VideoToolbox), sinon le processeur. Réglages › Lecture et réseau
+  › Conversion vidéo : mode (son et image, son seulement, désactivée), encodeur, conversions
+  simultanées, débit maximal, chemin de FFmpeg.
+- **Release compatible d'abord** : à qualité égale, une release que l'app lit telle quelle passe devant.
+- **Images des bibliothèques générées** (style Polyfin) : mur de jaquettes de la bibliothèque, dégradé
+  sombre et nom en gras blanc, sans jaquette répétée quand il y en a assez. Automatique pour les
+  bibliothèques, collections, dossiers et sous-dossiers sans image ; bouton « Générer l'image » dans
+  l'admin. Les dossiers en affiche reçoivent une image 2:3.
+- **Réglages du client web Jellyfin** pris en compte : changer son mot de passe (les autres appareils
+  sont déconnectés) et son avatar, ordre et bibliothèques de « Mes médias », rangées « ajouts
+  récents » et titres vus masqués, lecture automatique de l'épisode suivant, épisodes à venir
+  affichés grisés. Les mêmes réglages apparaissent dans l'admin (onglets Préférences et Accueil).
+
+### Changements
+- **Suivi** : Trakt, Simkl et Scrob reçoivent la lecture en direct, et l'arrêt dès que le titre est
+  vu (90 %) ; un double envoi à Simkl (409) n'est plus une erreur. Statistiques : une lecture signalée
+  seulement à l'arrêt (lecteur externe) compte, et un long trou entre deux rapports compte si la
+  position a avancé d'autant.
+- **Docker** : l'image inclut FFmpeg, les pilotes Intel et AMD et la police des images ; le conteneur
+  rejoint seul le groupe de la carte graphique donnée (/dev/dri). Exemples NVIDIA, Intel et AMD dans
+  `docker-compose.yml`.
+
+## 0.2.10-dev.3
 
 ### Changements
 - **Index des catalogues retiré** (essayé en 0.2.10-dev.1 et 0.2.10-dev.2) : les catalogues sont de

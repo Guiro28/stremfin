@@ -65,6 +65,19 @@ services:
       # - TORRENT_SERVER=http://stremio-server:11470
     volumes:
       - ./data:/app/data
+    # Conversion video sur la carte graphique (facultatif ; sans, le processeur s'en charge).
+    # Intel ou AMD : decommente les deux lignes suivantes.
+    # devices:
+    #   - /dev/dri:/dev/dri
+    # NVIDIA (NVIDIA Container Toolkit installe sur l'hote) : decommente le bloc suivant et
+    # ajoute NVIDIA_DRIVER_CAPABILITIES=compute,video,utility dans environment ci-dessus.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu, video]
 
   # Decommente pour lire les sources torrent sans debrideur.
   # stremio-server:
