@@ -53,7 +53,9 @@ function allCatalogs(profile) {
   const out = [];
   // Un addon peut etre garde pour ses sources / fiches sans proposer ses catalogues.
   const collections = require('./collections').addon(profile);
-  for (const a of [...tmdb.addons(), ...collections, ...stremio.enabledAddons(profile).filter((x) => !x.catalogsHidden)]) {
+  // Films et series des sources IPTV du profil (option de la source).
+  const iptvVod = require('./iptv/vod').addons(profile);
+  for (const a of [...tmdb.addons(), ...collections, ...iptvVod, ...stremio.enabledAddons(profile).filter((x) => !x.catalogsHidden)]) {
     for (const c of a.manifest.catalogs || []) {
       if (!['movie', 'series', 'collection', 'nuviocol'].includes(c.type)) continue;
       const extras = extrasOf(c);
@@ -153,6 +155,19 @@ function pagerFor(view, genre, filter, sort) {
   }
   markUsed(key);
   return p;
+}
+
+/**
+ * Listes d'un catalogue a relire (son contenu vient de changer : VOD IPTV telechargee a nouveau).
+ * prefix : debut des cles de catalogue ("<base de l'addon>|"). Une liste avec des titres est
+ * relue a la prochaine ouverture (affichee pendant ce temps) ; une liste vide repart de zero.
+ */
+function invalidate(prefix) {
+  for (const [k, p] of pagers) {
+    if (!k.startsWith(prefix)) continue;
+    if (p.metas.length) p.at = 0;
+    else pagers.delete(k);
+  }
 }
 
 function emptyPager(key) {
@@ -435,4 +450,4 @@ async function search(profile, query, types = ['movie', 'series']) {
   return out;
 }
 
-module.exports = { allCatalogs, isEnabled, views, positionOf, slice, warm, search, catalogKey, label };
+module.exports = { allCatalogs, isEnabled, views, positionOf, slice, warm, search, catalogKey, label, invalidate };

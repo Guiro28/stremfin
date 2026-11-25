@@ -103,6 +103,8 @@ function catalog(manifestUrl, type, id, extra) {
   if (manifestUrl === require('./tmdb').ADDON_URL) return require('./tmdb').catalog(type, id, extra);
   // Collections (bibliotheque du serveur) : addon virtuel elles aussi.
   if (manifestUrl === require('./collections').ADDON_URL) return require('./collections').catalog(type, id, extra);
+  // Films et series d'une source IPTV (index en base).
+  if (String(manifestUrl).startsWith('stremfin-iptv://')) return require('./iptv/vod').catalog(manifestUrl, type, id, extra);
   const url = resourceUrl(manifestUrl, 'catalog', type, id, extra);
   // Recherche : gardee une semaine (servie tout de suite, mise a jour en arriere-plan apres 6 h).
   const search = !!extra?.search;
@@ -119,6 +121,8 @@ function catalog(manifestUrl, type, id, extra) {
 
 /** Fiche complete : premier addon du profil qui sait la fournir. */
 async function meta(profile, type, id) {
+  // Titre d'une source IPTV sans id TMDB : fiche du fournisseur.
+  if (String(id).startsWith('iptv:')) return require('./iptv/vod').meta(type, id);
   for (const a of enabledAddons(profile)) {
     if (!supports(a.manifest, 'meta', type, id)) continue;
     const url = resourceUrl(a.url, 'meta', type, id);
@@ -149,6 +153,9 @@ async function meta(profile, type, id) {
 async function streams(profile, type, ids) {
   const timeout = config.get().settings.streamTimeout;
   const candidates = [].concat(ids).filter(Boolean);
+  // Titre d'une bibliotheque IPTV : sa version vient de la source elle-meme.
+  const iptvId = candidates.find((x) => String(x).startsWith('iptv:'));
+  if (iptvId) return require('./iptv/vod').streamsById(profile, type, iptvId).catch(() => []);
   const results = await Promise.all(
     enabledAddons(profile).map(async (a) => {
       const id = candidates.find((x) => supports(a.manifest, 'stream', type, x));

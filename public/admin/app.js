@@ -265,7 +265,7 @@ const state = { authed: false, setup: false, role: null, username: '', profileId
 const NAV_ADMIN = [
   { group: null, items: [{ id: 'dashboard', label: 'Tableau de bord', icon: 'dashboard' }, { id: 'stats', label: 'Statistiques', icon: 'chart' }] },
   { group: 'Utilisateurs', items: [{ id: 'profiles', label: 'Profils', icon: 'users' }, { id: 'devices', label: 'Appareils', icon: 'devices' }] },
-  { group: 'Bibliothèque', items: [{ id: 'library', label: 'Addons', icon: 'puzzle' }, { id: 'collections', label: 'Collections', icon: 'layers' }] },
+  { group: 'Bibliothèque', items: [{ id: 'library', label: 'Addons', icon: 'puzzle' }, { id: 'collections', label: 'Collections', icon: 'layers' }, { id: 'iptv', label: 'TV en direct', icon: 'tv' }, { id: 'recordings', label: 'Enregistrements', icon: 'film' }] },
   {
     group: 'Réglages',
     items: [
@@ -287,7 +287,7 @@ function navFor() {
 
 function route() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
-  if (state.role !== 'admin') return parts[0] === 'stats' ? { page: 'stats', parts } : { page: 'me', parts: ['me', parts[0] === 'me' ? parts[1] || 'login' : 'login'] };
+  if (state.role !== 'admin') return parts[0] === 'stats' ? { page: 'stats', parts } : { page: 'me', parts: parts[0] === 'me' ? ['me', (parts[1] || 'login').split('?')[0], ...parts.slice(2)] : ['me', 'login'] };
   if (!parts.length) return { page: 'dashboard', parts: [] };
   if (parts[0] === 'settings') return { page: `settings/${parts[1] || 'server'}`, parts };
   return { page: parts[0], parts };
@@ -572,7 +572,8 @@ async function proxyStatus() {
 
 // Liste des profils
 PAGES.profiles = async (main, parts) => {
-  if (parts[1]) return profilePage(main, parts[1], parts[2] || 'login', false);
+  state.subparts = [];
+  if (parts[1]) return profilePage(main, parts[1], (parts[2] || 'login').split('?')[0], false);
   state.profiles = await api('GET', '/profiles');
   main.innerHTML = `${head(t('Profils'), t('Chaque profil a ses identifiants, ses addons, ses bibliothèques, son accueil et sa progression.'), `<button class="btn primary" id="newProfile">${icon('plus')}${t('Nouveau profil')}</button>`)}
     <div class="profile-grid">
@@ -627,17 +628,22 @@ const PROFILE_TABS = [
   { id: 'home', label: 'Accueil', icon: 'dashboard' },
   { id: 'addons', label: 'Addons', icon: 'puzzle' },
   { id: 'libraries', label: 'Bibliothèques', icon: 'layers' },
+  { id: 'iptv', label: 'TV en direct', icon: 'tv' },
   { id: 'tracking', label: 'Source de suivi', icon: 'refresh' },
   { id: 'devices', label: 'Appareils', icon: 'devices' }
 ];
 
-PAGES.me = (main, parts) => profilePage(main, state.profileId, parts[1] || 'login', true);
+PAGES.me = (main, parts) => {
+  // Sous-pages d'un onglet (ex. #/me/iptv/<source>/channels).
+  state.subparts = parts.slice(2);
+  return profilePage(main, state.profileId, parts[1] || 'login', true);
+};
 
 async function profilePage(main, id, tab, self) {
   const p = (state.profile = await api('GET', `/profiles/${id}`));
   p.self = self;
   const base = self ? '#/me/' : `#/profiles/${p.id}/`;
-  const counts = { addons: p.addons.length, libraries: p.catalogs.filter((c) => c.enabled && c.browsable).length, devices: p.devices.length };
+  const counts = { addons: p.addons.length, libraries: p.catalogs.filter((c) => c.enabled && c.browsable).length, iptv: (p.iptv || []).length, devices: p.devices.length };
   main.innerHTML = `${self ? '' : `<div class="row" style="margin-bottom:14px"><a class="btn ghost sm" href="#/profiles">${t('← Profils')}</a></div>`}
     <div class="profile-hero">
       <button class="avatar-edit" id="avatarBtn" title="${esc(t("Changer l'avatar"))}" aria-label="${esc(t("Changer l'avatar"))}">${avatar(p, 'l')}<span class="overlay">${icon('camera')}</span></button>
@@ -683,7 +689,8 @@ async function profilePage(main, id, tab, self) {
       if (ok && (await busy(null, () => api('DELETE', `/profiles/${p.id}`), t('Profil supprimé')))) go('#/profiles');
     };
   }
-  const tabs = { login: tabLogin, prefs: tabPrefs, home: tabHome, addons: tabAddons, libraries: tabLibraries, tracking: tabTracking, devices: tabDevices };
+  const tabIptv = (el, prof) => window.StremfinIptv.profileTab(el, prof, state.subparts || []);
+  const tabs = { login: tabLogin, prefs: tabPrefs, home: tabHome, addons: tabAddons, libraries: tabLibraries, iptv: tabIptv, tracking: tabTracking, devices: tabDevices };
   (tabs[tab] || tabLogin)($('#tab'), p);
 }
 
@@ -1633,6 +1640,8 @@ async function noSourceCard(el) {
   const secs = Math.round((info.durationMs || 0) / 1000);
   el.innerHTML = `<div class="card-head"><div><h2>${t('Quand aucune source n’est disponible')}</h2><p>${t('Au lieu d’une erreur, la lecture lance ce clip. Il ne compte jamais comme une lecture (statistiques, suivi, vus).')}</p></div>
       <div class="control">${toggle('id="nsOn" aria-label="' + esc(t('Lancer le clip')) + '"', info.enabled)}</div></div>
+    <div class="setting"><div class="text"><b>${t('Chercher dans l’IPTV quand les addons ne trouvent rien')}</b><span>${t('Un film ou un épisode sans source dans les addons est cherché dans les films et séries des sources IPTV du profil (TV en direct). Le clip n’est lancé que si l’IPTV ne trouve rien non plus.')}</span></div>
+      <div class="control">${toggle('id="iptvFb"', state.settings.iptvFallback !== false)}</div></div>
     <div class="ns-body">
       <video class="ns-preview" src="/stremfin/api/no-source/video?v=${info.updatedAt || 0}" controls muted loop playsinline preload="metadata"></video>
       <div class="stack">
@@ -1647,6 +1656,11 @@ async function noSourceCard(el) {
       <input type="file" id="nsFile" accept="video/mp4,video/webm,video/x-matroska,.mkv" hidden>
     </div>`;
   const reload = () => noSourceCard(el);
+  $('#iptvFb', el).onchange = async (e) => {
+    const r = await busy(null, () => api('PUT', '/settings', { iptvFallback: e.target.checked }), t('Enregistré'));
+    if (r) state.settings = r;
+    else e.target.checked = !e.target.checked;
+  };
   $('#nsOn', el).onchange = async (e) => {
     const r = await busy(null, () => api('PUT', '/settings', { noSourceVideo: e.target.checked }), e.target.checked ? t('Clip activé') : t('Clip désactivé'));
     if (r) state.settings = r;

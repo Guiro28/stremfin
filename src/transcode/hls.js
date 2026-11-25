@@ -5,6 +5,9 @@
 // La liste des segments couvre toute la duree des le depart (lecture "VOD") ; un segment demande
 // loin de ce qu'ecrit FFmpeg (avance rapide, reprise) relance FFmpeg a partir de lui.
 // Une session sans demande depuis 2 minutes, ou dont la lecture s'arrete, est fermee.
+// Chaines en direct (IPTV, opts.live) : pas de duree ni d'avance rapide ; FFmpeg ecrit une fenetre
+// glissante de segments de 4 s (les plus vieux effaces) et la liste servie est la sienne. La
+// session se ferme apres une minute sans demande.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -13,7 +16,9 @@ const config = require('../config');
 const ffmpeg = require('./ffmpeg');
 
 const SEGMENT = 6;
+const LIVE_SEGMENT = 4;
 const IDLE = 120e3;
+const LIVE_IDLE = 60e3;
 // Un segment demande au-dela de ce nombre devant FFmpeg (ou avant son depart) le relance.
 const AHEAD = 4;
 const DIR = path.join(config.DATA_DIR, 'transcodes');
@@ -60,7 +65,8 @@ function prepare(opts) {
     start: 0,
     written: -1,
     lastRequest: Date.now(),
-    lastSegment: 0
+    lastSegment: 0,
+    live: !!opts.live
   };
   sessions.set(id, session);
   const what = [opts.decision.copyVideo ? 'image copiée' : 'image convertie', opts.decision.copyAudio ? 'son copié' : 'son converti'].join(', ');
@@ -76,11 +82,13 @@ function get(id) {
 
 /** Adresse du flux de Stremfin que FFmpeg lit (memes routes que les apps). */
 function inputUrl(s) {
+  if (s.input) return s.input;
   return `http://127.0.0.1:${PORT}/Videos/${s.itemUuid}/stream?static=true&mediaSourceId=${encodeURIComponent(s.msid)}&api_key=${encodeURIComponent(s.token)}`;
 }
 
 /** Duree de la source : ffprobe, sinon la duree de la fiche. */
 function durationOf(s) {
+  if (s.live) return Promise.resolve(0);
   if (!s.durationReady) {
     s.durationReady = ffmpeg
       .duration(inputUrl(s))
@@ -107,8 +115,33 @@ async function master(s) {
   return ['#EXTM3U', `#EXT-X-STREAM-INF:BANDWIDTH=${Math.round(bandwidth)},RESOLUTION=${w}x${h || 1080}`, `main.m3u8`, ''].join('\n');
 }
 
+/**
+ * Direct : liste de FFmpeg (fenetre glissante), servie quand elle a 2 segments (FFmpeg lance a la
+ * premiere demande), ou null si FFmpeg n'en ecrit pas dans les 25 s.
+ */
+async function livePlaylist(s) {
+  if (!s.proc && !s.everStarted) {
+    if (!available()) return null;
+    s.everStarted = true;
+    startAt(s, 0);
+  }
+  const file = path.join(s.dir, 'ffmpeg.m3u8');
+  const deadline = Date.now() + 25000;
+  while (Date.now() < deadline) {
+    let text = '';
+    try {
+      text = fs.readFileSync(file, 'utf8');
+    } catch {}
+    if ((text.match(/#EXTINF/g) || []).length >= 2) return text;
+    if (!s.proc) return text || null;
+    await sleep(200);
+  }
+  return null;
+}
+
 /** Liste des segments (toute la duree). */
 async function playlist(s) {
+  if (s.live) return livePlaylist(s);
   await durationOf(s);
   const n = segments(s);
   const ext = s.fmp4 ? 'mp4' : 'ts';
@@ -135,18 +168,19 @@ function args(s, n) {
   const enc = ffmpeg.encoder();
   const offset = n * SEGMENT;
   const d = s.decision;
-  const out = ['-hide_banner', '-loglevel', 'error', '-nostdin', '-fflags', '+genpts'];
+  const out = ['-hide_banner', '-loglevel', 'error', '-nostdin', '-fflags', s.live ? '+genpts+discardcorrupt' : '+genpts'];
   const encInput = !d.copyVideo && enc ? enc.input() || [] : [];
   out.push(...encInput);
   // Image convertie : decodage par la carte graphique quand elle sait (repli automatique sur le
   // processeur sinon) ; un 4K HEVC ou AV1 decode par le processeur suit a peine le temps reel.
   if (!d.copyVideo && enc && enc.id !== 'software') out.push('-hwaccel', 'auto');
-  if (offset) out.push('-ss', String(offset));
+  if (offset && !s.live) out.push('-ss', String(offset));
   // Lecture a 2 fois la vitesse de la video au plus, apres 30 s d'avance : FFmpeg ne telecharge pas
-  // tout le film d'un coup (debit du debrideur, disque).
-  out.push('-readrate', '2', '-readrate_initial_burst', '30');
-  out.push('-i', inputUrl(s), '-map', '0:v:0');
-  if (s.audio) out.push('-map', `0:${s.audio.Index}`);
+  // tout le film d'un coup (debit du debrideur, disque). Une chaine arrive deja au rythme du direct.
+  if (!s.live) out.push('-readrate', '2', '-readrate_initial_burst', '30');
+  else out.push('-analyzeduration', '3000000', '-probesize', '5000000');
+  out.push('-i', inputUrl(s), '-map', '0:v:0?');
+  if (s.audio) out.push('-map', s.live ? '0:a:0?' : `0:${s.audio.Index}`);
   out.push('-sn', '-dn', '-map_metadata', '-1', '-map_chapters', '-1');
   // Image.
   if (d.copyVideo) {
@@ -156,6 +190,8 @@ function args(s, n) {
     const bitrate = Math.round(targetBitrate(s));
     const filters = [];
     const height = s.video?.Height || 0;
+    // Chaine entrelacee (1080i, 576i) : desentrelacee, les navigateurs ne lisent pas l'entrelace.
+    if (s.live && s.video?.IsInterlaced) filters.push('yadif');
     const hdr = s.video?.VideoRange === 'HDR' || /HDR|DOVI|HLG/.test(String(s.video?.VideoRangeType || ''));
     if (hdr && ffmpeg.status().zscale) {
       // HDR vers SDR : correction des couleurs (sinon image terne et delavee).
@@ -165,8 +201,8 @@ function args(s, n) {
     filters.push('format=yuv420p');
     if (enc?.upload) filters.push(enc.upload);
     out.push('-vf', filters.join(','), '-c:v', enc ? enc.name : 'libx264', ...(enc ? enc.options(bitrate) : ['-preset', 'veryfast', '-crf', '21']).map(String));
-    // Une image cle au debut de chaque segment : les segments durent exactement 6 s.
-    out.push('-force_key_frames', `expr:gte(t,n_forced*${SEGMENT})`);
+    // Une image cle au debut de chaque segment : les segments durent exactement 6 s (4 s en direct).
+    out.push('-force_key_frames', `expr:gte(t,n_forced*${s.live ? LIVE_SEGMENT : SEGMENT})`);
   }
   // Son.
   if (s.audio) {
@@ -178,6 +214,15 @@ function args(s, n) {
   }
   // Segments, numerotes a partir de n, horodates a leur place dans la video.
   const ext = s.fmp4 ? 'mp4' : 'ts';
+  if (s.live) {
+    // Direct : fenetre glissante de 8 segments de 4 s, les plus vieux effaces.
+    out.push('-max_muxing_queue_size', '2048', '-f', 'hls', '-hls_time', String(LIVE_SEGMENT), '-hls_list_size', '8', '-start_number', '0');
+    out.push('-hls_flags', 'delete_segments+temp_file+independent_segments+omit_endlist', '-hls_delete_threshold', '4');
+    out.push('-hls_segment_type', s.fmp4 ? 'fmp4' : 'mpegts');
+    if (s.fmp4) out.push('-hls_fmp4_init_filename', 'init.mp4');
+    out.push('-hls_segment_filename', `%d.${ext}`, 'ffmpeg.m3u8');
+    return out;
+  }
   out.push('-max_muxing_queue_size', '2048', '-output_ts_offset', String(offset));
   out.push('-f', 'hls', '-hls_time', String(SEGMENT), '-hls_list_size', '0', '-start_number', String(n), '-hls_flags', 'temp_file+independent_segments');
   out.push('-hls_segment_type', s.fmp4 ? 'fmp4' : 'mpegts');
@@ -213,7 +258,7 @@ function startAt(s, n) {
     s.ended = code === 0;
     if (code !== 0) log(`${s.name} : FFmpeg arrêté (code ${code}) ${err.trim().split('\n').pop() || ''}`);
   });
-  log(`${s.name} : FFmpeg démarre au segment ${n} (${n * SEGMENT} s)`);
+  log(s.live ? `${s.name} : FFmpeg démarre (direct)` : `${s.name} : FFmpeg démarre au segment ${n} (${n * SEGMENT} s)`);
 }
 
 /** Fichier d'un segment ecrit (FFmpeg l'ecrit sous un nom temporaire puis le renomme). */
@@ -236,6 +281,18 @@ function highestWritten(s) {
  * conversion echoue ou tarde plus de 40 s.
  */
 async function segment(s, n) {
+  if (s.live) {
+    // Direct : le segment est ecrit par le FFmpeg en cours (jamais relance a un autre endroit).
+    s.lastSegment = Math.max(s.lastSegment, n);
+    const file = segmentFile(s, n);
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      if (fs.existsSync(file)) return file;
+      if (!s.proc) return null;
+      await sleep(150);
+    }
+    return null;
+  }
   await durationOf(s);
   if (n < 0 || n >= segments(s)) return null;
   s.lastSegment = n;
@@ -309,11 +366,12 @@ function stopFor({ itemUuid, profileId, sessionId } = {}) {
 setInterval(() => {
   const now = Date.now();
   for (const s of sessions.values()) {
-    if (now - s.lastRequest > IDLE) {
+    if (now - s.lastRequest > (s.live ? LIVE_IDLE : IDLE)) {
       close(s, 'inactive');
       continue;
     }
     try {
+      if (s.live) continue;
       for (const f of fs.readdirSync(s.dir)) {
         const n = parseInt(f, 10);
         if (Number.isFinite(n) && n < s.lastSegment - 10) fs.unlinkSync(path.join(s.dir, f));

@@ -144,6 +144,10 @@ server.listen(PORT, () => {
   require('./src/jellyfin/library').startWarming();
   // Sauvegarde automatique quotidienne.
   require('./src/backup').start();
+  // IPTV : listes des sources telechargees a nouveau regulierement.
+  require('./src/iptvSources').startRefreshing();
+  // Enregistrements programmes (TV en direct).
+  require('./src/iptv/dvr').startScheduler();
   // Collections mises a jour depuis Nuvio toutes les 6 h.
   require('./src/collections').start();
   // FFmpeg et l'encodeur video (carte graphique ou processeur), pour les conversions.

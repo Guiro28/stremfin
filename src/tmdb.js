@@ -83,6 +83,33 @@ async function slot(fn) {
   }
 }
 
+/**
+ * Id TMDB d'un titre d'apres son nom et son annee (films et series IPTV sans id). Pas de cache
+ * (le resultat est garde par l'appelant). Retient le premier resultat dont le titre (ou le titre
+ * original) correspond, a un an pres quand l'annee est connue. null si rien de sur.
+ */
+async function searchId(type, title, year, norm) {
+  if (!enabled() || !title) return null;
+  const mediaType = type === 'series' ? 'tv' : 'movie';
+  const params = new URLSearchParams({ language: lang(), query: title, include_adult: 'false' });
+  if (year) params.set(mediaType === 'movie' ? 'year' : 'first_air_date_year', String(year));
+  let r = await slot(() => getJson(`${API}/search/${mediaType}?${params}&api_key=${apiKey()}`, { timeout: 15000 }));
+  // Annee du fournisseur parfois fausse (date d'ajout) : nouvel essai sans annee.
+  if (year && !r?.results?.length) {
+    params.delete(mediaType === 'movie' ? 'year' : 'first_air_date_year');
+    r = await slot(() => getJson(`${API}/search/${mediaType}?${params}&api_key=${apiKey()}`, { timeout: 15000 }));
+  }
+  const want = norm(title);
+  for (const x of (r?.results || []).slice(0, 8)) {
+    const names = [x.title, x.original_title, x.name, x.original_name].filter(Boolean).map(norm);
+    if (!names.includes(want)) continue;
+    const y = Number(String(x.release_date || x.first_air_date || '').slice(0, 4)) || null;
+    if (year && y && Math.abs(y - year) > 1) continue;
+    return x.id;
+  }
+  return null;
+}
+
 /** GET TMDB en cache. La cle API n'entre pas dans la cle de cache. */
 function get(path, params = {}, { ttl = DAY, stale = 7 * DAY, language = lang(), shrink } = {}) {
   const q = new URLSearchParams({ language, ...params });
@@ -589,4 +616,4 @@ async function spotlight(limit = 10) {
   return metas.filter(Boolean);
 }
 
-module.exports = { ADDON_URL, enabled, spotlight, collectionSource, checkKey, resolve, imdbIdOf, meta, previewMeta, released, collection, catalog, addons, warm };
+module.exports = { searchId, ADDON_URL, enabled, spotlight, collectionSource, checkKey, resolve, imdbIdOf, meta, previewMeta, released, collection, catalog, addons, warm };

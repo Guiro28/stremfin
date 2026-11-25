@@ -136,9 +136,14 @@ function decide({ streams, container, bitrate = 0, audioIndex, request = {} }) {
     codecOk(tVideo, video.Codec) &&
     videoOk &&
     !reasons.has('ContainerBitrateExceedsLimit');
+  // Son recopie seulement dans un codec que les segments HLS peuvent porter (le MP2 des chaines
+  // IPTV, par exemple, est refuse par les navigateurs : bufferAddCodecError).
+  const fmp4 = String(tp.Container || 'ts').toLowerCase() === 'mp4';
+  const segmentAudio = fmp4 ? ['aac', 'mp3', 'ac3', 'eac3', 'opus', 'flac', 'alac'] : ['aac', 'mp3', 'ac3', 'eac3'];
   const copyAudio =
     request.AllowAudioStreamCopy !== false &&
-    (!audio || (codecOk(tAudio, audio.Codec) && audioOk && (audio.Channels || 2) <= maxChannels));
+    (!audio ||
+      ((!audio.Codec || codecOk(segmentAudio, String(audio.Codec).toLowerCase())) &&codecOk(tAudio, audio.Codec) && audioOk && (audio.Channels || 2) <= maxChannels));
   return {
     directPlay: false,
     reasons: [...reasons],

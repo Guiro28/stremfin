@@ -3,7 +3,43 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
-## 0.2.10-dev.5 — en développement (branche `dev`, image `ghcr.io/guiro28/stremfin:dev`)
+## 0.2.10-dev.6 — en développement (branche `dev`, image `ghcr.io/guiro28/stremfin:dev`)
+
+### Ajouts
+- **TV en direct (IPTV)** : comptes Xtream Codes et listes M3U, ajoutés par l'admin (attribués
+  aux profils) ou par chaque utilisateur (sources privées). Vue « TV en direct » et chaînes dans
+  les apps Jellyfin ; une seule connexion par chaîne chez le fournisseur, partagée entre les apps ;
+  limite de connexions des comptes Xtream respectée ; client web en HLS (liste du fournisseur
+  relayée ou FFmpeg).
+- **Gestion des groupes et des chaînes** : renommer, réordonner, activer ou masquer, logo,
+  numéro, groupe, actions en lot ; gardée à chaque mise à jour de la liste. Groupes en trois
+  onglets (Chaînes TV, Films, Séries) à l'ajout de la source et sur sa page : une catégorie de
+  films ou de séries désactivée disparaît de la bibliothèque et de la recherche de secours.
+- **Guide des programmes** (XMLTV) : guide du fournisseur et guides ajoutés, association
+  automatique et à la main, programme en cours, grille du guide et « En ce moment ».
+- **Replay** des chaînes à archive (Xtream timeshift, M3U catchup).
+- **Films et séries IPTV** : bibliothèques par source, et recherche de secours dans la VOD quand
+  les addons ne trouvent aucune source.
+- **Enregistrements** depuis le guide des apps (émission ou série), page « Enregistrements ».
+
+### Changements
+- Une version de qualité inconnue s'appelle « Auto » au lieu de « 4K → ? ».
+- Conversion HLS : le son n'est recopié que dans un codec que les navigateurs lisent (AAC, MP3,
+  AC3, E-AC3, Opus, FLAC) ; le MP2 des chaînes IPTV est converti en AAC (lecture impossible dans
+  le navigateur sinon).
+- Films et épisodes IPTV : pistes et conteneur réels lus par ffprobe (gardés 7 jours), pour que
+  le client web les convertisse quand il le faut ; une seule version « IPTV » au lieu de
+  4K / 1080p / 720p ; un titre d'une bibliothèque IPTV reste lu par sa source IPTV, même quand sa
+  fiche vient de TMDB.
+- Films et séries IPTV sans id TMDB dans la liste du fournisseur (cas fréquent) : id cherché dans
+  TMDB par nom nettoyé (« |FR| After Life 2019 FHD MULTI » → « After Life ») et année, en
+  arrière-plan, puis à l'ouverture d'une fiche (fiche du fournisseur d'abord pour un film Xtream).
+  Les ids trouvés restent d'une mise à jour à l'autre. Le fournisseur n'est jamais sollicité en
+  rafale : la recherche passe par TMDB, ses fiches (`get_vod_info`, `get_series_info`) sont
+  demandées une à la fois, 3 s d'écart au moins, et les épisodes des séries IPTV ne sont plus
+  comptés depuis les listes.
+
+## 0.2.10-dev.5
 
 ### Ajouts
 - **Catalogues gardés en base** : le préchauffage charge chaque catalogue (bibliothèques, dossiers des

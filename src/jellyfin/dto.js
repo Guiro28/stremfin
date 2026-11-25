@@ -407,7 +407,8 @@ function userDto(profile, { autoLogin = false } = {}) {
       EnableSharedDeviceControl: false,
       EnableRemoteAccess: true,
       EnableLiveTvManagement: false,
-      EnableLiveTvAccess: false,
+      // TV en direct : profil qui a des chaines IPTV.
+      EnableLiveTvAccess: require('./livetv').hasChannels(profile),
       EnableMediaPlayback: true,
       EnableAudioPlaybackTranscoding: false,
       EnableVideoPlaybackTranscoding: false,
@@ -493,5 +494,6 @@ module.exports = {
   personItem,
   userDto,
   sessionDto,
-  queryResult
+  queryResult,
+  base
 };

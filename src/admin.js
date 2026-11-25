@@ -178,6 +178,11 @@ function profileDetail(p) {
       resources: (a.manifest?.resources || []).map((r) => (typeof r === 'string' ? r : r.name)),
       types: a.manifest?.types || []
     })),
+    // Sources IPTV du profil, dans son ordre (sans identifiants).
+    iptv: (p.iptv || [])
+      .map((a) => ({ a, s: require('./iptvSources').byId(a.lib) }))
+      .filter((x) => x.s)
+      .map(({ a, s }) => ({ id: s.id, name: s.name, kind: s.kind, enabled: a.enabled !== false, mode: a.mode, private: !!s.owner, channels: require('./iptv/store').counts(s.id).shown })),
     catalogs: catalog
       .allCatalogs(p)
       .map((c, i) => ({ c, i }))
@@ -793,6 +798,264 @@ router.delete('/api/library/:id', adminOnly, libraryAction((req) => addons.remov
 router.post('/api/library/:id/assign', adminOnly, libraryAction((req) => addons.assignToProfiles(req.params.id, req.body?.profiles, req.body?.mode)));
 // Modes par profil : { changes: [{ profileId, mode | "remove" }] }.
 router.post('/api/library/:id/modes', adminOnly, libraryAction((req) => addons.setModes(req.params.id, req.body?.changes)));
+
+// ---- Sources IPTV (comptes Xtream, listes M3U) -------------------------------------------------
+// Admin : sources du serveur (attribuees aux profils) et vue sur les sources privees. Utilisateur :
+// ses propres sources (privees, seulement sur son profil) et celles du serveur qu'il a.
+
+const iptv = require('./iptvSources');
+const iptvStore = require('./iptv/store');
+
+function iptvView(req) {
+  const s = config.get().settings;
+  const view = {
+    sources: iptv.list({ role: req.role, profileId: req.sessionProfileId }),
+    defaultMode: s.addonMode,
+    external: s.upstream.mode !== 'direct' && !!s.upstream.url,
+    refreshHours: s.iptvRefreshHours || 12
+  };
+  if (req.role === 'admin') view.profiles = config.get().profiles.map((p) => ({ id: p.id, name: p.name, avatarUrl: avatarUrl(p), disabled: !!p.disabled }));
+  return view;
+}
+
+/** Source que la session peut gerer (admin : toutes ; utilisateur : les siennes). */
+function iptvSourceOr404(req, res, { manage = true } = {}) {
+  const s = iptv.byId(req.params.id);
+  if (!s) return fail(res, 404, 'Source introuvable'), null;
+  if (req.role === 'admin' || s.owner === req.sessionProfileId) return s;
+  // Source du serveur attribuee : visible, pas modifiable.
+  if (!manage && !s.owner && config.getProfile(req.sessionProfileId)?.iptv?.some((a) => a.lib === s.id)) return s;
+  return fail(res, 403, 'Accès refusé'), null;
+}
+
+const iptvAction = (fn) => async (req, res) => {
+  try {
+    const r = await fn(req, res);
+    if (res.headersSent) return;
+    require('./jellyfin/livetv').forget();
+    res.json(r === undefined ? iptvView(req) : r);
+  } catch (e) {
+    if (!res.headersSent) fail(res, 400, e.message);
+  }
+};
+
+router.get('/api/iptv', (req, res) => res.json(iptvView(req)));
+// 1re etape de l'ajout : compte verifie, groupes de la liste (jeton garde 5 minutes).
+router.post('/api/iptv/preview', iptvAction((req) => iptv.preview(req.body || {}, { local: req.role === 'admin' })));
+router.post(
+  '/api/iptv',
+  iptvAction(async (req) => {
+    const s = await iptv.add(req.body || {}, { local: req.role === 'admin', owner: req.role === 'admin' ? null : req.sessionProfileId });
+    return { ...iptvView(req), added: s.id };
+  })
+);
+router.patch('/api/iptv/:id', iptvAction(async (req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (s) await iptv.update(s.id, req.body || {}, { local: req.role === 'admin' });
+}));
+router.delete('/api/iptv/:id', iptvAction((req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (s) {
+    require('./iptv/relay').closeSource(s.id);
+    iptv.remove(s.id);
+  }
+}));
+router.post('/api/iptv/:id/refresh', iptvAction(async (req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (s) await iptv.refresh(s.id);
+}));
+// Source du serveur vers des profils : { profiles: [id], mode }.
+router.post('/api/iptv/:id/assign', adminOnly, iptvAction((req) => {
+  const r = iptv.assignToProfiles(req.params.id, req.body?.profiles, req.body?.mode);
+  return { ...iptvView(req), ...r };
+}));
+
+// Groupes d'une source.
+router.get('/api/iptv/:id/groups', (req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (s) res.json({ groups: iptvStore.groupsOf(s.id) });
+});
+router.patch('/api/iptv/:id/groups', iptvAction((req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (!s) return;
+  const keys = [].concat(req.body?.keys || req.body?.key || []).map(String);
+  for (const k of keys) iptvStore.updateGroup(s.id, k, { name: req.body?.name, enabled: req.body?.enabled });
+  return { groups: iptvStore.groupsOf(s.id) };
+}));
+router.put('/api/iptv/:id/groups/order', iptvAction((req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (!s) return;
+  iptvStore.orderGroups(s.id, [].concat(req.body?.keys || []).map(String));
+  return { groups: iptvStore.groupsOf(s.id) };
+}));
+router.post('/api/iptv/:id/groups', iptvAction((req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (!s) return;
+  const key = iptvStore.addGroup(s.id, req.body?.name);
+  return { key, groups: iptvStore.groupsOf(s.id) };
+}));
+router.post('/api/iptv/:id/groups/remove', iptvAction((req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (!s) return;
+  iptvStore.removeGroup(s.id, String(req.body?.key || ''));
+  return { groups: iptvStore.groupsOf(s.id) };
+}));
+
+// Categories des films et des series d'une source (groupes VOD) : { movie: [...], series: [...] }.
+router.get('/api/iptv/:id/vodgroups', (req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (!s) return;
+  const vod = require('./iptv/vod');
+  res.json({ movie: vod.categoriesOf(s, 'movie'), series: vod.categoriesOf(s, 'series') });
+});
+// { kind: movie|series, keys: [nom], enabled }.
+router.patch('/api/iptv/:id/vodgroups', iptvAction(async (req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (!s) return;
+  const vod = require('./iptv/vod');
+  const kind = req.body?.kind === 'series' ? 'series' : 'movie';
+  const keys = [].concat(req.body?.keys ?? req.body?.key ?? []).map(String);
+  const hidden = vod.hiddenOf(s, kind);
+  for (const k of keys) req.body?.enabled ? hidden.delete(k) : hidden.add(k);
+  await iptv.update(s.id, { options: { [vod.EXCLUDED[kind]]: [...hidden] } }, { local: req.role === 'admin' });
+  return { [kind]: vod.categoriesOf(s, kind) };
+}));
+
+// Chaines d'une source : pages de 100, filtres groupe / etat / recherche / replay.
+router.get('/api/iptv/:id/channels', (req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (!s) return;
+  const q = req.query;
+  const r = iptvStore.channelsOf(s.id, { group: q.group || undefined, state: q.state || undefined, search: q.search || undefined, epg: q.epg || undefined, archive: q.archive === 'true', start: Number(q.start) || 0, limit: Number(q.limit) || 100 });
+  const epgMod = require('./iptv/epg');
+  res.json({
+    total: r.total,
+    items: r.items.map((c) => ({
+      key: c.key,
+      name: c.name,
+      providerName: c.provider_name,
+      logo: c.logo || null,
+      number: c.number || '',
+      group: c.group_key,
+      groupName: c.group_name || '',
+      enabled: !!c.enabled,
+      groupEnabled: !!c.group_enabled,
+      epgId: c.epg_id || '',
+      guide: c.epg_channel ? { id: c.epg_channel, now: epgMod.airing(c)?.title || null } : null,
+      archiveDays: c.archive_days || 0,
+      custom: { name: c.custom_name || '', logo: c.custom_logo || '', number: c.custom_number || '', group: c.custom_group || '', epg: c.custom_epg || '' },
+      provider: { name: c.provider_name, logo: c.provider_logo || '', number: c.provider_number || '', group: c.provider_group, epg: c.provider_epg || '' }
+    }))
+  });
+});
+/**
+ * Modifie des chaines : { keys } ou { match: { search, group } } (lot par mot-cle), patch
+ * { enabled, name, logo, number, group, epg }. dryRun : seulement le nombre de chaines touchees.
+ */
+router.post('/api/iptv/:id/channels/update', iptvAction((req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (!s) return;
+  const b = req.body || {};
+  const keys = Array.isArray(b.keys) ? b.keys.map(String) : b.match ? iptvStore.keysMatching(s.id, b.match) : [];
+  if (b.dryRun) return { count: keys.length };
+  const patch = b.patch || {};
+  if (patch.group && !iptvStore.groupsOf(s.id).some((g) => g.key === patch.group)) throw new Error('Groupe introuvable');
+  const count = iptvStore.updateChannels(s.id, keys, patch);
+  // Guide associe a la main : association recalculee, programmes de la chaine telecharges.
+  if (patch.epg !== undefined || patch.name !== undefined) {
+    const before = iptvStore.counts(s.id).mapped;
+    require('./iptv/epg').mapSource(s);
+    if (patch.epg !== undefined || iptvStore.counts(s.id).mapped !== before) iptv.refreshGuides(s.id).catch(() => {});
+  }
+  return { count };
+}));
+// Guides : etat, nouveau telechargement, recherche d'une chaine du guide (association a la main).
+router.get('/api/iptv/:id/guides', (req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (s) res.json({ guides: require('./iptv/epg').describe(s), useProviderGuide: s.useProviderGuide !== false, counts: iptvStore.counts(s.id) });
+});
+router.post('/api/iptv/:id/guides/refresh', iptvAction(async (req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (s) await iptv.refreshGuides(s.id);
+}));
+// Guide ajoute a la main ({ url }), retire ({ id }) ; guide du fournisseur ({ useProviderGuide }).
+router.post('/api/iptv/:id/guides', iptvAction(async (req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (!s) return;
+  const url = String(req.body?.url || '').trim();
+  await iptv.update(s.id, { epgUrls: [...(s.epgUrls || []), url] }, { local: req.role === 'admin' });
+  return { guides: require('./iptv/epg').describe(s) };
+}));
+router.post('/api/iptv/:id/guides/remove', iptvAction(async (req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (!s) return;
+  const epgMod = require('./iptv/epg');
+  await iptv.update(s.id, { epgUrls: (s.epgUrls || []).filter((u) => epgMod.guideId(u) !== String(req.body?.id || '')) }, { local: req.role === 'admin' });
+  return { guides: epgMod.describe(s) };
+}));
+router.get('/api/iptv/:id/guides/search', (req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (s) res.json({ items: require('./iptv/epg').search(s, String(req.query.q || '')) });
+});
+router.put('/api/iptv/:id/channels/order', iptvAction((req, res) => {
+  const s = iptvSourceOr404(req, res);
+  if (!s) return;
+  iptvStore.orderChannels(s.id, [].concat(req.body?.keys || []).map(String));
+  return { ok: true };
+}));
+
+// Sources d'un profil : activation, mode de lecture, retrait, ordre.
+router.patch('/api/profiles/:id/iptv/:sid', iptvAction((req, res) => {
+  const p = profileOr404(req, res);
+  if (!p) return;
+  const s = iptv.byId(req.params.sid);
+  // Un utilisateur retire une source du serveur de son profil, mais ne l'y ajoute pas.
+  iptv.setForProfile(p, req.params.sid, { enabled: req.body?.enabled, mode: req.body?.mode, remove: req.body?.remove === true && (req.role === 'admin' || s?.owner === p.id || !s?.owner) });
+}));
+router.put('/api/profiles/:id/iptv/order', iptvAction((req, res) => {
+  const p = profileOr404(req, res);
+  if (p) iptv.orderForProfile(p, req.body?.ids);
+}));
+
+// ---- Enregistrements (TV en direct) --------------------------------------------------------------
+
+router.get('/api/recordings', adminOnly, (req, res) => {
+  const dvr = require('./iptv/dvr');
+  const o = dvr.overview();
+  const fs = require('fs');
+  const s = config.get().settings;
+  const name = (pid) => config.getProfile(pid)?.name || '?';
+  const sizeOf = (t) => {
+    try {
+      return t.file ? fs.statSync(t.file).size : t.size || 0;
+    } catch {
+      return t.size || 0;
+    }
+  };
+  const timers = o.timers.map((t) => {
+    const ch = iptvStore.channel(t.chan);
+    return { id: t.id, name: t.name, episode: t.episode, channel: ch?.name || '?', profile: name(t.profile), start: t.start, stop: t.stop, status: t.status, error: t.error, size: sizeOf(t), series: !!t.series_timer, file: !!t.file };
+  });
+  res.json({
+    folder: o.folder,
+    used: timers.reduce((n, t) => n + (t.size || 0), 0),
+    settings: { recordingsPath: s.recordingsPath || '', recordingPrePadding: s.recordingPrePadding, recordingPostPadding: s.recordingPostPadding, recordingMaxConcurrent: s.recordingMaxConcurrent },
+    timers,
+    series: o.series.map((x) => ({ id: x.id, title: x.title, channel: x.any_channel ? null : iptvStore.channel(x.chan)?.name || '?', profile: name(x.profile) }))
+  });
+});
+router.delete('/api/recordings/series/:id', adminOnly, (req, res) => {
+  if (!require('./iptv/dvr').removeSeries(req.params.id)) return fail(res, 404, 'Série introuvable');
+  res.json({ ok: true });
+});
+router.delete('/api/recordings/:id', adminOnly, (req, res) => {
+  const dvr = require('./iptv/dvr');
+  const t = dvr.timer(req.params.id);
+  if (!t) return fail(res, 404, 'Enregistrement introuvable');
+  if (t.status === 'scheduled' || t.status === 'recording') dvr.cancel(t.id);
+  else dvr.removeRecording(t.id);
+  res.json({ ok: true });
+});
 
 // ---- Appareils ---------------------------------------------------------------------------------
 

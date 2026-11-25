@@ -87,6 +87,72 @@ db.exec(`
     used      INTEGER NOT NULL
   );
 
+  -- IPTV : groupes et chaines de chaque source (compte Xtream, liste M3U), rapproches a chaque
+  -- telechargement. Les colonnes custom_* (et enabled) sont les modifications faites dans
+  -- l'admin : elles restent quand le fournisseur met a jour ses champs.
+  CREATE TABLE IF NOT EXISTS iptv_groups (
+    source          TEXT NOT NULL,
+    key             TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    custom_name     TEXT,
+    position        INTEGER NOT NULL DEFAULT 0,
+    custom_position INTEGER,
+    enabled         INTEGER NOT NULL DEFAULT 1,
+    added           INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (source, key)
+  );
+  CREATE TABLE IF NOT EXISTS iptv_channels (
+    source          TEXT NOT NULL,
+    key             TEXT NOT NULL,
+    uuid            TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    custom_name     TEXT,
+    logo            TEXT,
+    custom_logo     TEXT,
+    number          TEXT,
+    custom_number   TEXT,
+    group_key       TEXT,
+    custom_group    TEXT,
+    position        INTEGER NOT NULL DEFAULT 0,
+    custom_position INTEGER,
+    enabled         INTEGER NOT NULL DEFAULT 1,
+    url             TEXT NOT NULL,
+    headers         TEXT,
+    epg_id          TEXT,
+    custom_epg      TEXT,
+    archive_days    INTEGER NOT NULL DEFAULT 0,
+    catchup         TEXT,
+    PRIMARY KEY (source, key)
+  );
+  CREATE INDEX IF NOT EXISTS iptv_channels_uuid ON iptv_channels (uuid);
+
+  -- Guides des programmes (XMLTV) : chaines de chaque guide (pour l'association) et programmes,
+  -- dans la fenetre du guide (7 jours passes pour le replay, 8 jours a venir), remplaces a chaque
+  -- telechargement du guide. guide = empreinte de son adresse (jamais l'adresse elle-meme).
+  CREATE TABLE IF NOT EXISTS epg_channels (
+    guide TEXT NOT NULL,
+    id    TEXT NOT NULL,
+    names TEXT NOT NULL,
+    icon  TEXT,
+    PRIMARY KEY (guide, id)
+  );
+  CREATE TABLE IF NOT EXISTS epg_programs (
+    guide      TEXT NOT NULL,
+    channel    TEXT NOT NULL,
+    start      INTEGER NOT NULL,
+    stop       INTEGER NOT NULL,
+    title      TEXT NOT NULL,
+    subtitle   TEXT,
+    descr      TEXT,
+    categories TEXT,
+    icon       TEXT,
+    season     INTEGER,
+    episode    INTEGER,
+    rerun      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guide, channel, start)
+  );
+  CREATE INDEX IF NOT EXISTS epg_programs_stop ON epg_programs (guide, channel, stop);
+
   -- Sessions de l'interface d'administration (seul le hache du jeton est stocke).
   CREATE TABLE IF NOT EXISTS admin_sessions (
     token_hash TEXT PRIMARY KEY,
@@ -106,6 +172,13 @@ db.exec(`
 
 // Index des catalogues (essai sur la branche dev, retire) : ses tables sont supprimees.
 db.exec('DROP TABLE IF EXISTS idx_items; DROP TABLE IF EXISTS idx_titles; DROP TABLE IF EXISTS idx_lists; DROP TABLE IF EXISTS idx_avail;');
+
+// Migration : guide associe a chaque chaine IPTV (calcule : guide et id de la chaine du guide).
+{
+  const cols = db.prepare('PRAGMA table_info(iptv_channels)').all().map((c) => c.name);
+  if (!cols.includes('epg_guide')) db.exec('ALTER TABLE iptv_channels ADD COLUMN epg_guide TEXT');
+  if (!cols.includes('epg_channel')) db.exec('ALTER TABLE iptv_channels ADD COLUMN epg_channel TEXT');
+}
 
 // Migration : role (admin | user) et profil des sessions de l'interface web.
 {

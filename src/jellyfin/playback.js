@@ -40,6 +40,10 @@ const SUB_LANG = { fr: ['fre', 'fra', 'fr'], en: ['eng', 'en'], es: ['spa', 'es'
  */
 async function target(entry) {
   if (!entry) return null;
+  // Film ou episode d'une bibliotheque IPTV : lu par sa source IPTV seulement (meme si sa fiche
+  // vient de TMDB et porte des ids IMDb / TMDB, que les addons connaissent).
+  const own = String(entry.kind === 'episode' ? entry.data.vid || '' : entry.data.sid || '');
+  if (/^iptv:/.test(own)) return { type: entry.kind === 'episode' ? 'series' : 'movie', ids: [own] };
   if (entry.kind === 'movie') {
     let d = entry.data;
     if (!d.imdb && tmdb.enabled()) {
@@ -221,7 +225,12 @@ async function findSources(profile, uuid) {
   const entry = ids.get(uuid);
   const tg = await target(entry);
   if (!tg) return [];
-  const raw = await stremio.streams(profile, tg.type, tg.ids);
+  let raw = await stremio.streams(profile, tg.type, tg.ids);
+  // Aucune source des addons : recherche dans les films et series des sources IPTV du profil.
+  if (!raw.some(({ stream }) => playable(stream))) {
+    const more = await require('../iptv/vod').fallback(profile, entry).catch(() => []);
+    if (more.length) raw = more;
+  }
   const langs = (profile.preferredLanguages || []).map((l) => LANG[l]).filter(Boolean);
   const score = (text) => {
     const i = langs.findIndex((re) => re.test(text));
@@ -229,7 +238,7 @@ async function findSources(profile, uuid) {
   };
   const list = [];
   const seen = new Set();
-  raw.forEach(({ addon, addonLogo, mode, stream }, order) => {
+  raw.forEach(({ addon, addonLogo, mode, stream, iptv }, order) => {
     const p = playable(stream);
     if (!p || seen.has(p.url)) return;
     seen.add(p.url);
@@ -253,7 +262,9 @@ async function findSources(profile, uuid) {
       text,
       order,
       score: score(text),
-      bucket: bucketOf(text)
+      bucket: bucketOf(text),
+      // Film ou episode d'une source IPTV (bibliotheque VOD ou recherche de secours).
+      iptv: !!iptv
     };
     cache.put('src|' + id, src, SRC_TTL);
     list.push(src);
@@ -389,8 +400,18 @@ function noSource(itemUuid, profile) {
   return lines.map((name, i) => ({ ...placeholderSource(itemUuid), Id: i ? qualityId(itemUuid, defaultQuality(profile)) : itemUuid, Name: name }));
 }
 
+/** Film ou episode d'une bibliotheque IPTV (id iptv:...) : une seule version, pas de 4K/1080p/720p. */
+function isIptvItem(itemUuid) {
+  const e = ids.get(itemUuid);
+  return /^iptv:/.test(String(e?.data?.sid || e?.data?.seriesSid || ''));
+}
+function iptvSource(itemUuid, src) {
+  return { ...placeholderSource(itemUuid), Id: src ? src.id : itemUuid, Name: src ? `IPTV · ${src.addon}` : 'IPTV', Container: src?.container || 'mkv' };
+}
+
 /** Les 3 versions affichees sur la fiche (qualite par defaut du profil en premier). */
 function qualitySources(profile, itemUuid) {
+  if (isIptvItem(itemUuid)) return [iptvSource(itemUuid)];
   if (knownEmpty(profile, itemUuid)) return noSource(itemUuid, profile);
   return orderedQualities(profile).map((q) => ({ ...placeholderSource(itemUuid), Id: qualityId(itemUuid, q.key), Name: q.name }));
 }
@@ -423,6 +444,14 @@ async function versionSources(profile, itemUuid) {
   const timeout = new Promise((r) => setTimeout(() => r(null), releases ? RELEASES_WAIT : QUALITY_WAIT));
   const sources = await Promise.race([sourcesFor(profile, itemUuid).catch(() => null), timeout]);
   if (sources && !sources.length) return noSource(itemUuid, profile);
+  // Seulement des versions IPTV (bibliotheque VOD, ou secours sans addon) : elles-memes, sans
+  // les 3 qualites (leur qualite est rarement connue).
+  // Ids : l'element lui-meme pour une seule version, sinon une "release" enregistree (le client
+  // web ouvre chaque version comme un element : un id inconnu = 404 et lecture impossible).
+  if (sources && sources.every((s) => s.iptv)) {
+    if (sources.length === 1) return [{ ...iptvSource(itemUuid, sources[0]), Id: itemUuid }];
+    return sources.map((s) => ({ ...iptvSource(itemUuid, s), Id: releaseId(itemUuid, s.bucket, s) }));
+  }
   if (!releases) return qualitySources(profile, itemUuid);
   const top = sources ? topReleases(profile, sources) : [];
   if (!top.length) return qualitySources(profile, itemUuid);
@@ -493,6 +522,58 @@ async function tracksOf(src) {
   // Echec (lien pas encore pret...) : nouvel essai a la lecture suivante.
   cache.put(key, { tracks }, tracks ? 24 * 3600e3 : 60e3);
   return tracks;
+}
+
+// ---- Films et episodes IPTV : analyse ffprobe ------------------------------------------------
+// Leurs fichiers sont souvent du MPEG-TS, du MP4 ou un MKV avec du son AC3 / MP2 : sans les vraies
+// pistes, le client web tente de les lire tels quels et echoue. ffprobe lit le flux de Stremfin
+// (memes en-tetes et meme proxy que la lecture) ; resultat garde 7 jours.
+
+const FORMAT_CONTAINER = [
+  [/matroska|webm/, 'mkv'],
+  [/mp4|mov/, 'mp4'],
+  [/mpegts/, 'ts'],
+  [/avi/, 'avi'],
+  [/flv/, 'flv']
+];
+
+async function iptvProbe(itemUuid, src, msid, token) {
+  const key = 'iptvprobe|' + hash(src.url);
+  const hit = cache.peek(key);
+  if (hit) return hit.v;
+  const st = require('../transcode/ffmpeg').status();
+  if (!st.probe) return null;
+  const livetv = require('./livetv');
+  const input = `http://127.0.0.1:${Number(process.env.PORT) || 8096}/Videos/${itemUuid}/stream?static=true&mediaSourceId=${encodeURIComponent(msid)}&api_key=${encodeURIComponent(token)}`;
+  const t0 = Date.now();
+  const out = await livetv.run(st.probe, ['-v', 'error', '-analyzeduration', '5000000', '-probesize', '5000000', '-show_streams', '-show_format', '-of', 'json', input], 25000);
+  let parsed = null;
+  try {
+    parsed = out && JSON.parse(out);
+  } catch {}
+  const streams = livetv.streamsOf(parsed);
+  if (!streams.length) {
+    log(`[probe] IPTV ${hostOf(src.url)} : analyse impossible (${Date.now() - t0} ms)`);
+    cache.put(key, null, 5 * 60e3);
+    return null;
+  }
+  const format = String(parsed.format?.format_name || '');
+  const v = {
+    streams,
+    container: (FORMAT_CONTAINER.find(([re]) => re.test(format)) || [])[1] || src.container,
+    duration: Number(parsed.format?.duration) || 0
+  };
+  log(`[probe] IPTV ${v.container} : ${streams.map((s) => (s.Type === 'Video' ? `${s.Codec} ${s.Width}x${s.Height}` : `${s.Codec} ${s.Channels}ch`)).join(', ')} (${Date.now() - t0} ms)`);
+  cache.put(key, v, 7 * 864e5);
+  return v;
+}
+
+/** Source IPTV avec son vrai conteneur et ses vraies pistes (opts de mediaSource). */
+async function withIptvProbe(itemUuid, src, msid, token, opts) {
+  if (!src.iptv) return { src, opts };
+  const p = await iptvProbe(itemUuid, src, msid, token).catch(() => null);
+  if (!p) return { src, opts };
+  return { src: { ...src, container: p.container }, opts: { ...opts, streams: p.streams, duration: p.duration } };
 }
 
 /** Pistes du fichier au format Jellyfin (Index = ordre dans le fichier, comme ffprobe). */
@@ -615,8 +696,8 @@ function conversion(itemUuid, src, token, streams, audio, ticks, msid, opts) {
 }
 
 function mediaSource(itemUuid, src, token, subs, opts = {}) {
-  const ticks = runtimeOf(ids.get(itemUuid));
-  const streams = opts.tracks?.length ? fileStreams(opts.tracks, src.text) : guessStreams(src.text);
+  const ticks = runtimeOf(ids.get(itemUuid)) || (opts.duration ? Math.round(opts.duration * 1e7) : undefined);
+  const streams = opts.streams ? opts.streams.map((s) => ({ ...s })) : opts.tracks?.length ? fileStreams(opts.tracks, src.text) : guessStreams(src.text);
   const msid = opts.id || src.id;
   const audio = defaultAudio(streams, opts.profile);
   const first = streams.length;
@@ -751,12 +832,14 @@ async function playbackInfo(profile, token, itemId, mediaSourceId, request = {})
   const release = wanted && sources.find((s) => s.id === wanted);
   if (exact) {
     served.remember(profile, entry.uuid, exact);
-    res.MediaSources = [mediaSource(entry.uuid, exact, token, subs, { profile, request, tracks: await tracksOf(exact) })];
+    const x = await withIptvProbe(entry.uuid, exact, exact.id, token, { profile, request, tracks: await tracksOf(exact) });
+    res.MediaSources = [mediaSource(entry.uuid, x.src, token, subs, x.opts)];
   } else if (release) {
     served.remember(profile, entry.uuid, release);
     const id = ids.norm(mediaSourceId);
     cache.put('src|' + id, release, SRC_TTL);
-    res.MediaSources = [mediaSource(entry.uuid, release, token, subs, { id, name: versionLabel(QUALITY_NAME[release.bucket], release), profile, request, tracks: await tracksOf(release) })];
+    const x = await withIptvProbe(entry.uuid, release, id, token, { id, name: versionLabel(QUALITY_NAME[release.bucket], release), profile, request, tracks: await tracksOf(release) });
+    res.MediaSources = [mediaSource(entry.uuid, x.src, token, subs, x.opts)];
     log(`[play] ${entry.data.name || entry.data.vid} : release choisie ${QUALITY_NAME[release.bucket]} (${Date.now() - t0} ms)`);
   } else {
     // Sinon : la version choisie (4K/1080p/720p) ou la qualite par defaut du profil.
@@ -768,8 +851,10 @@ async function playbackInfo(profile, token, itemId, mediaSourceId, request = {})
       served.remember(profile, entry.uuid, src);
       const id = qualityId(entry.uuid, q);
       cache.put('src|' + id, src, SRC_TTL);
-      const label = src.bucket === q ? QUALITY_NAME[q] : `${QUALITY_NAME[q]} → ${QUALITY_NAME[src.bucket]}`;
-      res.MediaSources = [mediaSource(entry.uuid, src, token, subs, { id, name: versionLabel(label, src), profile, request, tracks: await tracksOf(src) })];
+      // Qualite inconnue (nom sans resolution, VOD IPTV) : pas de "4K -> ?" trompeur.
+      const label = src.bucket === q ? QUALITY_NAME[q] : src.bucket === 'unknown' ? 'Auto' : `${QUALITY_NAME[q]} → ${QUALITY_NAME[src.bucket]}`;
+      const x = await withIptvProbe(entry.uuid, src, id, token, { id, name: versionLabel(label, src), profile, request, tracks: await tracksOf(src) });
+      res.MediaSources = [mediaSource(entry.uuid, x.src, token, subs, x.opts)];
       log(`[play] ${entry.data.name || entry.data.vid} : ${sources.length} source(s), qualite ${QUALITY_NAME[q]} -> ${QUALITY_NAME[src.bucket]} (${Date.now() - t0} ms)`);
     }
   }
@@ -866,6 +951,11 @@ async function resolveSource(req, itemId, mediaSourceId) {
 }
 
 async function pipe(req, res, src) {
+  // Enregistrement IPTV : fichier du serveur (requetes partielles gerees par sendFile).
+  if (src.file) {
+    res.type('video/mp2t');
+    return res.sendFile(src.file, { headers: { 'Cache-Control': 'no-store' } });
+  }
   // Clip "aucune source" : fichier local (requetes partielles gerees par sendFile).
   if (src.clip) {
     res.type(src.container === 'mp4' ? 'video/mp4' : src.container === 'webm' ? 'video/webm' : 'video/x-matroska');
@@ -873,6 +963,8 @@ async function pipe(req, res, src) {
   }
   const settings = config.get().settings;
   const mode = src.mode || settings.addonMode;
+  // Replay IPTV : la connexion du compte reste prise tant que le programme est lu.
+  if (src.iptvKey) require('../iptv/relay').touch(src.iptvKey, src.iptvProfile);
   if (mode === 'none' && !src.headers && !src.relay) {
     log(`[play] redirection -> ${hostOf(src.url)}`);
     return res.redirect(302, src.url);
@@ -978,7 +1070,12 @@ function report(profile, body, stage, req) {
   // Le clip "aucune source" ne compte pas : ni progression, ni statistiques, ni suivi.
   if (isClipReport(body)) return;
   const { entry } = unwrap(body?.ItemId);
-  if (!entry || !['movie', 'episode'].includes(entry.kind)) return;
+  // Chaine en direct : rien a suivre (ni progression ni vu), la conversion s'arrete avec la lecture.
+  if (entry?.kind === 'channel') {
+    if (stage === 'stopped') hls.stopFor({ itemUuid: entry.uuid, profileId: profile.id });
+    return;
+  }
+  if (!entry || !['movie', 'episode', 'replayprog', 'recording'].includes(entry.kind)) return;
   const row = { ...current(profile, entry.uuid) };
   const wasStarted = row.position > 0;
   const pos = Number(body.PositionTicks);
@@ -999,6 +1096,11 @@ function report(profile, body, stage, req) {
     row.position = 0;
   }
   saveUd(profile, entry.uuid, row);
+  // Programme du replay : reprise et "vu" seulement (ni statistiques ni suivi Trakt / Simkl).
+  if (entry.kind === 'replayprog' || entry.kind === 'recording') {
+    if (stage === 'stopped') hls.stopFor({ itemUuid: entry.uuid, profileId: profile.id });
+    return;
+  }
   // Statistiques : lecture en cours et temps regarde, avec la release lue et l'appareil.
   // Source lue : celle que l'app renvoie, sinon la derniere servie a ce profil pour ce titre (des
   // apps n'envoient pas MediaSourceId dans leurs rapports).
@@ -1064,6 +1166,7 @@ function updateUserData(profile, id, body) {
 }
 
 module.exports = {
+  mediaSource,
   notifyUserData,
   sourcesFor,
   playbackInfo,

@@ -27,6 +27,7 @@ App Jellyfin  ──►  Stremfin (API Jellyfin)  ──►  addons Stremio (cat
 | Recherche, genres | Catalogues avec `search` / `genre` |
 | Reprendre, À suivre, Vu, Favoris, J'aime | Stockés par profil, synchronisés entre tous les appareils |
 | Connexion | Nom libre + **code du profil** comme mot de passe, ou **Quick Connect** |
+| TV en direct, guide, replay, enregistrements | Comptes **Xtream Codes** et listes **M3U** (IPTV) |
 
 ### TMDB intégré (recommandé)
 
@@ -333,6 +334,43 @@ profils, ou ceux choisis) et pour chaque utilisateur (son profil) :
 Sources : les lectures faites dans les apps (début, fin, temps réellement regardé, release,
 app et appareil) et les historiques importés (Trakt, Simkl, Nuvio). Une même lecture envoyée
 à Trakt puis réimportée n'est comptée qu'une fois.
+
+## TV en direct (IPTV : Xtream Codes et M3U)
+
+Page **TV en direct** de l'interface (admin), et onglet **TV en direct** de chaque profil.
+
+- **Sources** : un compte Xtream Codes (serveur, identifiant, mot de passe) ou une liste M3U
+  (adresse), avec un user agent si le fournisseur l'exige. L'ajout se fait en deux étapes : le
+  compte est vérifié, puis on choisit ce qu'on importe (chaînes, films, séries) et les groupes.
+- **Qui les utilise** : une source ajoutée par l'admin est attribuée aux profils (cases à
+  cocher) ; un utilisateur peut ajouter ses propres sources depuis son espace : elles sont
+  **privées** (seul son profil les utilise, l'admin les voit sans pouvoir les donner à
+  d'autres). Seul l'admin peut ajouter une adresse du réseau local.
+- **Lecture**, par profil et par source, comme les addons : via le serveur (son IP), via le
+  proxy externe (WARP), ou lue à la source par l'app (identifiants visibles par l'app). Le
+  client web reçoit toujours du HLS : la liste du fournisseur relayée, ou fabriquée par FFmpeg
+  (son converti en AAC, image désentrelacée si besoin).
+- **Une connexion par chaîne** chez le fournisseur, partagée entre les apps, l'analyse et les
+  enregistrements. La limite de connexions d'un compte Xtream est respectée : on ferme une
+  chaîne que plus personne ne regarde, puis la plus ancienne du même profil, sinon refus.
+- **Groupes et chaînes** : renommer, réordonner, activer ou masquer ; chaînes : nom, logo,
+  numéro, groupe, identifiant du guide, actions en lot (sélection ou mot-clé). Ces modifications
+  restent quand la liste est téléchargée à nouveau (toutes les 12 h par défaut). Les groupes
+  sont rangés en trois onglets, **Chaînes TV**, **Films** et **Séries** (à l'ajout et sur la
+  page de la source) : une catégorie de films ou de séries désactivée n'apparaît nulle part.
+- **Guide des programmes** (XMLTV, `.xml` ou `.xml.gz`) : celui du fournisseur (xmltv.php,
+  url-tvg) et des guides ajoutés à la main. Association automatique par tvg-id puis par nom, ou
+  à la main avec une recherche dans les guides. Programme en cours, grille du guide, « En ce
+  moment » dans les apps.
+- **Replay** : vue « Replay » avec un dossier par chaîne à archive (Xtream timeshift, M3U
+  `catchup` default / append / shift / flussonic), programmes passés lus depuis l'archive.
+- **Films et séries** : bibliothèques de la source (option), fiches TMDB quand le fournisseur
+  donne l'id TMDB. Et, même sans bibliothèque, **recherche de secours** : un film ou un épisode
+  sans source dans les addons est cherché dans la VOD des sources du profil (Réglages ›
+  Lecture et réseau).
+- **Enregistrements** : bouton Enregistrer du guide des apps (une émission ou une série),
+  marges réglables, fichiers `.ts` dans `data/recordings` (page **Enregistrements**). Ils ne
+  sont pas dans les sauvegardes.
 
 ## Se connecter depuis une app Jellyfin
 

@@ -16,6 +16,7 @@ const avatars = require('../avatars');
 const tmdb = require('../tmdb');
 const { db } = require('../db');
 const { verifyPassword } = require('../security');
+const livetv = require('./livetv');
 
 const router = express.Router({ caseSensitive: false });
 
@@ -249,11 +250,37 @@ router.post('/Users/AuthenticateWithQuickConnect', (req, res) => {
 
 // Images : publiques chez Jellyfin (les apps ne passent pas toujours le jeton).
 router.get(['/Items/:id/Images/:type', '/Items/:id/Images/:type/:index', '/Items/:id/Images/:type/:index/*rest'], async (req, res) => {
-  const url = await library.imageUrl(req.params.id, req.params.type, int(req.params.index, 0), lq(req).tag);
+  let url = await library.imageUrl(req.params.id, req.params.type, int(req.params.index, 0), lq(req).tag);
+  let proxied = ['channel', 'replaychan', 'replayprog', 'recording'].includes(ids.get(req.params.id)?.kind);
+  // Programme du guide : son image (pas dans la table des ids).
+  if (!url && ['primary', 'thumb', 'backdrop'].includes(String(req.params.type).toLowerCase())) {
+    url = livetv.programImage(req.params.id);
+    proxied = !!url;
+  }
   if (!url) return res.status(404).end();
   res.setHeader('Cache-Control', 'public, max-age=86400');
+  // Logo de chaine IPTV, image du guide : servis par le serveur (souvent en http, que le client
+  // web en https n'afficherait pas, et sur des serveurs qui refusent les requetes d'un autre site).
+  if (proxied) return proxyImage(res, url);
   res.redirect(302, url);
 });
+
+async function proxyImage(res, url) {
+  try {
+    const { request } = require('../http');
+    const { res: r } = await request(url, { timeout: 10000, headers: { 'user-agent': 'Mozilla/5.0', accept: 'image/*' } });
+    const type = String(r.headers['content-type'] || '');
+    if ((r.statusCode || 0) >= 400 || !type.startsWith('image/') || /svg/.test(type)) {
+      r.resume();
+      return res.status(404).end();
+    }
+    res.type(type);
+    if (r.headers['content-length']) res.setHeader('Content-Length', r.headers['content-length']);
+    r.pipe(res);
+  } catch {
+    if (!res.headersSent) res.status(404).end();
+  }
+}
 
 // Conversion HLS (voir transcode/hls.js) : liste principale, liste des segments, segments.
 // Publiques comme le flux video : l'identifiant de session est impossible a deviner.
@@ -267,8 +294,11 @@ router.get('/Videos/:id/hls/:session/master.m3u8', async (req, res) => {
 router.get('/Videos/:id/hls/:session/main.m3u8', async (req, res) => {
   const s = hls.get(req.params.session);
   if (!s) return res.status(404).end();
+  const text = await hls.playlist(s);
+  // Chaine en direct dont FFmpeg n'ecrit rien (flux coupe, connexions du compte prises).
+  if (!text) return res.status(503).end();
   res.type('application/vnd.apple.mpegurl').setHeader('Cache-Control', 'no-store');
-  res.send(await hls.playlist(s));
+  res.send(text);
 });
 router.get('/Videos/:id/hls/:session/init.mp4', async (req, res) => {
   const s = hls.get(req.params.session);
@@ -285,6 +315,9 @@ router.get('/Videos/:id/hls/:session/:n.:ext', async (req, res) => {
   res.type(req.params.ext === 'ts' ? 'video/mp2t' : 'video/mp4').setHeader('Cache-Control', 'no-store');
   res.sendFile(file);
 });
+
+// Chaines IPTV : flux relaye ou liste HLS (jeton de session non devinable, voir livetv.js).
+livetv.publicRoutes(router);
 
 // Flux video : la source est designee par un id non devinable, le jeton est optionnel.
 const streamPaths = ['/Videos/:id/stream', '/Videos/:id/stream.:ext', '/Videos/:id/:file.:ext', '/Items/:id/Download'];
@@ -327,6 +360,9 @@ router.use((req, res, next) => {
   };
   next();
 });
+
+// TV en direct : /LiveTv/* (chaines ; guide, replay et enregistrements ensuite).
+livetv.routes(router);
 
 // Bandeau Spotlight du theme Abyss (client web) : films tendance TMDB, meme hors bibliotheques.
 // Chaque film devient un element Stremfin : sa fiche s'ouvre et se lit via les addons.
@@ -485,6 +521,11 @@ router.get(['/Users/:u/Views', '/UserViews'], (req, res) => {
     .views(req.profile)
     .filter((v) => !hidden.has(v.key))
     .map((v) => library.lightDto(req.profile, ids.get(v.uuid)));
+  // TV en direct (sources IPTV du profil), apres les bibliotheques, comme dans Jellyfin.
+  const live = livetv.viewDto(req.profile);
+  if (live && !hidden.has('livetv')) views.push(live);
+  const rep = livetv.replayViewDto(req.profile);
+  if (rep && !hidden.has('replay')) views.push(rep);
   res.json(dto.queryResult(views));
 });
 router.get('/Library/MediaFolders', (req, res) => {
@@ -553,11 +594,19 @@ router.get(['/Users/:u/Items', '/Items'], async (req, res) => {
   const typeOk = (i) => !types.length || types.some((t) => t.toLowerCase() === i.Type.toLowerCase());
 
   if (q.ids) {
-    const items = list(q.ids).map((id) => library.lightDto(p, ids.get(id))).filter(Boolean);
+    const items = list(q.ids).map((id) => library.lightDto(p, ids.get(id)) || livetv.itemFor(p, id)).filter(Boolean);
     return send(items, items.length);
   }
 
   if (q.personids || q.studioids || q.artistids) return send([], 0);
+
+  // Chaines IPTV : "IncludeItemTypes=TvChannel" (accueil, recherche), et la vue TV en direct, que
+  // Jellyfin laisse vide (les apps passent par /LiveTv/Channels).
+  if (types.length && types.every((t) => t.toLowerCase() === 'tvchannel')) {
+    const out = livetv.channelsOf(p, { start, limit, search: q.searchterm, favorites: filters.includes('isfavorite') || q.isfavorite === 'true' ? true : undefined });
+    return send(out.items, out.total);
+  }
+  if (q.parentid && ids.get(q.parentid)?.kind === 'livetv') return send([], 0);
 
   if (q.searchterm) {
     const stypes = stremioTypes(types);
@@ -688,7 +737,7 @@ router.get('/MediaSegments/:id', async (req, res) => {
 });
 
 router.get(['/Users/:u/Items/:id', '/Items/:id', '/UserItems/:id'], async (req, res) => {
-  const item = await library.itemDto(req.profile, req.params.id);
+  const item = (await library.itemDto(req.profile, req.params.id)) || livetv.itemFor(req.profile, req.params.id);
   if (!item) return res.status(404).send('Item not found');
   const out = decorate([item], lq(req), req.profile, true)[0];
   // Fiche d'un film ou episode : versions selon le profil (3 qualites ou releases).
@@ -702,6 +751,19 @@ router.get(['/Users/:u/Items/:id', '/Items/:id', '/UserItems/:id'], async (req, 
 
 router.all('/Items/:id/PlaybackInfo', async (req, res) => {
   const q = lq(req);
+  const entry = ids.get(req.params.id);
+  if (entry?.kind === 'channel') {
+    const body = req.method === 'POST' && req.body && typeof req.body === 'object' ? req.body : {};
+    return res.json(await livetv.playbackInfo(req, entry, body));
+  }
+  if (entry?.kind === 'replayprog') {
+    const body = req.method === 'POST' && req.body && typeof req.body === 'object' ? req.body : {};
+    return res.json(await livetv.replayPlaybackInfo(req, entry, body));
+  }
+  if (entry?.kind === 'recording') {
+    const body = req.method === 'POST' && req.body && typeof req.body === 'object' ? req.body : {};
+    return res.json(livetv.recordingPlaybackInfo(req, entry, body));
+  }
   const msid = req.body?.MediaSourceId || q.mediasourceid;
   // La requete de l'app (POST) : son profil de lecture (DeviceProfile), la piste audio choisie...
   const body = req.method === 'POST' && req.body && typeof req.body === 'object' ? req.body : {};

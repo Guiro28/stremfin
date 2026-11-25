@@ -1,0 +1,27 @@
+/* TV en direct (IPTV) : sources, groupes, chaines. */
+.iptv-source { padding: 16px; }
+.iptv-source-top { display: flex; gap: 14px; align-items: flex-start; }
+.iptv-source-icon { width: 44px; height: 44px; border-radius: 11px; background: var(--input); display: grid; place-items: center; flex: none; color: var(--accent); }
+.iptv-source-name { font-weight: 660; font-size: 15.5px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.iptv-source p { margin-top: 3px; }
+.iptv-source-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.big-number { font-size: 30px; font-weight: 720; margin: 6px 0 2px; }
+.check-label { display: flex; gap: 10px; align-items: center; line-height: 1.6; cursor: pointer; }
+.iptv-group-list { max-height: 320px; overflow: auto; display: grid; gap: 2px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-2); }
+.iptv-group-list .check-label { padding: 3px 4px; border-radius: 6px; }
+.iptv-group-list .check-label:hover { background: var(--line); }
+.iptv-group-pick[hidden] { display: none; }
+.iptv-kind-tabs { align-self: flex-start; }
+.iptv-kind-tabs button { display: inline-flex; align-items: center; gap: 6px; }
+.iptv-tab-count { font-size: 11px; padding: 0 6px; border-radius: 99px; background: rgba(127, 127, 127, .18); }
+#vgList .item[hidden] { display: none; }
+.ch-pick { width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
+.iptv-filters select, .iptv-filters input[type=search] { min-height: 34px; }
+@media (max-width: 760px) {
+  .iptv-source-top { flex-wrap: wrap; }
+  .iptv-source-actions { width: 100%; justify-content: flex-start; }
+  #chList .item, #iptvProfileList .item { flex-wrap: wrap; }
+  #chList .item .actions, #iptvProfileList .item .actions { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+}
+/* Champs d'un autre type de source (Xtream / M3U) : caches meme dans une pile en grille. */
+.modal [hidden] { display: none !important; }

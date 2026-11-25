@@ -118,6 +118,21 @@ function lightDto(profile, entry) {
       return dto.genreItem(entry.data.name);
     case 'person':
       return dto.personItem(entry.uuid, entry.data);
+    case 'channel':
+      return require('./livetv').channelFromEntry(profile, entry);
+    case 'livetv':
+      return require('./livetv').viewDto(profile);
+    case 'replay':
+      return require('./livetv').replayViewDto(profile);
+    case 'replaychan': {
+      const lt = require('./livetv');
+      const r = require('../iptv/store').channel(entry.data.chan);
+      return r ? lt.replayFolderDto(profile, r) : null;
+    }
+    case 'replayprog':
+      return require('./livetv').replayEntryDto(profile, entry);
+    case 'recording':
+      return require('./livetv').recordingFromEntry(profile, entry);
     default:
       return null;
   }
@@ -334,6 +349,9 @@ function countAired(profile, uuid, low = false) {
     return counting.get(uuid);
   }
   if (Date.now() - (countTried.get(uuid) || 0) < 3600e3) return Promise.resolve();
+  // Serie IPTV : ses episodes viennent du fournisseur (get_series_info) ; pas de comptage en serie
+  // depuis les listes (un appel par serie chez lui), seulement a l'ouverture de sa fiche.
+  if (/^iptv:/.test(String(ids.get(uuid)?.data?.sid || ''))) return Promise.resolve();
   countTried.set(uuid, Date.now());
   if (countTried.size > 20000) countTried.delete(countTried.keys().next().value);
   const p = new Promise((resolve) => {
@@ -614,6 +632,10 @@ async function similar(profile, id, limit = 12) {
 async function children(profile, parentId, opts = {}) {
   const entry = ids.get(parentId);
   if (!entry) return { items: [], total: 0 };
+  // Vue TV en direct : vide, comme dans Jellyfin (les apps passent par /LiveTv/Channels).
+  if (entry.kind === 'livetv') return { items: [], total: 0 };
+  // Replay : dossiers des chaines, puis leurs programmes passes.
+  if (entry.kind === 'replay' || entry.kind === 'replaychan') return require('./livetv').replayChildren(profile, entry, opts);
   if (entry.kind === 'collection') {
     const parts = (await collectionParts(profile, entry)).map((e) => lightDto(profile, e));
     return page(parts, opts);
@@ -807,6 +829,13 @@ async function imageUrl(id, type, index = 0, imageTag = '') {
       return viewImage(config.getProfile(d.profileId), e) || null;
     case 'person':
       return t === 'primary' ? d.photo : null;
+    case 'channel':
+      return t === 'primary' || t === 'thumb' || t === 'logo' ? require('./livetv').imageUrl(e) : null;
+    case 'replaychan':
+    case 'replayprog':
+      return t === 'primary' || t === 'thumb' || t === 'backdrop' ? require('./livetv').replayImage(e) : null;
+    case 'recording':
+      return t === 'primary' || t === 'thumb' || t === 'backdrop' ? require('../iptv/dvr').timer(d.timer)?.image || null : null;
     default:
       return null;
   }

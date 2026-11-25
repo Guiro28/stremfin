@@ -91,7 +91,17 @@ function defaultSettings() {
     // Sauvegarde automatique quotidienne (data/backups) : heure (0-23) et retention en jours.
     backupEnabled: true,
     backupHour: 4,
-    backupRetention: 7
+    backupRetention: 7,
+    // IPTV : listes et guides telecharges a nouveau toutes les N heures (1 a 168).
+    iptvRefreshHours: 12,
+    // IPTV : film ou episode sans source dans les addons cherche dans la VOD des sources du profil.
+    iptvFallback: true,
+    // Enregistrements (TV en direct) : dossier (vide = <data>/recordings), marges avant / apres
+    // (minutes) et enregistrements simultanes au plus.
+    recordingsPath: '',
+    recordingPrePadding: 2,
+    recordingPostPadding: 5,
+    recordingMaxConcurrent: 2
   };
 }
 
@@ -115,6 +125,8 @@ function newProfile(name) {
     catalogOrder: [],
     // Collections de la bibliotheque attribuees a ce profil (ids) : chacune devient une bibliotheque.
     collections: [],
+    // Sources IPTV attribuees (comptes Xtream, listes M3U) : [{ lib, enabled, mode }], dans l'ordre.
+    iptv: [],
     // Langues audio a faire remonter en premier dans la liste des sources.
     preferredLanguages: ['fr'],
     // Pistes au lancement (reglables aussi depuis les apps Jellyfin / Emby) : voir PLAYBACK.
@@ -170,6 +182,8 @@ function load() {
     addons: Array.isArray(raw.addons) ? raw.addons : [],
     // Bibliotheque de collections (fichiers .json + addons), attribuees ensuite aux profils.
     collections: Array.isArray(raw.collections) ? raw.collections : [],
+    // Sources IPTV (voir iptvSources.js) : owner = null (serveur) ou id du profil (source privee).
+    iptv: Array.isArray(raw.iptv) ? raw.iptv : [],
     // Corrections de donnees deja faites (une seule fois chacune) : ["scrob-utc", ...].
     migrations: Array.isArray(raw.migrations) ? raw.migrations : []
   };
@@ -249,8 +263,24 @@ function linkAddons() {
   }
 }
 
+/** Sources IPTV des profils : seulement celles qui existent, et une source privee chez son proprietaire. */
+function linkIptv() {
+  const byId = new Map(state.iptv.map((s) => [s.id, s]));
+  for (const p of state.profiles) {
+    const seen = new Set();
+    p.iptv = (Array.isArray(p.iptv) ? p.iptv : []).filter((a) => {
+      const s = byId.get(a.lib);
+      if (!s || (s.owner && s.owner !== p.id) || seen.has(a.lib)) return false;
+      seen.add(a.lib);
+      if (!MODES.includes(a.mode)) a.mode = state.settings.addonMode;
+      return true;
+    });
+  }
+}
+
 function save() {
   linkAddons();
+  linkIptv();
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const tmp = FILE + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
@@ -297,6 +327,10 @@ function updateSettings(patch) {
   if (!['fr', 'en', 'es', 'de', 'it'].includes(s.language)) s.language = 'fr';
   s.backupHour = Math.min(23, Math.max(0, Math.round(Number(s.backupHour)) || 0));
   s.backupRetention = Math.min(365, Math.max(1, Math.round(Number(s.backupRetention)) || 7));
+  s.iptvRefreshHours = Math.min(168, Math.max(1, Math.round(Number(s.iptvRefreshHours)) || 12));
+  s.recordingPrePadding = Math.min(60, Math.max(0, Math.round(Number(patch.recordingPrePadding ?? s.recordingPrePadding)) || 0));
+  s.recordingPostPadding = Math.min(120, Math.max(0, Math.round(Number(patch.recordingPostPadding ?? s.recordingPostPadding)) || 0));
+  s.recordingMaxConcurrent = Math.min(10, Math.max(1, Math.round(Number(s.recordingMaxConcurrent)) || 2));
   s.torrentServer = s.torrentServer.replace(/\/+$/, '');
   s.scrobUrl = s.scrobUrl.replace(/\/+$/, '');
   if (!MODES.includes(s.addonMode)) s.addonMode = 'direct';
@@ -357,6 +391,8 @@ function duplicateProfile(id, name, password) {
   assertUniqueName(n);
   const p = newProfile(n);
   p.passwordHash = requirePassword(password);
+  // Sources IPTV : seulement celles du serveur (une source privee reste a son proprietaire).
+  p.iptv = (src.iptv || []).filter((a) => !state.iptv.find((s) => s.id === a.lib)?.owner).map((a) => ({ ...a }));
   for (const k of ['addons', 'catalogs', 'catalogOrder', 'collections', 'preferredLanguages', 'playback', 'hideWatched', 'defaultQuality', 'versionMode', 'customCss', 'onlyReleased', 'homeSections', 'latestExcludes', 'myMediaExcludes', 'hidePlayedInLatest', 'displayMissingEpisodes']) {
     if (src[k] !== undefined) p[k] = JSON.parse(JSON.stringify(src[k]));
   }
@@ -420,6 +456,14 @@ function updateProfile(id, patch) {
 function removeProfile(id) {
   const before = state.profiles.length;
   state.profiles = state.profiles.filter((p) => p.id !== id);
+  // Sources IPTV privees du profil : retirees avec lui (leurs chaines aussi, voir iptvSources).
+  const orphans = state.iptv.filter((s) => s.owner === id);
+  if (orphans.length) {
+    state.iptv = state.iptv.filter((s) => s.owner !== id);
+    try {
+      for (const s of orphans) require('./iptv/store').drop(s.id);
+    } catch {}
+  }
   if (state.profiles.length !== before) save();
   return state.profiles.length !== before;
 }
