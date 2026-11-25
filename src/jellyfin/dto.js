@@ -114,6 +114,8 @@ function base(uuid, type, name) {
     ServerId: serverId(),
     Id: uuid,
     Etag: tag(uuid),
+    // Comme Jellyfin (l'id sans tirets) : l'app Android TV 0.20 l'exige pour ouvrir une bibliotheque.
+    DisplayPreferencesId: String(uuid).replace(/-/g, ''),
     Type: type,
     CanDelete: false,
     CanDownload: false,
@@ -275,6 +277,50 @@ function parentImages(d, series) {
     d.ParentLogoItemId = series.uuid;
     d.ParentLogoImageTag = tag(s.logo);
   }
+}
+
+// Champs que le SDK des apps Jellyfin (Android TV 0.20 et suivantes) rend obligatoires : une
+// reponse PlaybackInfo sans l'un d'eux n'est pas lue du tout ("Error getting playback stream info").
+const SOURCE_DEFAULTS = {
+  Protocol: 'File',
+  Type: 'Default',
+  IsRemote: false,
+  ReadAtNativeFramerate: false,
+  IgnoreDts: false,
+  IgnoreIndex: false,
+  GenPtsInput: false,
+  SupportsTranscoding: false,
+  SupportsDirectStream: false,
+  SupportsDirectPlay: false,
+  IsInfiniteStream: false,
+  UseMostCompatibleTranscodingProfile: false,
+  RequiresOpening: false,
+  RequiresClosing: false,
+  RequiresLooping: false,
+  SupportsProbing: false,
+  TranscodingSubProtocol: 'http',
+  HasSegments: false
+};
+const STREAM_DEFAULTS = {
+  IsInterlaced: false,
+  IsDefault: false,
+  IsForced: false,
+  IsHearingImpaired: false,
+  IsExternal: false,
+  IsTextSubtitleStream: false,
+  SupportsExternalStream: false
+};
+const fill = (o, defaults) => {
+  for (const [k, v] of Object.entries(defaults)) if (o[k] === undefined || o[k] === null) o[k] = v;
+  return o;
+};
+/** Complete une reponse PlaybackInfo (sources et pistes) avec les champs obligatoires manquants. */
+function completePlayback(info) {
+  for (const src of info?.MediaSources || []) {
+    fill(src, SOURCE_DEFAULTS);
+    src.MediaStreams = (src.MediaStreams || []).map((s, i) => fill({ Index: i, ...s }, STREAM_DEFAULTS));
+  }
+  return info;
 }
 
 function viewItem(uuid, view, imageUrl) {
@@ -477,6 +523,7 @@ function queryResult(items, total, start = 0) {
 }
 
 module.exports = {
+  completePlayback,
   TICKS,
   VERSION,
   tag,

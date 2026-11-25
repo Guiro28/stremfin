@@ -3,7 +3,25 @@
 Numérotation [SemVer](https://semver.org/lang/fr/) : `MAJEUR.MINEUR.CORRECTIF`. Chaque version a son
 tag `vX.Y.Z` ; l'image Docker est alors publiée avec les étiquettes `X.Y.Z` et `X.Y`.
 
-## 0.2.10-dev.6 — en développement (branche `dev`, image `ghcr.io/guiro28/stremfin:dev`)
+## 0.2.10-dev.7 — en développement (branche `dev`, image `ghcr.io/guiro28/stremfin:dev`)
+
+### Corrections
+- **Jellyfin Android TV 0.20** : l'app plantait à l'ouverture d'une bibliothèque (champ
+  `DisplayPreferencesId` absent des fiches ; il est maintenant envoyé comme par Jellyfin). Sa
+  connexion temps réel (`/socket`) est acceptée avec le jeton dans l'en-tête `Authorization`, et
+  chaque message porte un `MessageId`, que le SDK de l'app exige.
+- **IPTV dans Jellyfin Android TV 0.20** (chaînes, films et séries) : la réponse de lecture
+  n'était pas lue (`IsHearingImpaired` et `HasSegments` absents des pistes et des sources
+  analysées par ffprobe). Toute réponse `PlaybackInfo` est maintenant complétée avec les champs
+  obligatoires du SDK. Une chaîne a aussi une adresse complète dans `Path`, que l'app lit
+  directement (une adresse relative était prise pour un fichier local).
+- **Ids TMDB des titres IPTV sans année** : un nom porté par plusieurs titres (Serenity 2005 et
+  2019, Dune, Le Roi Lion) n'est plus associé au premier résultat ; seul un titre nettement plus
+  connu (5 fois plus de votes) est retenu. Sinon l'id est demandé au fournisseur à l'ouverture de
+  la fiche (`get_vod_info`, ou `get_series_info` déjà lu pour les épisodes). Les titres sans année
+  déjà associés sont revérifiés une fois en arrière-plan.
+
+## 0.2.10-dev.6
 
 ### Ajouts
 - **TV en direct (IPTV)** : comptes Xtream Codes et listes M3U, ajoutés par l'admin (attribués

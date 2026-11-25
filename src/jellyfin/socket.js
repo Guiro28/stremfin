@@ -4,6 +4,9 @@
 const { WebSocketServer } = require('ws');
 const { st } = require('../db');
 
+// Id de chaque message, comme Jellyfin : le SDK des apps (Android TV 0.20) le rend obligatoire.
+const messageId = () => require('crypto').randomUUID().replace(/-/g, '');
+
 // Connexions ouvertes, par profil.
 const clients = new Map();
 
@@ -14,7 +17,8 @@ function attach(server) {
     const u = new URL(req.url, 'http://x');
     // Jellyfin : /socket ; apps Emby : /emby/embywebsocket.
     if (!/^\/(emby\/)?(socket|embywebsocket)\/?$/i.test(u.pathname)) return socket.destroy();
-    const token = u.searchParams.get('api_key') || u.searchParams.get('ApiKey') || u.searchParams.get('apiKey');
+    // Jeton dans l'adresse, ou dans l'en-tete Authorization (app Android TV 0.20 et SDK recents).
+    const token = u.searchParams.get('api_key') || u.searchParams.get('ApiKey') || u.searchParams.get('apiKey') || require('./auth').parseAuth({ headers: req.headers, query: {} }).token;
     const row = token && st.tokenGet.get(token);
     if (!row) return socket.destroy();
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, row.profile));
@@ -24,7 +28,7 @@ function attach(server) {
     if (!clients.has(profileId)) clients.set(profileId, new Set());
     clients.get(profileId).add(ws);
     ws.on('close', () => clients.get(profileId)?.delete(ws));
-    const send = (MessageType, Data) => ws.send(JSON.stringify({ MessageType, Data }));
+    const send = (MessageType, Data) => ws.send(JSON.stringify({ MessageType, MessageId: messageId(), Data }));
     send('ForceKeepAlive', 60);
     ws.on('message', (raw) => {
       let msg;
@@ -63,7 +67,7 @@ function flush(profileId) {
     } catch {}
   }
   if (!list.length) return;
-  const msg = JSON.stringify({ MessageType: 'UserDataChanged', Data: { UserId: profileId, UserDataList: list } });
+  const msg = JSON.stringify({ MessageType: 'UserDataChanged', MessageId: messageId(), Data: { UserId: profileId, UserDataList: list } });
   for (const ws of clients.get(profileId) || []) {
     try {
       ws.send(msg);

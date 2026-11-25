@@ -697,6 +697,7 @@ function streamsOf(probe) {
         IsAVC: s.codec_name === 'h264',
         IsDefault: true,
         IsForced: false,
+        IsHearingImpaired: false,
         IsExternal: false,
         IsTextSubtitleStream: false,
         SupportsExternalStream: false
@@ -715,6 +716,7 @@ function streamsOf(probe) {
         DisplayTitle: `${String(s.codec_name || '').toUpperCase()} ${layout}`,
         IsDefault: !out.some((x) => x.Type === 'Audio'),
         IsForced: false,
+        IsHearingImpaired: false,
         IsExternal: false,
         IsInterlaced: false,
         IsTextSubtitleStream: false,
@@ -761,6 +763,13 @@ async function probe(r, sessId, isHls) {
 function isWeb(req) {
   const c = String(req.tok?.client || req.authInfo?.client || '').toLowerCase();
   return c.includes('web') || c.includes('media player');
+}
+
+/** Adresse du serveur telle que l'app l'utilise (derriere un proxy : en-tetes X-Forwarded). */
+function origin(req) {
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || `127.0.0.1:${PORT}`).split(',')[0].trim();
+  return `${proto}://${host}`;
 }
 
 /** PlaybackInfo d'une chaine : une source (flux relaye, redirige ou converti en HLS). */
@@ -821,8 +830,11 @@ async function playbackInfo(req, entry, request = {}) {
     Formats: [],
     RequiredHttpHeaders: {},
     TranscodingSubProtocol: 'http',
+    HasSegments: false,
     DefaultAudioStreamIndex: audio ? audio.Index : undefined,
-    Path: direct,
+    // Apps Jellyfin (Android TV) : une source distante (Http) est lue a l'adresse de Path, qui doit
+    // donc etre complete (une adresse relative est prise pour un fichier local). Apps Emby : inchange.
+    Path: req.authInfo?.emby ? direct : origin(req) + direct,
     DirectStreamUrl: direct
   };
   if (info.bitrate) source.Bitrate = info.bitrate;

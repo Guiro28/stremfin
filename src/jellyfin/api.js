@@ -754,15 +754,15 @@ router.all('/Items/:id/PlaybackInfo', async (req, res) => {
   const entry = ids.get(req.params.id);
   if (entry?.kind === 'channel') {
     const body = req.method === 'POST' && req.body && typeof req.body === 'object' ? req.body : {};
-    return res.json(await livetv.playbackInfo(req, entry, body));
+    return res.json(dto.completePlayback(await livetv.playbackInfo(req, entry, body)));
   }
   if (entry?.kind === 'replayprog') {
     const body = req.method === 'POST' && req.body && typeof req.body === 'object' ? req.body : {};
-    return res.json(await livetv.replayPlaybackInfo(req, entry, body));
+    return res.json(dto.completePlayback(await livetv.replayPlaybackInfo(req, entry, body)));
   }
   if (entry?.kind === 'recording') {
     const body = req.method === 'POST' && req.body && typeof req.body === 'object' ? req.body : {};
-    return res.json(livetv.recordingPlaybackInfo(req, entry, body));
+    return res.json(dto.completePlayback(livetv.recordingPlaybackInfo(req, entry, body)));
   }
   const msid = req.body?.MediaSourceId || q.mediasourceid;
   // La requete de l'app (POST) : son profil de lecture (DeviceProfile), la piste audio choisie...
@@ -770,7 +770,7 @@ router.all('/Items/:id/PlaybackInfo', async (req, res) => {
   const request = { ...body };
   if (!Number.isInteger(request.AudioStreamIndex) && q.audiostreamindex !== undefined) request.AudioStreamIndex = parseInt(q.audiostreamindex, 10);
   if (!request.MaxStreamingBitrate && q.maxstreamingbitrate) request.MaxStreamingBitrate = Number(q.maxstreamingbitrate);
-  res.json(await playback.playbackInfo(req.profile, req.tok.token, req.params.id, msid, request));
+  res.json(dto.completePlayback(await playback.playbackInfo(req.profile, req.tok.token, req.params.id, msid, request)));
 });
 
 router.post('/Sessions/Playing', (req, res) => {

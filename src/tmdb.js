@@ -88,7 +88,12 @@ async function slot(fn) {
  * (le resultat est garde par l'appelant). Retient le premier resultat dont le titre (ou le titre
  * original) correspond, a un an pres quand l'annee est connue. null si rien de sur.
  */
-async function searchId(type, title, year, norm) {
+/**
+ * Id TMDB d'un titre par recherche (nom exact, annee a un an pres si connue). Sans annee, plusieurs
+ * titres du meme nom (Serenity 2005 / 2019) : le plus connu seulement s'il l'est nettement plus
+ * (5 fois plus de votes), sinon null et out.ambiguous = true.
+ */
+async function searchId(type, title, year, norm, out = {}) {
   if (!enabled() || !title) return null;
   const mediaType = type === 'series' ? 'tv' : 'movie';
   const params = new URLSearchParams({ language: lang(), query: title, include_adult: 'false' });
@@ -100,13 +105,19 @@ async function searchId(type, title, year, norm) {
     r = await slot(() => getJson(`${API}/search/${mediaType}?${params}&api_key=${apiKey()}`, { timeout: 15000 }));
   }
   const want = norm(title);
-  for (const x of (r?.results || []).slice(0, 8)) {
+  const matches = [];
+  for (const x of (r?.results || []).slice(0, year ? 8 : 20)) {
     const names = [x.title, x.original_title, x.name, x.original_name].filter(Boolean).map(norm);
     if (!names.includes(want)) continue;
     const y = Number(String(x.release_date || x.first_air_date || '').slice(0, 4)) || null;
     if (year && y && Math.abs(y - year) > 1) continue;
-    return x.id;
+    if (year) return x.id;
+    matches.push(x);
   }
+  if (matches.length <= 1) return matches[0]?.id || null;
+  const [a, b] = matches.map((x) => x.vote_count || 0).sort((x, y) => y - x);
+  if (a >= 50 && a >= 5 * b) return matches.find((x) => (x.vote_count || 0) === a).id;
+  out.ambiguous = true;
   return null;
 }
 

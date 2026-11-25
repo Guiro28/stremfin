@@ -48,6 +48,12 @@ db.exec(`
 try {
   db.exec('ALTER TABLE iptv_vod ADD COLUMN checked INTEGER');
 } catch {}
+// Version de la regle de recherche (2 : titres sans annee ambigus refuses). Les titres sans annee
+// associes avant sont reverifies une fois en arriere-plan.
+const RULE = 2;
+try {
+  db.exec('ALTER TABLE iptv_vod ADD COLUMN rule INTEGER');
+} catch {}
 
 const q = {
   del: db.prepare('DELETE FROM iptv_vod WHERE source = ?'),
@@ -162,7 +168,7 @@ function store(sourceId, rows) {
   // Ids TMDB trouves par recherche (et recherches deja faites) : gardes.
   const kept = new Map(
     db
-      .prepare('SELECT kind, id, tmdb, checked FROM iptv_vod WHERE source = ? AND checked IS NOT NULL')
+      .prepare('SELECT kind, id, tmdb, checked, rule FROM iptv_vod WHERE source = ? AND checked IS NOT NULL')
       .all(sourceId)
       .map((r) => [`${r.kind}|${r.id}`, r])
   );
@@ -173,8 +179,8 @@ function store(sourceId, rows) {
       if (k && !r.tmdb) r.tmdb = k.tmdb;
     }
     for (const r of rows) q.put.run(sourceId, r.kind, r.id, r.name, norm(r.name) || r.name.toLowerCase(), r.year, r.tmdb, r.imdb, r.category, r.poster, r.plot, r.ext, r.url, r.series || null, r.season ?? null, r.episode ?? null, r.added);
-    const mark = db.prepare('UPDATE iptv_vod SET checked = ? WHERE source = ? AND kind = ? AND id = ?');
-    for (const [, k] of kept) mark.run(k.checked, sourceId, k.kind, k.id);
+    const mark = db.prepare('UPDATE iptv_vod SET checked = ?, rule = ? WHERE source = ? AND kind = ? AND id = ?');
+    for (const [, k] of kept) mark.run(k.checked, k.rule ?? null, sourceId, k.kind, k.id);
   });
 }
 
@@ -337,7 +343,7 @@ async function meta(type, id) {
   const r = q.one.get(sourceId, kind, xid);
   if (!r) return null;
   // Fiche TMDB quand l'id est connu, ou trouve maintenant (fiche du fournisseur, recherche).
-  if (!r.tmdb && !r.checked) r.tmdb = await findTmdb(require('../iptvSources').byId(sourceId), r).catch(() => null);
+  if (!r.tmdb && (!r.checked || r.checked < 0)) r.tmdb = await findTmdb(require('../iptvSources').byId(sourceId), r).catch(() => null);
   const tm = r.tmdb ? await require('../tmdb').meta(type === 'series' ? 'series' : 'movie', `tmdb:${r.tmdb}`).catch(() => null) : null;
   const m = tm ? { ...tm, poster: tm.poster || r.poster || undefined } : metaOfRow(sourceId, r);
   m.id = id;
@@ -361,7 +367,7 @@ async function meta(type, id) {
 //     desactivees exclues). Le resultat est garde dans l'index (colonne tmdb, et checked).
 
 /** Id TMDB par recherche : le nom nettoye, puis ses deux parties s'il finit par "(titre original)". */
-async function searchTmdb(kind, name, year) {
+async function searchTmdb(kind, name, year, out = {}) {
   const tmdb = require('../tmdb');
   const type = kind === 'series' ? 'series' : 'movie';
   const clean = cleanTitle(name);
@@ -369,8 +375,10 @@ async function searchTmdb(kind, name, year) {
   const m = clean.match(/^(.+?)\s*\(([^()]{2,})\)$/);
   if (m) tries.push(m[1], m[2]);
   for (const t of tries) {
-    const id = await tmdb.searchId(type, t, year, norm);
+    const info = {};
+    const id = await tmdb.searchId(type, t, year, norm, info);
     if (id) return id;
+    if (info.ambiguous) out.ambiguous = true;
   }
   return null;
 }
@@ -401,20 +409,37 @@ function politeBusy(src) {
   return (politeQueues.get(src.id)?.waiting || 0) >= 2;
 }
 
-const setTmdb = db.prepare('UPDATE iptv_vod SET tmdb = ?, checked = ? WHERE source = ? AND kind = ? AND id = ?');
+const setTmdb = db.prepare(`UPDATE iptv_vod SET tmdb = ?, checked = ?, rule = ${RULE} WHERE source = ? AND kind = ? AND id = ?`);
+// checked negatif : titre sans annee au nom ambigu (plusieurs titres TMDB) ; l'id est demande au
+// fournisseur a l'ouverture de sa fiche.
+const ambiguousMark = () => -Date.now();
 
 async function findTmdb(src, row) {
   let id = null;
+  let asked = false;
   // Fiche du fournisseur (id exact) seulement si sa file est libre ; sinon recherche TMDB directe.
-  if (src?.kind === 'xtream' && row.kind === 'movie' && !politeBusy(src)) {
-    const info = await politeCall(src, 'get_vod_info', { vod_id: row.id }, 5e6).catch(() => null);
-    id = String(info?.info?.tmdb_id || info?.info?.tmdb || '').replace(/\D/g, '') || null;
+  if (src?.kind === 'xtream' && !politeBusy(src)) {
+    if (row.kind === 'movie') {
+      const info = await politeCall(src, 'get_vod_info', { vod_id: row.id }, 5e6).catch(() => null);
+      asked = !!info;
+      id = String(info?.info?.tmdb_id || info?.info?.tmdb || '').replace(/\D/g, '') || null;
+    } else if (row.kind === 'series') {
+      const info = await seriesInfo(src, row).catch(() => null);
+      asked = !!info;
+      id = String(info?.tmdb || '').replace(/\D/g, '') || null;
+    }
   }
+  let checked = Date.now();
   if (!id) {
-    const found = await searchTmdb(row.kind, row.name, row.year);
+    // Deja reconnu ambigu et fournisseur pas interroge (file chargee) : rien de plus a chercher.
+    if (row.checked < 0 && !asked) return null;
+    const out = {};
+    const found = await searchTmdb(row.kind, row.name, row.year, out);
     id = found ? String(found) : null;
+    // Ambigu : redemande au fournisseur a la prochaine ouverture, sauf s'il vient de repondre.
+    if (!id && out.ambiguous && !asked) checked = ambiguousMark();
   }
-  setTmdb.run(id, Date.now(), row.source || src?.id, row.kind, row.id);
+  setTmdb.run(id, checked, row.source || src?.id, row.kind, row.id);
   return id;
 }
 
@@ -439,19 +464,45 @@ async function resolveSource(src) {
         if (!require('../iptvSources').byId(src.id)) return;
         // Recherche TMDB seulement (la fiche du fournisseur, un appel par film, est gardee pour
         // l'ouverture d'une fiche) ; environ 8 par seconde.
-        const id = await searchTmdb(kind, r.name, r.year).catch(() => undefined);
+        const out = {};
+        const id = await searchTmdb(kind, r.name, r.year, out).catch(() => undefined);
         if (id === undefined) {
           await new Promise((res) => setTimeout(res, 5000));
           continue;
         }
-        setTmdb.run(id ? String(id) : null, Date.now(), src.id, kind, r.id);
+        setTmdb.run(id ? String(id) : null, !id && out.ambiguous ? ambiguousMark() : Date.now(), src.id, kind, r.id);
         done++;
         if (id) found++;
         if (done % 1000 === 0) log(`${src.name} : ids TMDB, ${done} titre(s) cherché(s), ${found} trouvé(s)`);
         await new Promise((res) => setTimeout(res, 120));
       }
     }
-    if (done) {
+    // Titres sans annee associes avec l'ancienne regle : meme resultat garde, sinon (homonymes)
+    // l'id est retire et demande au fournisseur a l'ouverture de la fiche.
+    let redone = 0;
+    let changed = 0;
+    for (const kind of ['movie', 'series']) {
+      const rows = db
+        .prepare('SELECT kind, id, name, tmdb FROM iptv_vod WHERE source = ? AND kind = ? AND year IS NULL AND tmdb IS NOT NULL AND checked > 0 AND COALESCE(rule, 0) < ?')
+        .all(src.id, kind, RULE);
+      for (const r of rows) {
+        if (!require('../iptvSources').byId(src.id)) return;
+        const id = await searchTmdb(kind, r.name, null).catch(() => undefined);
+        if (id === undefined) {
+          await new Promise((res) => setTimeout(res, 5000));
+          continue;
+        }
+        if (String(id) === String(r.tmdb)) db.prepare(`UPDATE iptv_vod SET rule = ${RULE} WHERE source = ? AND kind = ? AND id = ?`).run(src.id, kind, r.id);
+        else {
+          setTmdb.run(null, ambiguousMark(), src.id, kind, r.id);
+          changed++;
+        }
+        redone++;
+        await new Promise((res) => setTimeout(res, 120));
+      }
+    }
+    if (redone) log(`${src.name} : ids TMDB des titres sans année revérifiés, ${redone} titre(s), ${changed} retiré(s) (homonymes)`);
+    if (done || changed) {
       log(`${src.name} : ids TMDB, ${done} titre(s) cherché(s), ${found} trouvé(s) (${Math.round((Date.now() - t0) / 60e3)} min)`);
       require('../catalog').invalidate(`${PREFIX}${src.id}|`);
     }
@@ -462,6 +513,14 @@ async function resolveSource(src) {
 
 // ---- Episodes d'une serie -----------------------------------------------------------------
 
+/** Fiche Xtream d'une serie (get_series_info, gardee 6 h) : episodes et id TMDB s'il le donne. */
+function seriesInfo(src, row) {
+  return cache.cached(`iptv-series2|${src.id}|${row.id}`, 6 * 3600e3, async () => {
+    const r = await politeCall(src, 'get_series_info', { series_id: row.id }, 20e6);
+    return { episodes: r?.episodes || {}, tmdb: r?.info?.tmdb || r?.info?.tmdb_id || null };
+  });
+}
+
 /** Episodes d'une serie : get_series_info (Xtream, garde 6 h) ou lignes "episode" (M3U). */
 async function seriesEpisodes(src, row) {
   if (!src) return [];
@@ -471,10 +530,7 @@ async function seriesEpisodes(src, row) {
       .all(src.id, 'episode', row.id)
       .map((e) => ({ season: e.season, episode: e.episode, title: null, url: e.url, ext: e.ext }));
   }
-  const info = await cache.cached(`iptv-series|${src.id}|${row.id}`, 6 * 3600e3, async () => {
-    const r = await politeCall(src, 'get_series_info', { series_id: row.id }, 20e6);
-    return { episodes: r?.episodes || {} };
-  });
+  const info = await seriesInfo(src, row);
   const out = [];
   for (const [season, list] of Object.entries(info.episodes || {})) {
     for (const e of xtream.list(list)) {
